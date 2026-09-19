@@ -42,6 +42,11 @@ func TestClientOptions(t *testing.T) {
 		t.Fatalf("timeout = %v, want 3s", o.timeout)
 	}
 
+	WithClientCallTimeout(2 * time.Second)(&o)
+	if o.callTimeout != 2*time.Second {
+		t.Fatalf("call timeout = %v, want 2s", o.callTimeout)
+	}
+
 	WithClientKeepalive(keepalive.ClientParameters{Time: time.Minute})(&o)
 	if len(o.dialOptions) != 3 {
 		t.Fatalf("WithClientKeepalive did not append")

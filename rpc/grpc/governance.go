@@ -85,7 +85,8 @@ func GovernanceUnaryServerInterceptor(rules *governance.RuleSet, opts ...Governa
 			})
 			return resp, grpcGovernanceError(err)
 		}
-		return handler(ctx, req)
+		resp, err := handler(ctx, req)
+		return resp, grpcContextError(err)
 	}
 }
 
@@ -152,7 +153,7 @@ func GovernanceStreamServerInterceptor(rules *governance.RuleSet, opts ...Govern
 			cb := o.breaker(runtimeKey, decision.Policy.Breaker)
 			return grpcGovernanceError(cb.Do(ctx, call))
 		}
-		return call()
+		return grpcContextError(call())
 	}
 }
 
@@ -176,16 +177,35 @@ func GovernanceStreamClientInterceptor(rules *governance.RuleSet, opts ...Govern
 		ctx = applyOutgoingMetadata(ctx, canaryMetadata(decision.Policy.Canary, request))
 		ctx = applyOutgoingMetadata(ctx, decision.Policy.Metadata)
 		ctx, cancel := withPolicyTimeout(ctx, decision.Policy.Timeout)
+		streamOwnsCleanup := false
+		defer func() {
+			if !streamOwnsCleanup {
+				cancel()
+				releaseConcurrency()
+			}
+		}()
 
+		var settleBreaker func(error)
 		call := func() (stdgrpc.ClientStream, error) {
 			if decision.Policy.Breaker.Enabled {
 				cb := o.breaker(runtimeKey, decision.Policy.Breaker)
-				var stream stdgrpc.ClientStream
-				err := cb.Do(ctx, func() error {
-					var err error
-					stream, err = streamer(ctx, desc, cc, method, callOpts...)
-					return err
-				})
+				settle, err := cb.Begin(ctx)
+				if err != nil {
+					return nil, err
+				}
+				settled := false
+				defer func() {
+					if !settled {
+						settle(errors.New("stream creation panicked"))
+					}
+				}()
+				stream, err := streamer(ctx, desc, cc, method, callOpts...)
+				settled = true
+				if err != nil {
+					settle(err)
+					return nil, err
+				}
+				settleBreaker = settle
 				return stream, err
 			}
 			return streamer(ctx, desc, cc, method, callOpts...)
@@ -202,12 +222,11 @@ func GovernanceStreamClientInterceptor(rules *governance.RuleSet, opts ...Govern
 			stream, err = call()
 		}
 		if err != nil {
-			cancel()
-			releaseConcurrency()
 			return nil, grpcGovernanceError(err)
 		}
-		wrapped := &governanceClientStream{ClientStream: stream, cancel: cancel, release: releaseConcurrency, serverStreams: desc.ServerStreams}
-		context.AfterFunc(ctx, wrapped.finish)
+		wrapped := &governanceClientStream{ClientStream: stream, cancel: cancel, release: releaseConcurrency, settleBreaker: settleBreaker, serverStreams: desc.ServerStreams}
+		streamOwnsCleanup = true
+		context.AfterFunc(ctx, func() { wrapped.finish(ctx.Err()) })
 		return wrapped, nil
 	}
 }
@@ -223,12 +242,16 @@ type governanceClientStream struct {
 	stdgrpc.ClientStream
 	cancel        context.CancelFunc
 	release       func()
+	settleBreaker func(error)
 	once          sync.Once
 	serverStreams bool
 }
 
-func (s *governanceClientStream) finish() {
+func (s *governanceClientStream) finish(err error) {
 	s.once.Do(func() {
+		if s.settleBreaker != nil {
+			s.settleBreaker(err)
+		}
 		if s.release != nil {
 			s.release()
 		}
@@ -237,13 +260,17 @@ func (s *governanceClientStream) finish() {
 }
 
 func (s *governanceClientStream) CloseSend() error {
-	return s.ClientStream.CloseSend()
+	err := s.ClientStream.CloseSend()
+	if err != nil {
+		s.finish(err)
+	}
+	return err
 }
 
 func (s *governanceClientStream) Header() (metadata.MD, error) {
 	md, err := s.ClientStream.Header()
 	if err != nil {
-		s.finish()
+		s.finish(err)
 	}
 	return md, err
 }
@@ -251,7 +278,7 @@ func (s *governanceClientStream) Header() (metadata.MD, error) {
 func (s *governanceClientStream) RecvMsg(m any) error {
 	err := s.ClientStream.RecvMsg(m)
 	if err != nil || !s.serverStreams {
-		s.finish()
+		s.finish(err)
 	}
 	return err
 }
@@ -260,7 +287,7 @@ func (s *governanceClientStream) SendMsg(m any) error {
 	err := s.ClientStream.SendMsg(m)
 	// Send EOF requires RecvMsg to obtain the final response and status.
 	if err != nil && !errors.Is(err, io.EOF) {
-		s.finish()
+		s.finish(err)
 	}
 	return err
 }
@@ -315,19 +342,38 @@ func (b *governanceBreaker) Do(ctx context.Context, fn func() error) error {
 	if b.simple != nil {
 		return b.simple.DoWithAcceptable(ctx, fn, grpcOutcomeAcceptable)
 	}
-	if err := ctx.Err(); err != nil {
+	complete, err := b.adaptive.Begin(ctx)
+	if err != nil {
 		return err
 	}
-	if err := b.adaptive.Allow(); err != nil {
-		return err
-	}
-	err := fn()
-	if grpcOutcomeAcceptable(err) {
-		b.adaptive.MarkSuccess()
-	} else {
-		b.adaptive.MarkFailure()
-	}
+	settled := false
+	defer func() {
+		if !settled {
+			complete(false)
+		}
+	}()
+	err = fn()
+	settled = true
+	complete(grpcOutcomeAcceptable(err))
 	return err
+}
+
+func (b *governanceBreaker) Begin(ctx context.Context) (func(error), error) {
+	var (
+		complete func(bool)
+		err      error
+	)
+	if b.simple != nil {
+		complete, err = b.simple.Begin(ctx)
+	} else {
+		complete, err = b.adaptive.Begin(ctx)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return func(outcome error) {
+		complete(errors.Is(outcome, io.EOF) || grpcOutcomeAcceptable(outcome))
+	}, nil
 }
 
 func (o *governanceOptions) breaker(key string, policy governance.BreakerPolicy) *governanceBreaker {
@@ -512,4 +558,11 @@ func grpcGovernanceError(err error) error {
 		return coreerrors.GRPCError(coreerrors.New(coreerrors.CodeUnavailable, err.Error()))
 	}
 	return coreerrors.GRPCError(err)
+}
+
+func grpcContextError(err error) error {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return coreerrors.GRPCError(err)
+	}
+	return err
 }

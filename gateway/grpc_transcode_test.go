@@ -37,8 +37,9 @@ import (
 
 type transcodeHealthServer struct {
 	healthpb.UnimplementedHealthServer
-	watchStarted  chan struct{}
-	watchCanceled chan struct{}
+	watchStarted     chan struct{}
+	watchCanceled    chan struct{}
+	watchUnavailable *atomic.Int64
 }
 
 type transcodeUploadService interface {
@@ -180,6 +181,19 @@ func (s transcodeHealthServer) Watch(req *healthpb.HealthCheckRequest, stream he
 	switch req.Service {
 	case "missing":
 		return status.Error(codes.NotFound, "service not found")
+	case "unavailable-before-headers":
+		if s.watchUnavailable != nil {
+			s.watchUnavailable.Add(1)
+		}
+		return status.Error(codes.Unavailable, "watch unavailable before headers")
+	case "unavailable-after-headers":
+		if err := stream.SendHeader(grpcmetadata.Pairs("x-result", "watching")); err != nil {
+			return err
+		}
+		if s.watchUnavailable != nil {
+			s.watchUnavailable.Add(1)
+		}
+		return status.Error(codes.Unavailable, "watch unavailable after headers")
 	case "cancel", "deadline":
 		if err := stream.SendHeader(grpcmetadata.Pairs("x-result", "watching")); err != nil {
 			return err
@@ -199,6 +213,18 @@ func (s transcodeHealthServer) Watch(req *healthpb.HealthCheckRequest, stream he
 	if err := stream.SendHeader(grpcmetadata.Pairs("x-result", "watching", "secret-bin", "private")); err != nil {
 		return err
 	}
+	if req.Service == "mapping-fail-after-message" {
+		if err := stream.Send(&healthpb.HealthCheckResponse{}); err != nil {
+			return err
+		}
+		return stream.Send(&healthpb.HealthCheckResponse{Status: healthpb.HealthCheckResponse_SERVING})
+	}
+	if req.Service == "mapping-limit-after-message" {
+		if err := stream.Send(&healthpb.HealthCheckResponse{Status: healthpb.HealthCheckResponse_SERVING}); err != nil {
+			return err
+		}
+		return stream.Send(&healthpb.HealthCheckResponse{})
+	}
 	if err := stream.Send(&healthpb.HealthCheckResponse{Status: healthpb.HealthCheckResponse_SERVING}); err != nil {
 		return err
 	}
@@ -217,7 +243,8 @@ func TestGatewayNativeGRPCTranscoding(t *testing.T) {
 	server := stdgrpc.NewServer()
 	watchStarted := make(chan struct{})
 	watchCanceled := make(chan struct{})
-	healthpb.RegisterHealthServer(server, transcodeHealthServer{watchStarted: watchStarted, watchCanceled: watchCanceled})
+	watchUnavailable := new(atomic.Int64)
+	healthpb.RegisterHealthServer(server, transcodeHealthServer{watchStarted: watchStarted, watchCanceled: watchCanceled, watchUnavailable: watchUnavailable})
 	uploadReceived := make(chan string, 8)
 	uploadCanceled := make(chan struct{})
 	chatCanceled := make(chan struct{})
@@ -761,6 +788,188 @@ func TestGatewayNativeGRPCTranscoding(t *testing.T) {
 			t.Fatalf("status=%d body=%s, want mapped NotFound", rec.Code, rec.Body.String())
 		}
 	})
+	t.Run("server stream first receive failure is not retried", func(t *testing.T) {
+		for _, service := range []string{"unavailable-before-headers", "unavailable-after-headers"} {
+			t.Run(service, func(t *testing.T) {
+				retryRoute := route
+				retryRoute.Name = "native-stream-no-retry-" + service
+				retryRoute.PathPrefix = "/native-stream-no-retry"
+				retryRoute.Retry = RetryPolicy{Attempts: 3, Methods: []string{http.MethodPost}}
+				retryGateway, err := New(
+					[]Route{retryRoute},
+					WithDescriptors(descriptor),
+					WithTranscoderFactory(factory),
+					WithPassiveHealth(PassiveHealthConfig{Enabled: true, FailureThreshold: 1}),
+				)
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = retryGateway.Close() })
+				beforeCalls := watchUnavailable.Load()
+				beforeBreaker := retryGateway.breakerFor(retryRoute).Snapshot()
+				req := httptest.NewRequest(http.MethodPost, "/native-stream-no-retry/Watch", strings.NewReader(`{"service":"`+service+`"}`))
+				rec := httptest.NewRecorder()
+				retryGateway.ServeHTTP(rec, req)
+				if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "watch unavailable") {
+					t.Fatalf("status=%d body=%s, want mapped Unavailable", rec.Code, rec.Body.String())
+				}
+				if calls := watchUnavailable.Load() - beforeCalls; calls != 1 {
+					t.Fatalf("server stream calls = %d, want exactly one after stream creation", calls)
+				}
+				afterBreaker := retryGateway.breakerFor(retryRoute).Snapshot()
+				if afterBreaker.Failures != beforeBreaker.Failures+1 {
+					t.Fatalf("first receive failure breaker: before=%+v after=%+v", beforeBreaker, afterBreaker)
+				}
+				if !hasEjectedEndpoint(retryGateway.passive.Snapshot(), retryRoute.Targets[0]) {
+					t.Fatalf("passive health did not record first receive failure: %+v", retryGateway.passive.Snapshot())
+				}
+			})
+		}
+	})
+	t.Run("server stream maps first response before committing SSE", func(t *testing.T) {
+		mappingRoute := route
+		mappingRoute.Name = "native-stream-first-mapping"
+		mappingRoute.PathPrefix = "/native-stream-first-mapping"
+		profile := TranscodeProfile{
+			Descriptor:       descriptor.Name,
+			DescriptorMethod: "Watch",
+			ResponseMappings: []TranscodePayloadMapping{
+				{Source: "body.status", Target: "data"},
+				{Source: "body.status", Target: "data.value"},
+			},
+		}
+		mappingGateway, err := New(
+			[]Route{mappingRoute},
+			WithDescriptors(descriptor),
+			WithTranscodeProfiles(profile),
+			WithTranscoderFactory(factory),
+			WithPassiveHealth(PassiveHealthConfig{Enabled: true, FailureThreshold: 1}),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = mappingGateway.Close() })
+		beforeBreaker := mappingGateway.breakerFor(mappingRoute).Snapshot()
+		beforePassive := mappingGateway.passive.Snapshot()
+		req := httptest.NewRequest(http.MethodPost, "/native-stream-first-mapping/Watch", strings.NewReader(`{"service":"ok"}`))
+		rec := httptest.NewRecorder()
+		mappingGateway.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest || strings.Contains(rec.Body.String(), "event: ") || !strings.Contains(rec.Body.String(), "conflicts with existing scalar") {
+			t.Fatalf("status=%d body=%s, want pre-SSE mapping error", rec.Code, rec.Body.String())
+		}
+		afterBreaker := mappingGateway.breakerFor(mappingRoute).Snapshot()
+		if afterBreaker.Requests != beforeBreaker.Requests+1 || afterBreaker.Success != beforeBreaker.Success+1 {
+			t.Fatalf("local first-frame mapping error changed upstream health: before=%+v after=%+v", beforeBreaker, afterBreaker)
+		}
+		if after := mappingGateway.passive.Snapshot(); len(after) != 1 || after[0].Failures != 0 || after[0].Ejected {
+			t.Fatalf("local first-frame mapping error poisoned passive health: before=%+v after=%+v", beforePassive, after)
+		}
+		runtime := mappingGateway.RuntimeSnapshot()
+		if len(runtime.Routes) != 1 || runtime.Routes[0].TranscodeRuntime.LastErrorStage != "response" {
+			t.Fatalf("first-frame mapping runtime = %+v", runtime.Routes)
+		}
+	})
+	t.Run("server stream records later response mapping errors", func(t *testing.T) {
+		mappingRoute := route
+		mappingRoute.Name = "native-stream-later-mapping"
+		mappingRoute.PathPrefix = "/native-stream-later-mapping"
+		profile := TranscodeProfile{
+			Descriptor:       descriptor.Name,
+			DescriptorMethod: "Watch",
+			ResponseMappings: []TranscodePayloadMapping{
+				{Source: "body.status", Target: "data"},
+				{Source: "body.status", Target: "data.value"},
+			},
+		}
+		mappingGateway, err := New(
+			[]Route{mappingRoute},
+			WithDescriptors(descriptor),
+			WithTranscodeProfiles(profile),
+			WithTranscoderFactory(factory),
+			WithPassiveHealth(PassiveHealthConfig{Enabled: true, FailureThreshold: 1}),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = mappingGateway.Close() })
+		beforeBreaker := mappingGateway.breakerFor(mappingRoute).Snapshot()
+		beforePassive := mappingGateway.passive.Snapshot()
+		req := httptest.NewRequest(http.MethodPost, "/native-stream-later-mapping/Watch", strings.NewReader(`{"service":"mapping-fail-after-message"}`))
+		rec := httptest.NewRecorder()
+		mappingGateway.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "event: message\ndata: {}") || !strings.Contains(rec.Body.String(), "event: error") {
+			t.Fatalf("status=%d body=%s, want message then mapping error", rec.Code, rec.Body.String())
+		}
+		afterBreaker := mappingGateway.breakerFor(mappingRoute).Snapshot()
+		if afterBreaker.Requests != beforeBreaker.Requests+1 || afterBreaker.Success != beforeBreaker.Success+1 {
+			t.Fatalf("local later-frame mapping error changed upstream health: before=%+v after=%+v", beforeBreaker, afterBreaker)
+		}
+		if after := mappingGateway.passive.Snapshot(); len(after) != 1 || after[0].Failures != 0 || after[0].Ejected {
+			t.Fatalf("local later-frame mapping error poisoned passive health: before=%+v after=%+v", beforePassive, after)
+		}
+		runtime := mappingGateway.RuntimeSnapshot()
+		if len(runtime.Routes) != 1 || runtime.Routes[0].TranscodeRuntime.LastErrorStage != "response" || !strings.Contains(runtime.Routes[0].TranscodeRuntime.LastError, "conflicts with existing scalar") {
+			t.Fatalf("later-frame mapping runtime = %+v", runtime.Routes)
+		}
+	})
+	t.Run("server stream rejects an oversized first response before SSE", func(t *testing.T) {
+		limitRoute := route
+		limitRoute.Name = "native-stream-first-limit"
+		limitRoute.PathPrefix = "/native-stream-first-limit"
+		profile := TranscodeProfile{
+			Descriptor:       descriptor.Name,
+			DescriptorMethod: "Watch",
+			ResponseMappings: []TranscodePayloadMapping{{Source: "body.missing", Target: "data", Default: strings.Repeat("a", grpcServerStreamMaxFrameBytes+1)}},
+		}
+		limitGateway, err := New([]Route{limitRoute}, WithDescriptors(descriptor), WithTranscodeProfiles(profile), WithTranscoderFactory(factory), WithPassiveHealth(PassiveHealthConfig{Enabled: true, FailureThreshold: 1}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = limitGateway.Close() })
+		before := limitGateway.breakerFor(limitRoute).Snapshot()
+		req := httptest.NewRequest(http.MethodPost, "/native-stream-first-limit/Watch", strings.NewReader("{\"service\":\"ok\"}"))
+		rec := httptest.NewRecorder()
+		limitGateway.ServeHTTP(rec, req)
+		if rec.Code != http.StatusTooManyRequests || strings.Contains(rec.Body.String(), "event: ") || !strings.Contains(rec.Body.String(), "server stream response exceeds limits") {
+			t.Fatalf("status=%d body=%s, want pre-SSE ResourceExhausted", rec.Code, rec.Body.String())
+		}
+		after := limitGateway.breakerFor(limitRoute).Snapshot()
+		if after.Requests != before.Requests+1 || after.Success != before.Success+1 {
+			t.Fatalf("local first-response limit changed upstream health: before=%+v after=%+v", before, after)
+		}
+		if health := limitGateway.passive.Snapshot(); len(health) != 1 || health[0].Failures != 0 || health[0].Ejected {
+			t.Fatalf("local first-response limit poisoned passive health: %+v", health)
+		}
+	})
+	t.Run("server stream rejects an oversized later response as SSE error", func(t *testing.T) {
+		limitRoute := route
+		limitRoute.Name = "native-stream-later-limit"
+		limitRoute.PathPrefix = "/native-stream-later-limit"
+		profile := TranscodeProfile{
+			Descriptor:       descriptor.Name,
+			DescriptorMethod: "Watch",
+			ResponseMappings: []TranscodePayloadMapping{{Source: "body.status", Target: "data", Default: strings.Repeat("a", grpcServerStreamMaxFrameBytes+1)}},
+		}
+		limitGateway, err := New([]Route{limitRoute}, WithDescriptors(descriptor), WithTranscodeProfiles(profile), WithTranscoderFactory(factory), WithPassiveHealth(PassiveHealthConfig{Enabled: true, FailureThreshold: 1}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = limitGateway.Close() })
+		before := limitGateway.breakerFor(limitRoute).Snapshot()
+		req := httptest.NewRequest(http.MethodPost, "/native-stream-later-limit/Watch", strings.NewReader("{\"service\":\"mapping-limit-after-message\"}"))
+		rec := httptest.NewRecorder()
+		limitGateway.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "event: message") || !strings.Contains(rec.Body.String(), "resource_exhausted") {
+			t.Fatalf("status=%d body=%s, want message then ResourceExhausted SSE error", rec.Code, rec.Body.String())
+		}
+		after := limitGateway.breakerFor(limitRoute).Snapshot()
+		if after.Requests != before.Requests+1 || after.Success != before.Success+1 {
+			t.Fatalf("local later-response limit changed upstream health: before=%+v after=%+v", before, after)
+		}
+		if health := limitGateway.passive.Snapshot(); len(health) != 1 || health[0].Failures != 0 || health[0].Ejected {
+			t.Fatalf("local later-response limit poisoned passive health: %+v", health)
+		}
+	})
 	t.Run("server stream errors after a message", func(t *testing.T) {
 		before := g.breakerFor(route).Snapshot()
 		req := httptest.NewRequest(http.MethodPost, "/native/Watch", strings.NewReader(`{"service":"fail-after-message"}`))
@@ -899,6 +1108,24 @@ func TestDecodeNDJSONStreamLimits(t *testing.T) {
 		body := strings.Repeat(frame+"\n", frameCount)
 		assertLimit(t, body, frameCount+1, rpc.CodeResourceExhausted)
 	})
+}
+
+func TestServerStreamLimits(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		limits  serverStreamLimits
+		payload []byte
+	}{
+		{name: "message count", limits: serverStreamLimits{messages: grpcServerStreamMaxMessages}, payload: []byte("{}")},
+		{name: "total payload bytes", limits: serverStreamLimits{bytes: grpcServerStreamMaxBodyBytes - 1}, payload: []byte("{}")},
+		{name: "frame bytes", payload: make([]byte, grpcServerStreamMaxFrameBytes+1)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.limits.accept(tc.payload) {
+				t.Fatalf("accepted payload bytes=%d with limits=%+v", len(tc.payload), tc.limits)
+			}
+		})
+	}
 }
 
 func TestGRPCTranscoderFactoryBoundaries(t *testing.T) {

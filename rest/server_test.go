@@ -430,6 +430,28 @@ func TestProductionResilienceRuntimeMatrix(t *testing.T) {
 	})
 }
 
+func TestRouteSSESkipsTimeoutAndSetsStreamingHeaders(t *testing.T) {
+	s := MustNewServer(Config{DisableDefaultMiddlewares: true})
+	s.AddRoute(Route{Method: http.MethodGet, Path: "/events", Handler: func(ctx *Context) {
+		time.Sleep(5 * time.Millisecond)
+		if err := ctx.SSEJSON(SSEEvent{Event: "ready"}, map[string]string{"status": "ok"}); err != nil {
+			t.Errorf("SSEJSON: %v", err)
+		}
+	}}, WithTimeout(time.Millisecond), WithSSE())
+
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/events", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("SSE route status = %d, want %d; body=%q", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); got != "text/event-stream" {
+		t.Fatalf("SSE content type = %q, want text/event-stream", got)
+	}
+	if got := rec.Body.String(); !strings.Contains(got, "event: ready\n") || !strings.Contains(got, `data: {"status":"ok"}`) {
+		t.Fatalf("SSE body = %q", got)
+	}
+}
+
 func hasRuntimeMiddlewareLayer(layers []coreruntime.MiddlewareLayer, name string) bool {
 	for _, layer := range layers {
 		if layer.Name == name {

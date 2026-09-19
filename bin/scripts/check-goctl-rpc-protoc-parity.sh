@@ -14,9 +14,10 @@ missing = []
 required_surfaces = {
     "rpc-protoc-include-path": "implemented",
     "rpc-protoc-go-options": "implemented",
-    "rpc-protoc-multiple": "implemented-for-gofly-plugin",
-    "rpc-protoc-client": "implemented-for-gofly-plugin",
-    "rpc-protoc-name-from-filename": "implemented-for-gofly-plugin",
+    "rpc-protoc-zrpc-output": "implemented-scaffold",
+    "rpc-protoc-multiple": "implemented-scaffold",
+    "rpc-protoc-client": "implemented-scaffold",
+    "rpc-protoc-name-from-filename": "implemented-scaffold",
     "rpc-protoc-external-plugin": "implemented-explicit-opt-in",
 }
 required_flags = {
@@ -24,6 +25,9 @@ required_flags = {
     "I",
     "go_opt",
     "go-grpc_opt",
+    "zrpc_out",
+    "module",
+    "style",
     "multiple",
     "client",
     "name-from-filename",
@@ -32,7 +36,7 @@ required_flags = {
 required_diff_categories = {
     "same-contract",
     "compatible-flag",
-    "implemented-for-gofly-plugin",
+    "implemented-scaffold",
     "implemented-explicit-opt-in",
     "missing-capability",
     "generation-error",
@@ -79,6 +83,9 @@ protoc_go = read_text(root / "cmd" / "gofly" / "internal" / "generator" / "proto
 protoc_plugin_go = read_text(root / "cmd" / "gofly" / "internal" / "generator" / "protoc_plugin.go")
 command_tests = read_text(root / "cmd" / "gofly" / "internal" / "command" / "idl_test.go")
 generator_tests = read_text(root / "cmd" / "gofly" / "internal" / "generator" / "idl_test.go")
+grpc_scaffold_go = read_text(root / "cmd" / "gofly" / "internal" / "generator" / "grpc_scaffold.go")
+grpc_scaffold_templates = read_text(root / "cmd" / "gofly" / "internal" / "generator" / "grpc_scaffold_templates.go")
+grpc_scaffold_tests = read_text(root / "cmd" / "gofly" / "internal" / "generator" / "grpc_codegen_test.go")
 protoc_plugin_tests = read_text(root / "cmd" / "gofly" / "internal" / "generator" / "protoc_plugin_test.go")
 
 targets = make_target_names(makefile)
@@ -102,9 +109,16 @@ for source in manifest.get("sourceOfTruth") or []:
     require((root / source).exists(), f"sourceOfTruth path missing: {source}")
 
 policy = manifest.get("compatibilityPolicy") or {}
-for key in ("standardProtoc", "goflyPlugin", "standardModeWrapperFlags", "externalPlugin", "timeout"):
+for key in ("standardProtoc", "zrpcScaffold", "zrpcClientMigration", "goflyPlugin", "standardModeWrapperFlags", "externalPlugin", "timeout"):
     require(len(str(policy.get(key) or "").split()) >= 8, f"compatibilityPolicy.{key} must be actionable")
 require("must not alter standard protoc argv" in str(policy.get("standardModeWrapperFlags") or ""), "standardModeWrapperFlags policy must preserve standard argv boundary")
+require("multiple primary proto files" in str(policy.get("zrpcScaffold") or ""), "zrpcScaffold policy must document multi-proto assembly")
+require("preserves existing business logic files" in str(policy.get("zrpcScaffold") or ""), "zrpcScaffold policy must document incremental regeneration")
+require("discovery alias" in str(policy.get("zrpcScaffold") or ""), "zrpcScaffold policy must document descriptor service discovery aliases")
+require("native zRPC etcd key layout" in str(policy.get("zrpcClientMigration") or ""), "zrpcClientMigration must document the zRPC etcd resolver bridge")
+require("top-level Etcd block" in str(policy.get("zrpcClientMigration") or ""), "zrpcClientMigration must document server-side zRPC etcd registration")
+require("closes all owned resources" in str(policy.get("zrpcClientMigration") or ""), "zrpcClientMigration must document resolver ownership")
+require("credentials require TLS" in str(policy.get("zrpcClientMigration") or ""), "zrpcClientMigration must preserve fail-closed credentials")
 require("--allow-external-plugin" in str(policy.get("externalPlugin") or ""), "externalPlugin policy must require explicit opt-in")
 for rejected in ("flag-like values", "URL schemes", "whitespace", "control characters", "shell metacharacters"):
     require(rejected in str(policy.get("externalPlugin") or ""), f"externalPlugin policy must reject {rejected}")
@@ -114,7 +128,7 @@ surface_map = {item.get("id"): item for item in surfaces}
 require(set(surface_map) == set(required_surfaces), f"rpcSurfaces drifted: missing={sorted(set(required_surfaces) - set(surface_map))} extra={sorted(set(surface_map) - set(required_surfaces))}")
 
 all_flags = set()
-test_haystack = command_tests + "\n" + generator_tests + "\n" + protoc_plugin_tests
+test_haystack = command_tests + "\n" + generator_tests + "\n" + grpc_scaffold_tests + "\n" + protoc_plugin_tests
 for surface_id, status in required_surfaces.items():
     item = surface_map.get(surface_id) or {}
     require(item.get("status") == status, f"{surface_id}: status must be {status}")
@@ -165,6 +179,9 @@ for needle in (
     'fs.Bool("client"',
     'fs.Bool("c"',
     'fs.Bool("name-from-filename"',
+    'fs.String("zrpc_out"',
+    'zrpcScaffold := *zrpcOut != "" && !useGoflyPlugin',
+    "generator.GenerateGRPCScaffold",
     'fs.String("plugin"',
     'fs.Bool("allow-external-plugin"',
     "validateExternalProtocPlugins",
@@ -216,6 +233,31 @@ for needle in (
 	require(needle in protoc_plugin_go or needle in rpc_protoc_command, f"protoc plugin missing {needle!r}")
 
 for needle in (
+    "ProtoFiles      []string",
+    "NameFromPackage bool",
+    "NoClient        bool",
+    "Multiple        bool",
+    "RequireMultiple bool",
+    "inferGRPCScaffoldModule",
+    "proto inputs define multiple services; rerun with --multiple",
+    "internal/api/rpc/register.gen.go",
+    "func DiscoveryAliases() []string",
+    "flygrpc.WithDiscoveryAliases(apprpc.DiscoveryAliases()...)",
+    "TestGenerateGRPCScaffoldMultipleProtoProject",
+):
+    require(needle in grpc_scaffold_go or needle in grpc_scaffold_templates or needle in grpc_scaffold_tests, f"zRPC scaffold generator missing {needle!r}")
+
+for needle in (
+    "type RPCClientConfig struct",
+    "func (c RPCClientConfig) TargetAndOptions",
+    "flygrpc.WithStaticResolver",
+    "flygrpc.WithAppTokenCredentials",
+    "rpc client app/token credentials require TLS",
+    "TestRPCClientConfigMigration",
+):
+    require(needle in grpc_scaffold_templates, f"zRPC client migration adapter missing {needle!r}")
+
+for needle in (
     "external-proto-imports",
     "multiple-services",
     "client-wrapper",
@@ -225,6 +267,9 @@ for needle in (
 
 for needle in (
     "TestExecuteRPCProtocAcceptsGoctlPositionalAndSrcAlias",
+    "TestExecuteRPCProtocGeneratesZRPCScaffold",
+    "TestExecuteRPCProtocZRPCScaffoldOptionsAndBoundaries",
+    "TestGenerateGRPCScaffoldGoctlOptions",
     "TestExecuteRPCProtocAcceptsGoctlReservedFlags",
     "TestExecuteRPCProtocGoflyPluginArgs",
     "TestExecuteRPCProtocGoflyPluginNoClientMultipleArgs",
@@ -259,6 +304,8 @@ require(len(criteria) >= 3, "nextPromotionCriteria must include at least three i
 require(any("--allow-external-plugin" in item for item in criteria), "promotion criteria must mention explicit external plugin opt-in")
 require(any("flag-like values" in item and "shell metacharacters" in item for item in criteria), "promotion criteria must mention unsafe plugin value rejection")
 require(any("--gofly_out" in item and "--gofly_opt" in item for item in criteria), "promotion criteria must preserve standard protoc no-gofly argv boundary")
+require(any("multi-proto" in item and "configuration/client migration" in item for item in criteria), "promotion criteria must preserve zRPC migration regression coverage")
+require(any("discovery aliases" in item for item in criteria), "promotion criteria must preserve descriptor service discovery aliases")
 require(any("full goctl parity" in item for item in criteria), "promotion criteria must guard full goctl parity claims")
 
 if missing:

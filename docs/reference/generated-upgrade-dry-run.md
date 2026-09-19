@@ -23,6 +23,15 @@ blocking gate.
 Every diff report includes `rollbackNote` and uses
 `gofly.generated_version_compat_report.v1` when fixture replay is involved.
 
+The gate also runs executable old-to-current upgrade replays for the
+gofly-native API and RPC layouts. These replays verify that adopter-owned
+business logic and configuration values survive regeneration, newly declared
+API and RPC methods are added, missing RPC configuration defaults are merged
+without replacing unknown extensions, file permissions are preserved, and the
+upgraded temporary projects still pass `go test ./...`. They explicitly reject
+the goctl `internal/logic`, `internal/server`, `internal/types`, and `pkg/client`
+layout as default generated output.
+
 ## Goctl-compatible generator matrix
 
 Evidence is stored in `docs/reference/goctl-generator-compatibility.json` and

@@ -2837,11 +2837,12 @@ func TestGenerateRESTFromAPIGoZeroCompatibleServiceContext(t *testing.T) {
 		path string
 		want []string
 	}{
-		{path: filepath.Join(dir, "internal", "types", "types.go"), want: []string{"package types", "type LoginRequest struct", "type LoginResponse struct"}},
-		{path: filepath.Join(dir, "internal", "svc", "servicecontext.go"), want: []string{"package svc", `"github.com/imajinyun/gofly/core/auth"`, `"github.com/imajinyun/gofly/rest"`, "Middlewares   map[string]rest.Middleware", "JWTValidators map[string]auth.Validator", "func NewServiceContext() *ServiceContext"}},
-		{path: filepath.Join(dir, "internal", "app", "admin", "loginlogic.go"), want: []string{"package adminapp", `"example.com/shop/internal/svc"`, `"example.com/shop/internal/types"`, "func NewLoginLogic(ctx context.Context, stx *svc.ServiceContext) *LoginLogic", "func (l *LoginLogic) Login(req *types.LoginRequest) (*types.LoginResponse, error)"}},
-		{path: filepath.Join(dir, "internal", "api", "http", "admin", "loginhandler.go"), want: []string{"package admin", `adminapp "example.com/shop/internal/app/admin"`, `"example.com/shop/internal/svc"`, `"example.com/shop/internal/types"`, "func LoginHandler(stx *svc.ServiceContext) rest.HandlerFunc", "ctx.BindRequest(&req)", "adminapp.NewLoginLogic(ctx.Request.Context(), stx).Login(&req)"}},
-		{path: filepath.Join(dir, "internal", "api", "http", "routes.go"), want: []string{"package api", `admin "example.com/shop/internal/api/http/admin"`, "func RegisterHandlers(server *rest.Server, stx *svc.ServiceContext)", `Path: "/login"`, `rest.WithPrefix("/api/v1")`, `stx.JWTValidators["Auth"]`, "rest.WithAuth(validator)", `stx.Middlewares["audit"]`, `stx.Middlewares["trace"]`, "rest.WithMiddlewares(middlewares...)", "admin.LoginHandler(stx)"}},
+		{path: filepath.Join(dir, "internal", "app", "model", "types.go"), want: []string{"package model", "type LoginRequest struct", "type LoginResponse struct"}},
+		{path: filepath.Join(dir, "internal", "config", "api_runtime.gen.go"), want: []string{"func LoadAPIRuntime", `generatedRequiredJWT = []string{"Auth"}`, `validators["Auth"] = auth.JWTValidator`, `JWT validator %q requires %s.AccessSecret`}},
+		{path: filepath.Join(dir, "internal", "svc", "service_context.go"), want: []string{"package svc", `"github.com/imajinyun/gofly/core/auth"`, `"github.com/imajinyun/gofly/rest"`, "Config        config.Config", "Middlewares   map[string]rest.Middleware", "JWTValidators map[string]auth.Validator", "func NewServiceContext(c config.Config) *ServiceContext"}},
+		{path: filepath.Join(dir, "internal", "app", "admin", "login.go"), want: []string{"package adminapp", `"example.com/shop/internal/svc"`, `appmodel "example.com/shop/internal/app/model"`, "func NewLoginLogic(ctx context.Context, stx *svc.ServiceContext) *LoginLogic", "func (l *LoginLogic) Login(req *appmodel.LoginRequest) (*appmodel.LoginResponse, error)"}},
+		{path: filepath.Join(dir, "internal", "api", "http", "v1", "admin", "login.go"), want: []string{"package admin", `adminapp "example.com/shop/internal/app/admin"`, `"example.com/shop/internal/svc"`, `appmodel "example.com/shop/internal/app/model"`, "func LoginHandler(stx *svc.ServiceContext) rest.HandlerFunc", "ctx.BindGoZeroRequest(&req)", "adminapp.NewLoginLogic(ctx.Request.Context(), stx).Login(&req)"}},
+		{path: filepath.Join(dir, "internal", "routes", "routes.go"), want: []string{"package routes", `admin "example.com/shop/internal/api/http/v1/admin"`, "func RegisterRoutes(server *rest.Server, stx *svc.ServiceContext)", `Path: "/login"`, `rest.WithPrefix("/api/v1")`, `rest.WithAuth(requiredJWTValidator(stx, "Auth"))`, `stx.Middlewares["audit"]`, `stx.Middlewares["trace"]`, "rest.WithMiddlewares(middlewares...)", "admin.LoginHandler(stx)"}},
 	}
 	for _, check := range checks {
 		data, err := os.ReadFile(check.path)
@@ -2854,6 +2855,641 @@ func TestGenerateRESTFromAPIGoZeroCompatibleServiceContext(t *testing.T) {
 			}
 		}
 	}
+	for _, rel := range []string{"internal/types", "internal/logic", "internal/handler", "internal/svc/servicecontext.go"} {
+		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err == nil {
+			t.Fatalf("generated API unexpectedly uses goctl layout path %s", rel)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("inspect forbidden generated API path %s: %v", rel, err)
+		}
+	}
+}
+
+func TestGenerateRESTFromAPIGoZeroCompatibleCarriesResponseMetadata(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/orders\n\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	apiPath := filepath.Join(dir, "orders.api")
+	const api = `type CreateOrderRequest {
+  Name string ` + "`json:\"name\"`" + `
+}
+type CreateOrderResponse {
+  ID string
+}
+service orders-api {
+  @doc(respCode: 201 responses: "201-Created<br>400-Invalid request<br>409-Already exists")
+  @handler createOrder
+  post /orders (CreateOrderRequest) returns (CreateOrderResponse)
+}`
+	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := GenerateRESTFromAPI(APIOptions{
+		APIFile: apiPath,
+		Dir:     dir,
+		Profile: string(ProfileGoZeroCompatible),
+	}); err != nil {
+		t.Fatalf("GenerateRESTFromAPI gozero-compatible: %v", err)
+	}
+
+	routes, err := os.ReadFile(filepath.Join(dir, "internal", "routes", "routes.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`responsesCreateOrder["201"] = rest.JSONResponse("Created", rest.StructSchema(appmodel.CreateOrderResponse{}))`,
+		`responsesCreateOrder["400"] = rest.Response{Description: "Invalid request"}`,
+		`responsesCreateOrder["409"] = rest.Response{Description: "Already exists"}`,
+		`Responses: responsesCreateOrder`,
+	} {
+		if !strings.Contains(string(routes), want) {
+			t.Fatalf("generated routes missing %q:\n%s", want, routes)
+		}
+	}
+	handler, err := os.ReadFile(filepath.Join(dir, "internal", "api", "http", "v1", "orders", "createorder.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(handler), "ctx.JSON(http.StatusOK, resp)") {
+		t.Fatalf("@doc(respCode) must not change goctl-compatible handler status:\n%s", handler)
+	}
+}
+
+func TestGenerateRESTFromAPIRejectsInvalidGoZeroMetadata(t *testing.T) {
+	tests := []struct {
+		name    string
+		field   string
+		doc     string
+		wantErr string
+	}{
+		{name: "conditional optional unsupported", field: `Name string ` + "`json:\"name,optional=Other\"`", wantErr: "conditional optional is not supported"},
+		{name: "invalid range", field: `Age int ` + "`json:\"age,range=(2:2]\"`", wantErr: `invalid range "(2:2]"`},
+		{name: "empty options", field: `State string ` + "`json:\"state,options=\"`", wantErr: "options value is empty"},
+		{name: "invalid response code", field: `Name string ` + "`json:\"name\"`", doc: "@doc(respCode: 700)\n  ", wantErr: `invalid response status code "700"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			apiPath := filepath.Join(dir, "invalid.api")
+			api := "type Request {\n  " + tt.field + "\n}\n" +
+				"type Response {\n  OK bool\n}\n" +
+				"service invalid-api {\n  " + tt.doc + "@handler create\n  post /items (Request) returns (Response)\n}\n"
+			if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			err := GenerateRESTFromAPI(APIOptions{APIFile: apiPath, Dir: dir, Profile: string(ProfileGoZeroCompatible)})
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("GenerateRESTFromAPI error = %v, want %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestGenerateRESTFromAPIRejectsInvalidRouteCapabilities(t *testing.T) {
+	tests := []struct {
+		name       string
+		annotation string
+		wantErr    string
+	}{
+		{name: "timeout", annotation: "timeout: soon", wantErr: `invalid route timeout "soon"`},
+		{name: "max body bytes", annotation: "maxBytes: 0", wantErr: `invalid route max body bytes "0"`},
+		{name: "conflicting max body bytes", annotation: "maxBytes: 10 maxBodyBytes: 20", wantErr: "conflicting maxBytes and maxBodyBytes"},
+		{name: "sse", annotation: "sse: sometimes", wantErr: `invalid route sse value "sometimes"`},
+		{name: "signature", annotation: "signature: ../secret", wantErr: `invalid signature profile "../secret"`},
+		{name: "priority", annotation: "priority: 10", wantErr: "gofly has no request-priority shedding policy"},
+		{name: "shared auth config", annotation: "jwt: Auth signature: Auth", wantErr: `reuses "Auth" for JWT and signature configuration`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			apiPath := filepath.Join(dir, "invalid-route.api")
+			api := "type Response {\n  OK bool\n}\n@server(" + tt.annotation + ")\nservice invalid-api {\n  @handler get\n  get /items returns (Response)\n}\n"
+			if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			err := GenerateRESTFromAPI(APIOptions{APIFile: apiPath, Dir: dir, Profile: string(ProfileGoZeroCompatible)})
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("GenerateRESTFromAPI error = %v, want %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestGenerateRESTFromAPIRouteCapabilities(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/capabilities\n\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	apiPath := filepath.Join(dir, "capabilities.api")
+	const api = `type EventResponse {
+  Status string ` + "`json:\"status\"`" + `
+}
+type SlowResponse {
+  Status string ` + "`json:\"status\"`" + `
+}
+@server(prefix: /api timeout: 25ms maxBodyBytes: 64 sse: true signature: Webhook)
+service events-api {
+  @handler events
+  get /events returns (EventResponse)
+}
+@server(prefix: /api timeout: 1ms)
+service slow-api {
+  @handler slow
+  get /slow returns (SlowResponse)
+}
+`
+	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := GenerateRESTFromAPI(APIOptions{APIFile: apiPath, Dir: dir, Profile: string(ProfileGoZeroCompatible)}); err != nil {
+		t.Fatalf("GenerateRESTFromAPI: %v", err)
+	}
+	checks := []struct {
+		path string
+		want []string
+	}{
+		{path: filepath.Join(dir, "internal", "routes", "routes.go"), want: []string{`"time"`, `rest.WithTimeout(25 * time.Millisecond)`, `rest.WithMaxBodyBytes(64)`, `rest.WithSSE()`, `config.APISignatureMiddleware("Webhook")`}},
+		{path: filepath.Join(dir, "internal", "api", "http", "v1", "events", "events.go"), want: []string{"ctx.SSEJSON(rest.SSEEvent{}, resp)"}},
+		{path: filepath.Join(dir, "internal", "config", "api_runtime.gen.go"), want: []string{`generatedRequiredSignatures = []string{"Webhook"}`, "func APISignatureMiddleware", `signature middleware %q requires Signatures.%s.Secret`}},
+		{path: filepath.Join(dir, "etc", "events-api.yaml"), want: []string{"Signatures:", "  Webhook:", `Secret: "${WEBHOOK_SECRET}"`, "MaxAge: 5m"}},
+	}
+	for _, check := range checks {
+		data, err := os.ReadFile(check.path)
+		if err != nil {
+			t.Fatalf("read %s: %v", check.path, err)
+		}
+		for _, want := range check.want {
+			if !strings.Contains(string(data), want) {
+				t.Fatalf("generated file %s missing %q:\n%s", check.path, want, data)
+			}
+		}
+	}
+	runtimeTest := `package config
+
+import (
+    "strings"
+    "testing"
+)
+
+func TestGeneratedSignatureConfigFailsClosed(t *testing.T) {
+    _, _, _, err := LoadAPIRuntime("../../etc/events-api.yaml", "events-api", nil)
+    if err == nil || !strings.Contains(err.Error(), "signature middleware \"Webhook\" requires Signatures.Webhook.Secret") {
+        t.Fatalf("missing signature secret error = %v", err)
+    }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "internal", "config", "api_runtime_test.go"), []byte(runtimeTest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	slowLogicPath := filepath.Join(dir, "internal", "app", "slow", "slow.go")
+	slowLogic, err := os.ReadFile(slowLogicPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slowLogic = bytes.Replace(slowLogic, []byte("return &appmodel.SlowResponse{}, nil"), []byte("<-l.ctx.Done(); return nil, l.ctx.Err()"), 1)
+	if err := os.WriteFile(slowLogicPath, slowLogic, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	routeTest := `package routes
+
+import (
+    "net/http"
+    "net/http/httptest"
+    "strconv"
+    "strings"
+    "testing"
+    "time"
+
+    "github.com/imajinyun/gofly/core/auth"
+    "github.com/imajinyun/gofly/rest"
+
+    "example.com/capabilities/internal/config"
+    "example.com/capabilities/internal/svc"
+)
+
+func TestGeneratedSignatureAndSSERoute(t *testing.T) {
+    const secret = "runtime-signature-secret"
+    t.Setenv("WEBHOOK_SECRET", secret)
+    c, conf, _, err := config.LoadAPIRuntime("../../etc/events-api.yaml", "events-api", nil)
+    if err != nil {
+        t.Fatal(err)
+    }
+    server := rest.MustNewServer(conf)
+	RegisterRoutes(server, svc.NewServiceContext(c))
+
+    unsigned := httptest.NewRecorder()
+    server.Handler().ServeHTTP(unsigned, httptest.NewRequest(http.MethodGet, "/api/events", nil))
+    if unsigned.Code != http.StatusUnauthorized {
+        t.Fatalf("unsigned status = %d, want %d", unsigned.Code, http.StatusUnauthorized)
+    }
+    oversized := httptest.NewRecorder()
+    server.Handler().ServeHTTP(oversized, httptest.NewRequest(http.MethodGet, "/api/events", strings.NewReader(strings.Repeat("x", 65))))
+    if oversized.Code != http.StatusRequestEntityTooLarge {
+        t.Fatalf("oversized status = %d, want %d", oversized.Code, http.StatusRequestEntityTooLarge)
+    }
+
+    timestamp := time.Now().Unix()
+    req := httptest.NewRequest(http.MethodGet, "/api/events", nil)
+    req.Header.Set(auth.TimestampHeader, strconv.FormatInt(timestamp, 10))
+    req.Header.Set(auth.SignatureHeader, auth.SignRequest(http.MethodGet, "/api/events", nil, timestamp, []byte(secret)))
+    signed := httptest.NewRecorder()
+    server.Handler().ServeHTTP(signed, req)
+    if signed.Code != http.StatusOK || signed.Header().Get("Content-Type") != "text/event-stream" {
+        t.Fatalf("signed response = status %d content-type %q body %q", signed.Code, signed.Header().Get("Content-Type"), signed.Body.String())
+    }
+
+    timedOut := httptest.NewRecorder()
+    server.Handler().ServeHTTP(timedOut, httptest.NewRequest(http.MethodGet, "/api/slow", nil))
+    if timedOut.Code != http.StatusGatewayTimeout {
+        t.Fatalf("timeout status = %d, want %d; body=%q", timedOut.Code, http.StatusGatewayTimeout, timedOut.Body.String())
+    }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "internal", "routes", "routes_runtime_test.go"), []byte(routeTest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	assertGeneratedProjectCompiles(t, dir)
+}
+
+func TestGenerateRESTFromAPIGoZeroCompatibleHonorsTypeGroupAndTest(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/grouped\n\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	apiPath := filepath.Join(dir, "grouped.api")
+	const api = `type SharedResponse {
+  Message string
+}
+type AdminRequest {
+  ID string
+}
+type UserRequest {
+  Name string
+}
+@server(group: admin)
+service admin-api {
+  @handler getAdmin
+  get /admin (AdminRequest) returns (SharedResponse)
+}
+@server(group: users)
+service user-api {
+  @handler getUser
+  get /user (UserRequest) returns (SharedResponse)
+}
+`
+	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := GenerateRESTFromAPI(APIOptions{
+		APIFile:   apiPath,
+		Dir:       dir,
+		Profile:   string(ProfileGoZeroCompatible),
+		Test:      true,
+		TypeGroup: true,
+	}); err != nil {
+		t.Fatalf("GenerateRESTFromAPI gozero-compatible with flags: %v", err)
+	}
+
+	checks := []struct {
+		path string
+		want []string
+	}{
+		{path: filepath.Join(dir, "internal", "app", "model", "admin.go"), want: []string{"type AdminRequest struct"}},
+		{path: filepath.Join(dir, "internal", "app", "model", "users.go"), want: []string{"type UserRequest struct"}},
+		{path: filepath.Join(dir, "internal", "app", "model", "types.go"), want: []string{"type SharedResponse struct"}},
+		{path: filepath.Join(dir, "internal", "api", "http", "v1", "admin", "getadmin_test.go"), want: []string{"func TestGetAdminHandlerGenerated", "GetAdminHandler(&svc.ServiceContext{})"}},
+		{path: filepath.Join(dir, "internal", "api", "http", "v1", "users", "getuser_test.go"), want: []string{"func TestGetUserHandlerGenerated", "GetUserHandler(&svc.ServiceContext{})"}},
+	}
+	for _, check := range checks {
+		data, err := os.ReadFile(check.path)
+		if err != nil {
+			t.Fatalf("read generated file %s: %v", check.path, err)
+		}
+		for _, want := range check.want {
+			if !strings.Contains(string(data), want) {
+				t.Fatalf("generated file %s missing %q:\n%s", check.path, want, data)
+			}
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "internal", "types")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("gozero-compatible semantics should not switch to goctl internal/types: %v", err)
+	}
+}
+
+func TestGenerateRESTFromAPIGoZeroCompatibleTypeGroupTransitionsAndPreservesUserTypes(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/transitions\n\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	apiPath := filepath.Join(dir, "transitions.api")
+	const api = `type AdminRequest {
+  ID string
+}
+type AdminResponse {
+  Name string
+}
+@server(group: admin)
+service admin-api {
+  @handler getAdmin
+  get /admin (AdminRequest) returns (AdminResponse)
+}
+`
+	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opts := APIOptions{APIFile: apiPath, Dir: dir, Profile: string(ProfileGoZeroCompatible), TypeGroup: true}
+	if err := GenerateRESTFromAPI(opts); err != nil {
+		t.Fatalf("generate grouped types: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "internal", "app", "model", "admin.go")); err != nil {
+		t.Fatalf("grouped types missing: %v", err)
+	}
+	opts.TypeGroup = false
+	if err := GenerateRESTFromAPI(opts); err != nil {
+		t.Fatalf("regenerate monolithic types: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "internal", "app", "model", "admin.go")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("obsolete generated group file should be removed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "internal", "app", "model", "types.go")); err != nil {
+		t.Fatalf("monolithic types missing after transition: %v", err)
+	}
+
+	userDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(userDir, "go.mod"), []byte("module example.com/userowned\n\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(userDir, "internal", "app", "model"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const userTypes = "package model\n\ntype Custom struct{}\n"
+	userTypesPath := filepath.Join(userDir, "internal", "app", "model", "types.go")
+	if err := os.WriteFile(userTypesPath, []byte(userTypes), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := GenerateRESTFromAPI(APIOptions{APIFile: apiPath, Dir: userDir, Profile: string(ProfileGoZeroCompatible), TypeGroup: true})
+	if err == nil || !strings.Contains(err.Error(), "cannot apply --type-group") {
+		t.Fatalf("GenerateRESTFromAPI err = %v, want user-owned type-group conflict", err)
+	}
+	data, readErr := os.ReadFile(userTypesPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(data) != userTypes {
+		t.Fatalf("user-owned types changed:\n%s", data)
+	}
+}
+
+func TestGenerateRESTFromAPIGoZeroCompatibleRuntimeConfigAndJWT(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/runtimeauth\n\ngo 1.26\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "internal", "config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const businessConfig = "package config\n\n" +
+		"import \"github.com/imajinyun/gofly/rest\"\n\n" +
+		"type Config struct {\n" +
+		"\trest.Config `json:\",inline\" yaml:\",inline\"`\n" +
+		"\tDataSource string `json:\"DataSource\" yaml:\"DataSource\"`\n" +
+		"}\n"
+	configPath := filepath.Join(dir, "internal", "config", "config.go")
+	if err := os.WriteFile(configPath, []byte(businessConfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	apiPath := filepath.Join(dir, "runtimeauth.api")
+	const api = "type LoginRequest {\n" +
+		"  Username string `json:\"username\"`\n" +
+		"}\n" +
+		"type LoginResponse {\n" +
+		"  Token string `json:\"token\"`\n" +
+		"}\n" +
+		"@server(prefix: /api/v1 jwt: Auth)\n" +
+		"service runtimeauth-api {\n" +
+		"  @handler login\n" +
+		"  post /login (LoginRequest) returns (LoginResponse)\n" +
+		"}"
+	if err := os.WriteFile(apiPath, []byte(api), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	generate := func() {
+		t.Helper()
+		if err := GenerateRESTFromAPI(APIOptions{APIFile: apiPath, Dir: dir, Profile: string(ProfileGoZeroCompatible)}); err != nil {
+			t.Fatalf("GenerateRESTFromAPI gozero-compatible: %v", err)
+		}
+	}
+	generate()
+
+	preservedConfig, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(preservedConfig) != businessConfig {
+		t.Fatalf("existing business config was overwritten:\n%s", preservedConfig)
+	}
+	svcPath := filepath.Join(dir, "internal", "svc", "service_context.go")
+	svcData, err := os.ReadFile(svcPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const serviceContextMarker = "\n// serviceContextBusinessMarker must survive regeneration.\n"
+	if err := os.WriteFile(svcPath, append(svcData, serviceContextMarker...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	generate()
+	preservedSvc, err := os.ReadFile(svcPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(preservedSvc), serviceContextMarker) {
+		t.Fatalf("existing ServiceContext was overwritten:\n%s", preservedSvc)
+	}
+
+	const runtimeConfigTest = `package config
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+func writeRuntimeConfig(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "runtimeauth.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestLoadAPIRuntimeRequiresConfiguredJWT(t *testing.T) {
+	path := writeRuntimeConfig(t, "Name: runtimeauth-api\nHost: 127.0.0.2\nPort: 9091\nTimeout: 1500\nDataSource: orders\n")
+	_, _, _, err := LoadAPIRuntime(path, "fallback", nil)
+	if err == nil || !strings.Contains(err.Error(), "JWT validator \"Auth\" requires Auth.AccessSecret") {
+		t.Fatalf("LoadAPIRuntime missing JWT error = %v", err)
+	}
+}
+
+func TestLoadAPIRuntimeLoadsFlatGoZeroConfig(t *testing.T) {
+	path := writeRuntimeConfig(t, "Name: runtimeauth-api\nHost: 127.0.0.2\nPort: 9091\nTimeout: 1500\nDataSource: orders\nAuth:\n  AccessSecret: runtime-secret\n")
+	c, conf, validators, err := LoadAPIRuntime(path, "fallback", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if conf.Name != "runtimeauth-api" || conf.Host != "127.0.0.2" || conf.Port != 9091 || conf.Timeout != 1500*time.Millisecond {
+		t.Fatalf("runtime config = %+v", conf)
+	}
+	if c.DataSource != "orders" {
+		t.Fatalf("business config DataSource = %q, want orders", c.DataSource)
+	}
+	if validators["Auth"] == nil {
+		t.Fatal("Auth validator was not constructed")
+	}
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "internal", "config", "api_runtime_test.go"), []byte(runtimeConfigTest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	const runtimeRouteTest = `package routes
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/imajinyun/gofly/core/auth"
+	"github.com/imajinyun/gofly/rest"
+
+	"example.com/runtimeauth/internal/config"
+	"example.com/runtimeauth/internal/svc"
+)
+
+func TestGeneratedJWTProtectedRoute(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "runtimeauth.yaml")
+	const secret = "runtime-secret"
+	if err := os.WriteFile(path, []byte("Name: runtimeauth-api\nHost: 127.0.0.1\nPort: 9091\nDataSource: orders\nAuth:\n  AccessSecret: "+secret+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, conf, validators, err := config.LoadAPIRuntime(path, "fallback", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stx := svc.NewServiceContext(c)
+	if stx.Config.DataSource != "orders" {
+		t.Fatalf("ServiceContext Config DataSource = %q, want orders", stx.Config.DataSource)
+	}
+	stx.JWTValidators = validators
+	server := rest.MustNewServer(conf)
+	RegisterRoutes(server, stx)
+
+	request := func(token string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/login", strings.NewReader("{\"username\":\"alice\"}"))
+		req.Header.Set("Content-Type", "application/json")
+		if token != "" {
+			req.Header.Set(auth.AuthorizationHeader, auth.BearerValue(token))
+		}
+		rec := httptest.NewRecorder()
+		server.Handler().ServeHTTP(rec, req)
+		return rec
+	}
+	if rec := request(""); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("missing token status = %d body = %q", rec.Code, rec.Body.String())
+	}
+	token, err := auth.SignJWT(auth.JWTClaims{Subject: "alice", ExpiresAt: time.Now().Add(time.Hour).Unix()}, []byte(secret))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec := request(token); rec.Code == http.StatusUnauthorized {
+		t.Fatalf("valid token status = %d body = %q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGeneratedJWTRegistrationWithoutValidatorFailsClosed(t *testing.T) {
+	server := rest.MustNewServer(rest.Config{Name: "runtimeauth-api"})
+	RegisterRoutes(server, svc.NewServiceContext(config.Config{}))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/login", strings.NewReader("{\"username\":\"alice\"}"))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("missing validator status = %d body = %q, want 401", rec.Code, rec.Body.String())
+	}
+}
+`
+	routeTestPath := filepath.Join(dir, "internal", "routes", "routes_runtime_test.go")
+	if err := os.WriteFile(routeTestPath, []byte(runtimeRouteTest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	assertGeneratedProjectCompiles(t, dir)
+}
+
+func TestGenerateRESTFromAPIGoZeroCompatibleKeepsScaffoldConfigPrecedence(t *testing.T) {
+	dir := t.TempDir()
+	if err := GenerateServiceScaffold(ServiceScaffoldOptions{
+		Name:    "hello",
+		Module:  "example.com/hello",
+		Dir:     dir,
+		Style:   ServiceStyleMinimal,
+		Profile: string(ProfileGoZeroCompatible),
+		Kind:    "api",
+	}); err != nil {
+		t.Fatalf("GenerateServiceScaffold gozero-compatible: %v", err)
+	}
+	jsonConfig := filepath.Join(dir, "etc", "hello.json")
+	before, err := os.ReadFile(jsonConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	apiPath := filepath.Join(dir, "hello.api")
+	if err := GenerateRESTFromAPI(APIOptions{APIFile: apiPath, Dir: dir, Profile: string(ProfileGoZeroCompatible)}); err != nil {
+		t.Fatalf("GenerateRESTFromAPI gozero-compatible: %v", err)
+	}
+	after, err := os.ReadFile(jsonConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatalf("api gen overwrote scaffold config:\n%s", after)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "etc", "hello.yaml")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("api gen created a higher-precedence YAML config beside scaffold JSON: %v", err)
+	}
+	const nestedConfigTest = `package config
+
+import "testing"
+
+func TestLoadAPIRuntimeLoadsNestedScaffoldConfig(t *testing.T) {
+	c, conf, validators, err := LoadAPIRuntime("../../etc/hello.json", "fallback", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if conf.Name != "hello" || conf.Host != "127.0.0.1" || conf.Port != 8080 {
+		t.Fatalf("nested runtime config = %+v", conf)
+	}
+	if c.Rest.Name != "hello" || c.Rest.Host != "127.0.0.1" || c.Rest.Port != 8080 {
+		t.Fatalf("nested business config = %+v", c.Rest)
+	}
+	if len(validators) != 0 {
+		t.Fatalf("unexpected validators = %v", validators)
+	}
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "internal", "config", "api_runtime_test.go"), []byte(nestedConfigTest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	assertGeneratedProjectCompiles(t, dir)
 }
 
 func TestGenerateRESTFromAPIGoZeroCompatibleMultilineServerAnnotation(t *testing.T) {
@@ -2875,28 +3511,28 @@ func TestGenerateRESTFromAPIGoZeroCompatibleMultilineServerAnnotation(t *testing
 		want []string
 	}{
 		{
-			path: filepath.Join(dir, "internal", "app", "native", "createnativeorderlogic.go"),
+			path: filepath.Join(dir, "internal", "app", "native", "createnativeorder.go"),
 			want: []string{"package nativeapp", "func NewCreateNativeOrderLogic", "func (l *CreateNativeOrderLogic) CreateNativeOrder"},
 		},
 		{
-			path: filepath.Join(dir, "internal", "api", "http", "native", "createnativeorderhandler.go"),
+			path: filepath.Join(dir, "internal", "api", "http", "v1", "native", "createnativeorder.go"),
 			want: []string{"package native", `nativeapp "example.com/nativeorderservice/internal/app/native"`, "func CreateNativeOrderHandler", "nativeapp.NewCreateNativeOrderLogic"},
 		},
 		{
-			path: filepath.Join(dir, "internal", "api", "http", "routes.go"),
-			want: []string{`native "example.com/nativeorderservice/internal/api/http/native"`, `rest.WithPrefix("/api/v1")`, `stx.Middlewares["AuthInterceptor"]`, "native.CreateNativeOrderHandler(stx)", "native.GetNativeOrderHandler(stx)"},
+			path: filepath.Join(dir, "internal", "routes", "routes.go"),
+			want: []string{`native "example.com/nativeorderservice/internal/api/http/v1/native"`, `rest.WithPrefix("/api/v1")`, `stx.Middlewares["AuthInterceptor"]`, "native.CreateNativeOrderHandler(stx)", "native.GetNativeOrderHandler(stx)"},
 		},
 		{
 			path: filepath.Join(dir, "internal", "middleware", "authinterceptormiddleware.go"),
 			want: []string{"package middleware", "type AuthInterceptorMiddleware struct", "func NewAuthInterceptorMiddleware() *AuthInterceptorMiddleware", "func (m *AuthInterceptorMiddleware) Handle(next http.HandlerFunc) http.HandlerFunc", "func (m *AuthInterceptorMiddleware) Middleware() rest.Middleware"},
 		},
 		{
-			path: filepath.Join(dir, "internal", "svc", "servicecontext.go"),
+			path: filepath.Join(dir, "internal", "svc", "service_context.go"),
 			want: []string{`"example.com/nativeorderservice/internal/middleware"`, `middlewares["AuthInterceptor"] = middleware.NewAuthInterceptorMiddleware().Middleware()`, "Middlewares:", "middlewares"},
 		},
 		{
-			path: filepath.Join(dir, "nativeorders.go"),
-			want: []string{`var configFile = flag.String("f", "etc/nativeorders-api.yaml", "the config file")`, `api.RegisterHandlers(server, svc.NewServiceContext())`, "server.Shutdown(context.Background())", "server.Start()"},
+			path: filepath.Join(dir, "cmd", "nativeorders-api", "main.go"),
+			want: []string{`var configFile = flag.String("f", "etc/nativeorders-api.yaml", "the config file")`, `config.LoadAPIRuntime(*configFile, "nativeorders-api", []string{})`, `stx := svc.NewServiceContext(c)`, `stx.JWTValidators = validators`, `routes.RegisterRoutes(server, stx)`, "server.Shutdown(context.Background())", "server.Start()"},
 		},
 	}
 	for _, check := range checks {
@@ -2943,44 +3579,41 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	}
 }
 `
-	if err := os.WriteFile(filepath.Join(dir, "internal", "svc", "servicecontext.go"), []byte(existingSvc), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "internal", "svc", "service_context.go"), []byte(existingSvc), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(dir, "internal", "types"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "internal", "app", "model"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	existingTypes := `package types
+	existingTypes := `package model
 
 type PingRequest struct {
 	Name string ` + "`json:\"name,optional\" form:\"name,optional\"`" + `
 }
 `
-	if err := os.WriteFile(filepath.Join(dir, "internal", "types", "types.go"), []byte(existingTypes), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "internal", "app", "model", "types.go"), []byte(existingTypes), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(dir, "internal", "api", "http"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "internal", "api", "http", "v1", "user"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "internal", "api", "http", "pinghandler.go"), []byte("package api\n"), 0o644); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "internal", "app", "user"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(dir, "internal", "app"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	existingLogic := `package app
+	existingLogic := `package userapp
 
 // existing business logic must survive api gen.
 func ExistingLoginLogicMarker() {}
 `
-	if err := os.WriteFile(filepath.Join(dir, "internal", "app", "loginlogic.go"), []byte(existingLogic), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "internal", "app", "user", "login.go"), []byte(existingLogic), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	existingHandler := `package api
+	existingHandler := `package user
 
 // existing handler wiring must survive api gen.
 func ExistingLoginHandlerMarker() {}
 `
-	if err := os.WriteFile(filepath.Join(dir, "internal", "api", "http", "loginhandler.go"), []byte(existingHandler), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "internal", "api", "http", "v1", "user", "login.go"), []byte(existingHandler), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	apiPath := filepath.Join(dir, "shop.api")
@@ -3002,28 +3635,28 @@ service user-api {
 		t.Fatalf("GenerateRESTFromAPI gozero-compatible: %v", err)
 	}
 
-	svcData, err := os.ReadFile(filepath.Join(dir, "internal", "svc", "servicecontext.go"))
+	svcData, err := os.ReadFile(filepath.Join(dir, "internal", "svc", "service_context.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(svcData), "func NewServiceContext(c config.Config) *ServiceContext") {
 		t.Fatalf("existing ServiceContext was not preserved:\n%s", svcData)
 	}
-	logicData, err := os.ReadFile(filepath.Join(dir, "internal", "app", "loginlogic.go"))
+	logicData, err := os.ReadFile(filepath.Join(dir, "internal", "app", "user", "login.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(logicData) != existingLogic {
 		t.Fatalf("existing logic was overwritten:\n%s", logicData)
 	}
-	handlerData, err := os.ReadFile(filepath.Join(dir, "internal", "api", "http", "loginhandler.go"))
+	handlerData, err := os.ReadFile(filepath.Join(dir, "internal", "api", "http", "v1", "user", "login.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(handlerData) != existingHandler {
 		t.Fatalf("existing handler was overwritten:\n%s", handlerData)
 	}
-	typesData, err := os.ReadFile(filepath.Join(dir, "internal", "types", "types.go"))
+	typesData, err := os.ReadFile(filepath.Join(dir, "internal", "app", "model", "types.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3032,11 +3665,11 @@ service user-api {
 			t.Fatalf("merged scaffold types.go missing %q:\n%s", want, typesData)
 		}
 	}
-	routesData, err := os.ReadFile(filepath.Join(dir, "internal", "api", "http", "routes.go"))
+	routesData, err := os.ReadFile(filepath.Join(dir, "internal", "routes", "routes.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`Path: "/ping"`, "PingHandler(stx)", `Path: "/login"`, "LoginHandler(stx)"} {
+	for _, want := range []string{`Path: "/login"`, "LoginHandler(stx)"} {
 		if !strings.Contains(string(routesData), want) {
 			t.Fatalf("routes.go missing %q:\n%s", want, routesData)
 		}
@@ -3066,8 +3699,8 @@ service user-api {
 	if err := GenerateRESTFromAPI(APIOptions{APIFile: apiPath, Dir: dir, Profile: string(ProfileGoZeroCompatible)}); err != nil {
 		t.Fatalf("first GenerateRESTFromAPI: %v", err)
 	}
-	staleHandler := filepath.Join(dir, "internal", "api", "http", "loginhandler.go")
-	staleLogic := filepath.Join(dir, "internal", "app", "loginlogic.go")
+	staleHandler := filepath.Join(dir, "internal", "api", "http", "v1", "user", "login.go")
+	staleLogic := filepath.Join(dir, "internal", "app", "user", "login.go")
 	if _, err := os.Stat(staleHandler); err != nil {
 		t.Fatalf("first handler missing: %v", err)
 	}
@@ -3098,7 +3731,7 @@ service user-api {
 	if _, err := os.Stat(staleLogic); err != nil {
 		t.Fatalf("stale logic should remain for manual cleanup: %v", err)
 	}
-	routesData, err := os.ReadFile(filepath.Join(dir, "internal", "api", "http", "routes.go"))
+	routesData, err := os.ReadFile(filepath.Join(dir, "internal", "routes", "routes.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3112,7 +3745,7 @@ service user-api {
 			t.Fatalf("refreshed routes.go kept stale %q:\n%s", stale, routesData)
 		}
 	}
-	typesData, err := os.ReadFile(filepath.Join(dir, "internal", "types", "types.go"))
+	typesData, err := os.ReadFile(filepath.Join(dir, "internal", "app", "model", "types.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3133,10 +3766,10 @@ service user-api {
 	report := string(reportData)
 	for _, want := range []string{
 		`"schema": "gofly.gozero_api_stale_files.v1"`,
-		`"internal/api/http/loginhandler.go"`,
-		`"internal/app/loginlogic.go"`,
-		`"internal/api/http/signinhandler.go"`,
-		`"internal/app/signinlogic.go"`,
+		`"internal/api/http/v1/user/login.go"`,
+		`"internal/app/user/login.go"`,
+		`"internal/api/http/v1/user/signin.go"`,
+		`"internal/app/user/signin.go"`,
 		"preserved on disk but are not registered",
 	} {
 		if !strings.Contains(report, want) {

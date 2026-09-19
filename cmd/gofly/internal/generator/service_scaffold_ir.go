@@ -175,7 +175,7 @@ func serviceScaffoldRuntimeFeatures(profile GenerationProfile, kind string) []se
 	}
 	switch profile {
 	case ProfileGoZeroCompatible:
-		features = append(features, serviceScaffoldRuntimeFeature{Name: "goctl-layout", Description: "REST and model scaffolds can evolve toward goctl-compatible layering"})
+		features = append(features, serviceScaffoldRuntimeFeature{Name: "gozero-semantics", Description: "go-zero request and RPC configuration semantics use the native gofly project layout"})
 	case ProfileKitexCompatible:
 		features = append(features, serviceScaffoldRuntimeFeature{Name: "idl-runtime-contract", Description: "RPC scaffolds can expose IDL/runtime contracts for Kitex-style governance"})
 	case ProfileGoflyAI:
@@ -191,7 +191,7 @@ func serviceScaffoldRuntimeFeatures(profile GenerationProfile, kind string) []se
 }
 
 func serviceScaffoldData(opts ServiceScaffoldOptions) map[string]string {
-	return withGeneratedResilienceTemplateData(applyOperatorHistoryTemplateData(map[string]string{
+	data := withGeneratedResilienceTemplateData(applyOperatorHistoryTemplateData(map[string]string{
 		"Name":             opts.Name,
 		"Module":           opts.Module,
 		"ReplaceBlock":     frameworkReplaceBlock(opts.FrameworkPath),
@@ -220,6 +220,13 @@ func serviceScaffoldData(opts ServiceScaffoldOptions) map[string]string {
 		"RestPreset":       restPresetForStyle(opts.Style),
 		"Autoscale":        kubeAutoscale(opts.Name, "default", "2", "6"),
 	}), opts.Name)
+	defaultMethod := generatedRPCMethodRule{
+		Service: data["RPCService"],
+		Method:  "SayHello",
+	}
+	data["RPCMethodRuleName"] = generatedRPCMethodTimeoutRuleName(defaultMethod)
+	data["RPCMethodRulesJSON"] = generatedRPCMethodTimeoutRulesJSON([]generatedRPCMethodRule{defaultMethod})
+	return data
 }
 
 func mergeServiceScaffoldExtras(files map[string]string, opts ServiceScaffoldOptions, style string, profile GenerationProfile) {

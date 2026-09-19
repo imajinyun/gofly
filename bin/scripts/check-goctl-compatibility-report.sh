@@ -152,7 +152,7 @@ for needle in (
     require(any(needle in str(item) for item in checklist), f"releaseChecklist missing {needle!r}")
 
 claim_policy = manifest.get("claimPolicy") or {}
-require("goctl-compatible migration coverage" in str(claim_policy.get("allowed") or ""), "claimPolicy.allowed must describe migration coverage")
+require("go-zero-compatible behavior and configuration migration coverage" in str(claim_policy.get("allowed") or ""), "claimPolicy.allowed must describe behavior and configuration migration coverage")
 for forbidden in ("full goctl replacement", "byte-for-byte output parity", "default external plugin execution"):
     require(forbidden in str(claim_policy.get("forbidden") or ""), f"claimPolicy.forbidden missing {forbidden!r}")
 

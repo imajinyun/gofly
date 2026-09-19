@@ -103,19 +103,19 @@
     {
       "command": "gofly new api",
       "tier": "tier1",
-      "surface": "goctl-compatible REST scaffold",
+      "surface": "gofly-native REST scaffold with go-zero-compatible semantics",
       "stabilityContract": "docs/reference/goctl-generator-compatibility.json",
       "verification": [
         "TestExecuteAPINewWithGoZeroCompatibleProfile",
         "make goctl-generator-compat-check"
       ],
       "requiredArtifacts": [
-        "internal/api/http/routes.go",
-        "internal/app/pinglogic.go",
-        "internal/svc/servicecontext.go",
-        "internal/types/types.go"
+        "internal/routes/routes.go",
+        "internal/api/http/v1/ping/ping.go",
+        "internal/app/ping.go",
+        "internal/svc/service_context.go"
       ],
-      "rollbackOrEscalation": "Rollback by pinning the gozero-compatible profile and preserving goctl layout evidence."
+      "rollbackOrEscalation": "Rollback by pinning the gozero-compatible profile while preserving the gofly-native layout contract."
     },
     {
       "command": "gofly api gen",

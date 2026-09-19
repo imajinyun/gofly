@@ -3,19 +3,21 @@
 schema: gofly.go_zero_migration_guide.v1
 
 This guide maps existing go-zero and `goctl` projects to gofly generation
-surfaces. gofly provides a goctl-compatible migration path, not a full goctl replacement. The supported path is an evidence-backed migration workflow that
-keeps go-zero-compatible generation, fixture replay, and rollback gates
-runnable while teams move selected surfaces.
+surfaces. gofly provides a go-zero-compatible behavior and configuration
+migration path, not a goctl layout clone or a full goctl replacement. The
+supported path is an evidence-backed migration workflow that retains the
+gofly-native project structure while keeping fixture replay and rollback gates
+runnable as teams move selected surfaces.
 
 ## Migration Map
 
 | go-zero surface | gofly migration surface | Evidence |
 | --- | --- | --- |
 | `.api` REST contracts | `gofly api gen --file <service.api> --dir <dir> --profile gozero-compatible` | `docs/reference/goctl-generator-compatibility.json`, `docs/reference/goctl-api-flag-parity.json`, `docs/reference/goctl-real-project-replay.json` |
-| `api/http/app/svc/types` layout | `gofly new api <name> --profile gozero-compatible` | `docs/reference/goctl-generator-compatibility.json` |
+| API handler, logic, DTO, and ServiceContext semantics | `gofly new api <name> --profile gozero-compatible`, retaining the gofly-native project layout | `docs/reference/goctl-generator-compatibility.json` |
 | `etc/<service>-api.yaml` | generated `etc/<service>.json` plus explicit REST profile | `docs/reference/rest-middleware-profiles.md` |
 | REST middleware and auth | generated REST routes plus route/middleware compatibility evidence | `docs/reference/rest-middleware-profiles.md`, `docs/reference/goctl-real-project-replay.json` |
-| zRPC `.proto` and runnable service | `gofly new rpc <name> --module <module> --profile gozero-compatible` for a native gRPC service; `gofly rpc gen` for bindings; `gofly rpc protoc` for standard protobuf stubs | `docs/reference/zrpc-proto-compatibility.json`, `docs/reference/goctl-rpc-protoc-parity.json` |
+| zRPC `.proto` and runnable service | `gofly rpc protoc <service.proto> --zrpc_out <dir> --module <module>` for a gofly-native gRPC scaffold with zRPC-compatible semantics; `gofly new rpc <name> --profile gozero-compatible` for a contract-first starter; `gofly rpc protoc` without `--zrpc_out` for standard protobuf stubs | `docs/reference/zrpc-proto-compatibility.json`, `docs/reference/goctl-rpc-protoc-parity.json` |
 | model/cache generation | `gofly model gen --style go_zero` and replay fixtures | `docs/reference/goctl-real-project-replay.json`, `docs/reference/goctl-model-parity-replay.json` |
 | multi-language API clients | `gofly api client --language <language>` | `docs/reference/api-client-generation.md` |
 | production service scaffold | `gofly new service --style production` | `docs/reference/generated-service-layout.md` |
@@ -105,12 +107,14 @@ model package.
 ## ServiceContext Mapping
 
 go-zero projects typically wire dependencies through `svc.ServiceContext`.
-gofly preserves that mental model in the `gozero-compatible` profile:
+gofly preserves that dependency-injection mental model in the
+`gozero-compatible` profile without adopting the goctl directory layout:
 
-- `internal/svc/servicecontext.go` is the generated dependency entrypoint.
-- `internal/api/http/routes.go` receives `svcCtx`.
-- `internal/app/*logic.go` is constructed with `svcCtx`.
-- `internal/types/types.go` keeps request and response DTOs.
+- `internal/svc/service_context.go` is the generated dependency entrypoint.
+- `internal/routes/routes.go` receives `svcCtx`.
+- `internal/app/<group>/<method>.go` is constructed with `svcCtx`.
+- `internal/app/model/types.go` and grouped files keep request and response DTOs.
+- `internal/api/http/v1/<group>/<method>.go` contains HTTP transport handlers.
 
 The default gofly production scaffold uses the same concept with additional
 runtime dependencies such as MQ and config hot reload. The path name may differ
@@ -125,6 +129,13 @@ API flag migration parity is tracked by
 `api format --declare`. The `--declare` flag skips missing type declaration
 checks during formatting, matching goctl's migration-critical formatter
 behavior without claiming a full formatter clone.
+
+For API generation, an explicitly provided `--style go_zero` selects the same
+behavior as `--profile gozero-compatible`. It does not switch the generated
+project to a goctl layout. Do not combine it with a different explicit profile.
+`--type-group` writes DTO files under `internal/app/model` by `@server` group
+(shared DTOs remain in `types.go`), and `--test` writes handler smoke tests
+next to the generated handlers under `internal/api/http/v1`.
 
 ## Model Layout
 
@@ -244,6 +255,8 @@ Before migrating zRPC code, check the matrix in
 - `grpc-runtime-golden-path`: supported for discovery lifecycle, health, safe client defaults, and selectable P2C-EWMA or consistent-hash balancing
 - `zrpc-runtime-bidirectional`: supported for real go-zero zRPC server to gofly client and gofly server to zRPC client calls
 - `zrpc-streaming-runtime-bidirectional`: supported for server-streaming, client-streaming, and bidirectional streaming through real wrappers in both directions
+- `zrpc-etcd-discovery`: supported for native zRPC `<Key>/<id> -> endpoint` records, including live endpoint updates, generated client resolver lifecycle, and a real go-zero Publisher to gofly resolver call
+- `zrpc-etcd-registration`: supported as an explicit generated-server mode; the interoperability fixture proves that a real go-zero `zrpc.NewClient` resolves the published raw endpoint through Etcd, invokes the gofly server, and observes lease removal on shutdown
 
 Generated native gRPC projects select `gofly_p2c_ewma` by default through the
 `loadBalancing.policy` configuration field. They can explicitly select
@@ -255,6 +268,13 @@ Unsupported policies fail before dialing, and consistent-hash calls require a
 key supplied with `flygrpc.WithHashKey`.
 Production scaffolds also generate `bin/production-check.sh` and a rule-file
 restart/recovery/rollback drill under `internal/config`.
+RPC governance retry statuses use numeric gRPC codes (`1` through `16`);
+`0` (`OK`) is not a retry condition. REST, gateway, MQ, and legacy rules without
+an explicit transport retain the HTTP status range (`100` through `599`). A
+client-stream breaker records the terminal stream outcome, including header,
+send, receive, and context failures, rather than treating stream creation as a
+successful call. `CloseSend` remains a half-close when it succeeds, and an
+established stream is never replayed by retry policy.
 
 The streaming runtime matrix proves standard gRPC stream transport and
 lifecycle compatibility. The descriptor-driven HTTP gateway additionally
@@ -270,10 +290,18 @@ empty input returns HTTP 400, and a size/count violation returns HTTP 413.
 Server-streaming RPCs use `text/event-stream`: protobuf JSON responses use
 `message` events, safe initial metadata uses `X-Gofly-Md-*` headers, and
 trailers or post-commit failures use terminal `trailers` or `error` events. The
-gateway waits for the first message before committing HTTP 200, so a failure
-before that point retains normal gRPC-to-HTTP status mapping. HTTP cancellation
-propagates to upstream streams, and the existing route timeout bounds their
-lifetime. Bidirectional RPCs use WebSocket with the required
+gateway waits for and maps the first message before committing HTTP 200, so a
+gRPC or local response-mapping failure before that point retains normal HTTP
+status mapping. Later mapping failures are recorded in the route transcode
+runtime snapshot and emitted as terminal `error` events without marking the
+upstream unhealthy. Server responses also enforce 1 MiB per message, 16 MiB
+aggregate payload, and 10,000 messages. A first-response limit violation returns
+HTTP 429 before SSE commit; a later violation is a terminal
+`resource_exhausted` event. These local limits do not mark the upstream
+unhealthy. A stream is never retried after it has been established,
+including when initial metadata arrived before the first response message. HTTP
+cancellation propagates to upstream streams, and the existing route timeout
+bounds their lifetime. Bidirectional RPCs use WebSocket with the required
 `gofly.grpc.bidi.v1` subprotocol. Clients send text JSON `message` envelopes
 whose `data` field is protobuf JSON, then may send `half_close` to map to gRPC
 `CloseSend` without ending the receive side. The gateway returns text JSON
@@ -297,10 +325,66 @@ Projects migrating go-zero app/token credentials can opt into
 required unless the client explicitly enables development-only insecure mode.
 
 `docs/reference/goctl-rpc-protoc-parity.json` separately tracks goctl-style
-`rpc protoc` flags. Standard protoc mode forwards include paths, `go_out`,
-`go-grpc_out`, `go_opt`, and `go-grpc_opt` as argv entries. The built-in
-`--plugin gofly` path maps `--multiple`, `--client=false`, `--module`, and
-`--name-from-filename` into explicit gofly plugin options. External plugin names
+`rpc protoc` flags. With `--zrpc_out`, gofly generates a runnable native gRPC
+project with `cmd`, `etc`, `internal/config`, `internal/svc/service_context.go`,
+`internal/app/<service>` business logic, `internal/api/rpc` transport and typed
+clients, and protobuf stubs. The
+`--multiple`, `--client`, `--module`, and `--name-from-filename` flags control
+that scaffold; regeneration preserves existing business logic files. This mode
+accepts multiple primary proto files in one generation pass when `--multiple`
+is set, aggregating server registration while retaining per-service logic and
+client packages. Each descriptor service full name is registered as a discovery
+alias for the shared server endpoint, including services added by incremental
+regeneration. It currently requires the `go_zero` style.
+Projects generated before this discovery-alias hook keep their user-owned
+`main.go`; add
+`flygrpc.WithDiscoveryAliases(apprpc.DiscoveryAliases()...)` to the server
+options once, then later regeneration can refresh the generated alias list
+without rewriting the application entry point.
+
+Generated clients accept `RPCClientConfig`, which maps the migration-critical
+zRPC fields `Endpoints`, `Target`, `Etcd.Hosts/Key`, `App/Token`, `NonBlock`,
+`Timeout`, `KeepaliveTime`, and `BalancerName` onto gofly's native runtime.
+`Timeout` bounds unary calls and the complete lifecycle of server-streaming,
+client-streaming, and bidirectional calls; `CloseSend` does not end the timeout
+while a final response is still pending.
+`Endpoints` take precedence over `Target`, and `Target` takes precedence over
+Etcd. Generated `ServiceContext` wiring creates a read-only resolver from each
+Etcd client configuration, consumes the native zRPC `<Key>/<id> -> endpoint`
+layout, reuses one resolver for identical clusters and credentials, and closes
+it after all dependent connections. Direct `NewConfigured*` callers may still
+inject a resolver explicitly. The adapter does not register global gRPC
+resolver state or rewrite zRPC keys into gofly's native discovery format.
+Etcd username/password and client TLS fields are supported and validated
+fail-closed; partial credentials or certificate pairs are rejected.
+App/token credentials require TLS by default, with plaintext available only
+through the explicit development-only `allowInsecureCredentials` setting.
+The generated `ServiceContext` initializes every entry in `Config.Clients` at
+startup, exposes each shared connection by its map key, rolls back partial
+connection and resolver initialization failures, and closes all managed
+connections and owned resolvers during shutdown.
+The map key is the default RPC service name used for direct targets; an Etcd
+entry's `Key` remains the discovery service name.
+
+Generated servers also accept the top-level zRPC-style `Etcd` block. When
+`Etcd.Hosts` and `Etcd.Key` are set, the server publishes
+`<Key>/<lease-or-configured-ID> -> endpoint` so an existing go-zero zRPC
+client can discover it without translating the registry. This is an explicit
+compatibility mode: without that block, gofly keeps its native structured
+discovery format. Server-side registration requires an explicit `advertise`
+address and owns the Etcd lease through gRPC shutdown; `Etcd.ID` optionally
+pins the child key, matching go-zero's positive-ID behavior. The runtime
+interoperability fixture constructs a real go-zero client with
+`RpcClientConf.Etcd`, performs an RPC through its Etcd resolver, and rejects a
+direct-target shortcut as insufficient evidence. The reverse fixture starts a
+real go-zero server with `RpcServerConf.Etcd`, resolves it through gofly's
+zRPC-compatible resolver, performs an RPC, and verifies record removal after
+shutdown.
+
+Without `--zrpc_out`, standard protoc mode forwards include paths, `go_out`,
+`go-grpc_out`, `go_opt`, and `go-grpc_opt` as argv entries. The lower-level
+`--plugin gofly` path still maps `--multiple`, `--client=false`, `--module`, and
+`--name-from-filename` into explicit wrapper plugin options. External plugin names
 are accepted without execution by default and are forwarded to `protoc` only
 when `--allow-external-plugin` is explicitly set; plugin values are passed as
 argv entries, not shell strings.

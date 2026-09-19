@@ -33,6 +33,9 @@ const (
 	grpcClientStreamMaxBodyBytes  = 16 * 1024 * 1024
 	grpcClientStreamMaxMessages   = 10_000
 	grpcClientStreamMaxFrameBytes = 1024 * 1024
+	grpcServerStreamMaxBodyBytes  = 16 * 1024 * 1024
+	grpcServerStreamMaxMessages   = 10_000
+	grpcServerStreamMaxFrameBytes = 1024 * 1024
 	grpcBidiWebSocketSubprotocol  = "gofly.grpc.bidi.v1"
 )
 
@@ -587,18 +590,66 @@ func (g *Gateway) transcodeOnce(r *http.Request, route Route, endpoint string, b
 		stream, md, handled, streamErr := streaming.OpenServerStreamRaw(ctx, methodPath, payload)
 		if handled {
 			if streamErr != nil {
-				return g.transcodeCallError(route, endpoint, target.profile, brk, streamErr)
+				result, err := g.transcodeCallError(route, endpoint, target.profile, brk, streamErr)
+				var established *establishedServerStreamError
+				if errors.As(streamErr, &established) {
+					result.Err = nil
+					result.doNotRetry = true
+					return result, nil
+				}
+				return result, err
 			}
 			first, recvErr := stream.RecvRaw()
 			if recvErr != nil && !errors.Is(recvErr, io.EOF) {
 				_ = stream.Close()
-				return g.transcodeCallError(route, endpoint, target.profile, brk, recvErr)
+				result, _ := g.transcodeCallError(route, endpoint, target.profile, brk, recvErr)
+				// The stream was already created successfully. Preserve the mapped
+				// status without returning a retry signal: replay is only safe before
+				// a streaming RPC has been established.
+				result.Err = nil
+				result.doNotRetry = true
+				return result, nil
+			}
+			if recvErr == nil {
+				first, err = transcodeResponsePayload(first, target.profile)
+				if err != nil {
+					_ = stream.Close()
+					g.recordTranscodeMappingError(route, "response", err)
+					g.reportEndpoint(route, endpoint, true)
+					if brk != nil {
+						brk.MarkSuccess()
+					}
+					return proxyResult{
+						Endpoint: endpoint,
+						Status:   http.StatusBadRequest,
+						Header:   transcodeResponseHeader(nil),
+						Body:     transcodeErrorBody(rpc.NewError(rpc.CodeInvalidArgument, err.Error())),
+					}, nil
+				}
+			}
+			limits := &serverStreamLimits{}
+			if recvErr == nil && !limits.accept(first) {
+				_ = stream.Close()
+				limitErr := status.Error(codes.ResourceExhausted, "server stream response exceeds limits")
+				g.reportEndpoint(route, endpoint, true)
+				if brk != nil {
+					brk.MarkSuccess()
+				}
+				return proxyResult{
+					Endpoint:   endpoint,
+					Status:     coreerrors.HTTPStatus(rpc.CodeResourceExhausted),
+					Header:     transcodeResponseHeader(nil),
+					Body:       transcodeErrorBody(limitErr),
+					doNotRetry: true,
+				}, nil
 			}
 			return proxyResult{
 				Endpoint: endpoint,
 				Status:   http.StatusOK,
 				Header:   transcodeStreamResponseHeader(md),
-				BodyStream: newTranscodeSSEBody(ctx, stream, target.profile, first, recvErr, func(success bool) {
+				BodyStream: newTranscodeSSEBody(ctx, stream, target.profile, first, recvErr, limits, func(mapErr error) {
+					g.recordTranscodeMappingError(route, "response", mapErr)
+				}, func(success bool) {
 					g.reportEndpoint(route, endpoint, success)
 					if brk == nil {
 						return
@@ -694,14 +745,30 @@ func (s *transcodeStreamSettlement) done(success bool) {
 	})
 }
 
-func newTranscodeSSEBody(ctx context.Context, stream rawServerStream, profile *TranscodeProfile, first json.RawMessage, firstErr error, settle func(bool)) io.ReadCloser {
+type serverStreamLimits struct {
+	messages int
+	bytes    int
+}
+
+func (l *serverStreamLimits) accept(payload []byte) bool {
+	if l == nil {
+		return true
+	}
+	l.messages++
+	l.bytes += len(payload)
+	return l.messages <= grpcServerStreamMaxMessages &&
+		len(payload) <= grpcServerStreamMaxFrameBytes &&
+		l.bytes <= grpcServerStreamMaxBodyBytes
+}
+
+func newTranscodeSSEBody(ctx context.Context, stream rawServerStream, profile *TranscodeProfile, first json.RawMessage, firstErr error, limits *serverStreamLimits, recordMappingError func(error), settle func(bool)) io.ReadCloser {
 	reader, writer := io.Pipe()
 	settlement := &transcodeStreamSettlement{fn: settle}
 	body := &transcodeSSEBody{PipeReader: reader, stream: stream, settlement: settlement}
 	go func() {
 		defer stream.Close()
 		defer writer.Close()
-		raw, err := first, firstErr
+		payload, err := first, firstErr
 		for {
 			if err != nil {
 				if errors.Is(err, io.EOF) {
@@ -719,19 +786,31 @@ func newTranscodeSSEBody(ctx context.Context, stream rawServerStream, profile *T
 				_ = writeSSEEvent(writer, "error", transcodeErrorBody(err))
 				return
 			}
-			payload, mapErr := transcodeResponsePayload(raw, profile)
-			if mapErr != nil {
-				// Response mapping is local gateway work; the upstream completed its
-				// part successfully and should not be marked unhealthy.
-				settlement.done(true)
-				_ = writeSSEEvent(writer, "error", transcodeErrorBody(rpc.NewError(rpc.CodeInvalidArgument, mapErr.Error())))
-				return
-			}
 			if err := writeSSEEvent(writer, "message", payload); err != nil {
 				settlement.done(true)
 				return
 			}
-			raw, err = stream.RecvRaw()
+			raw, recvErr := stream.RecvRaw()
+			if recvErr != nil {
+				payload, err = nil, recvErr
+				continue
+			}
+			payload, err = transcodeResponsePayload(raw, profile)
+			if err != nil {
+				if recordMappingError != nil {
+					recordMappingError(err)
+				}
+				// Response mapping is local gateway work; the upstream completed its
+				// part successfully and should not be marked unhealthy.
+				settlement.done(true)
+				_ = writeSSEEvent(writer, "error", transcodeErrorBody(rpc.NewError(rpc.CodeInvalidArgument, err.Error())))
+				return
+			}
+			if !limits.accept(payload) {
+				settlement.done(true)
+				_ = writeSSEEvent(writer, "error", transcodeErrorBody(rpc.NewError(rpc.CodeResourceExhausted, "server stream response exceeds limits")))
+				return
+			}
 		}
 	}()
 	return body

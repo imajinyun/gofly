@@ -42,6 +42,7 @@ type routeOptions struct {
 	auth         auth.Validator
 	timeout      time.Duration
 	maxBodyBytes int64
+	sse          bool
 	recover      *bool
 	trace        *bool
 	log          *bool
@@ -103,6 +104,11 @@ func (c *Context) Bind(v any) error {
 }
 
 func (c *Context) BindRequest(v any) error { return bindRequest(c.Request, v, c.Validator) }
+
+// BindGoZeroRequest binds and validates go-zero compatible field-tag modifiers.
+func (c *Context) BindGoZeroRequest(v any) error {
+	return bindGoZeroRequest(c.Request, v, c.Validator)
+}
 
 func (c *Context) BindQuery(v any) error {
 	if err := bindValues(v, BindSourceQuery, func(key string) []string { return c.Request.URL.Query()[key] }); err != nil {
@@ -249,6 +255,15 @@ func WithMaxBodyBytes(maxBodyBytes int64) RouteOption {
 func WithoutMaxBodyBytes() RouteOption {
 	return func(opts *routeOptions) {
 		opts.maxBodyBytes = 0
+	}
+}
+
+// WithSSE marks a route as a Server-Sent Events stream. SSE routes emit the
+// required response headers and do not use the buffered timeout middleware,
+// which cannot safely proxy a long-lived streaming response.
+func WithSSE() RouteOption {
+	return func(opts *routeOptions) {
+		opts.sse = true
 	}
 }
 

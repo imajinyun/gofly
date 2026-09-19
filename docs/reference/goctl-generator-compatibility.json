@@ -19,8 +19,8 @@
       "gate": "make goctl-generator-compat-check",
       "implementation": ["cmd/gofly/internal/generator/service_scaffold_ir.go"],
       "tests": ["cmd/gofly/internal/generator/service_scaffold_test.go"],
-      "evidence": ["ProfileGoZeroCompatible", "goctl-layout", "route-layout-boundary"],
-      "rollbackNote": "Rollback by pinning generated projects to the previous profile and keeping route-layout-boundary evidence attached."
+      "evidence": ["ProfileGoZeroCompatible", "gozero-semantics", "route-layout-boundary"],
+      "rollbackNote": "Rollback by pinning generated projects to the previous profile while preserving the gofly-native route-layout boundary."
     },
     {
       "id": "goctl-compatible-flags",
@@ -64,8 +64,8 @@
       "gate": "make goctl-generator-compat-check",
       "implementation": ["cmd/gofly/internal/generator/service_scaffold_ir.go"],
       "tests": ["cmd/gofly/internal/generator/service_scaffold_test.go"],
-      "evidence": ["route-layout-boundary", "goctl-layout", "ProfileGoZeroCompatible"],
-      "rollbackNote": "Rollback by keeping the goctl-compatible route layout boundary and discarding incompatible generated route moves."
+      "evidence": ["route-layout-boundary", "gozero-semantics", "ProfileGoZeroCompatible"],
+      "rollbackNote": "Rollback by keeping the gofly-native route layout boundary and discarding incompatible generated route moves."
     },
     {
       "id": "goctl-api-flag-parity",

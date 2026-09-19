@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	flygrpc "github.com/imajinyun/gofly/rpc/grpc"
 	"github.com/zeromicro/go-zero/core/proc"
 	"github.com/zeromicro/go-zero/core/service"
 	"github.com/zeromicro/go-zero/zrpc"
@@ -20,6 +19,8 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/wrapperspb"
+
+	flygrpc "github.com/imajinyun/gofly/rpc/grpc"
 )
 
 const (

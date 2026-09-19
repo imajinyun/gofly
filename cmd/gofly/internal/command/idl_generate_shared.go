@@ -33,8 +33,9 @@ func buildIDLGeneratePlan(command string, inputs map[string]string, plugins []st
 	}
 }
 
-func registerGoctlTemplateFlags(fs *flag.FlagSet) {
-	fs.String("style", "go_zero", "scaffold style option")
+func registerGoctlTemplateFlags(fs *flag.FlagSet) *string {
+	style := fs.String("style", "go_zero", "scaffold style option")
 	registerTemplateSourceFlags(fs, "", "", "")
 	fs.Bool("multiple", false, "generate multiple service packages")
+	return style
 }

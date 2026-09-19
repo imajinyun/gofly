@@ -16,7 +16,8 @@ else:
     for term in (
         '## 30-minute migration path',
         'examples/migration/gozero-basic',
-        'goctl-compatible migration path, not a full goctl replacement',
+        'go-zero-compatible behavior and configuration',
+        'not a goctl layout clone or a full goctl replacement',
         'make goctl-generator-compat-check',
         'make goctl-real-project-replay-check',
         'make goctl-model-parity-replay-check',

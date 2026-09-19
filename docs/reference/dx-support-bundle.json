@@ -409,7 +409,7 @@
         "source": "docs/reference/framework-gap-adopter-proof.json",
         "example": "examples/goctl-model/cache-local",
         "gate": "make goctl-generator-compat-check",
-        "rollbackAction": "Rollback by pinning goctl-compatible generation until compatibility evidence passes.",
+        "rollbackAction": "Rollback by pinning the previous go-zero-compatible behavior and gofly-native generated layout until compatibility evidence passes.",
         "supportBundleAction": "Run gofly bug --json with generated compatibility evidence."
       },
       {

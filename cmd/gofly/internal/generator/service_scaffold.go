@@ -52,7 +52,7 @@ func GenerateServiceScaffold(opts ServiceScaffoldOptions) error {
 func validateNativeGRPCToolchain() error {
 	for _, tool := range []string{"protoc", "protoc-gen-go", "protoc-gen-go-grpc"} {
 		if _, err := exec.LookPath(tool); err != nil {
-			return fmt.Errorf("generate gozero-compatible gRPC scaffold: %s is required: %w", tool, err)
+			return fmt.Errorf("generate native gRPC scaffold: %s is required: %w", tool, err)
 		}
 	}
 	return nil

@@ -44,6 +44,120 @@ func TestContextBindRequest(t *testing.T) {
 	}
 }
 
+func TestContextBindGoZeroRequestTagSemantics(t *testing.T) {
+	type request struct {
+		Tenant string `header:"X-Tenant"`
+		ID     int    `path:"id,range=[1:100]"`
+		Page   int    `form:"page,default=2,range=[1:10]"`
+		//nolint:staticcheck // go-zero mapping intentionally extends JSON tag options.
+		Status string `json:"status,options=pending|paid"`
+		//nolint:staticcheck // go-zero mapping intentionally extends JSON tag options.
+		Note string `json:"note,optional"`
+	}
+
+	tests := []struct {
+		name       string
+		tenant     string
+		id         string
+		query      string
+		body       string
+		wantPage   int
+		wantStatus string
+		wantErr    string
+	}{
+		{name: "applies default and accepts allowed value", tenant: "tenant-a", id: "7", body: `{"status":"paid"}`, wantPage: 2, wantStatus: "paid"},
+		{name: "accepts explicit value in range", tenant: "tenant-a", id: "7", query: "?page=9", body: `{"status":"pending"}`, wantPage: 9, wantStatus: "pending"},
+		{name: "rejects missing required header", id: "7", body: `{"status":"paid"}`, wantErr: "field Tenant failed required validation"},
+		{name: "rejects option outside allowlist", tenant: "tenant-a", id: "7", body: `{"status":"canceled"}`, wantErr: "field Status failed options=pending|paid validation"},
+		{name: "rejects value outside range", tenant: "tenant-a", id: "7", query: "?page=11", body: `{"status":"paid"}`, wantErr: "field Page failed range validation"},
+		{name: "rejects missing required json field", tenant: "tenant-a", id: "7", body: `{}`, wantErr: "field Status failed required validation"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/orders/"+tt.id+tt.query, strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			if tt.tenant != "" {
+				req.Header.Set("X-Tenant", tt.tenant)
+			}
+			req.SetPathValue("id", tt.id)
+			ctx := &Context{Request: req, Response: httptest.NewRecorder()}
+			var got request
+			err := ctx.BindGoZeroRequest(&got)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("BindGoZeroRequest error = %v, want %q", err, tt.wantErr)
+				}
+				if coreerrors.CodeOf(err) != coreerrors.CodeInvalidArgument {
+					t.Fatalf("BindGoZeroRequest code = %s, want invalid_argument", coreerrors.CodeOf(err))
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("BindGoZeroRequest: %v", err)
+			}
+			if got.Tenant != tt.tenant || got.ID != 7 || got.Page != tt.wantPage || got.Status != tt.wantStatus {
+				t.Fatalf("bound request = %+v", got)
+			}
+		})
+	}
+}
+
+func TestContextBindGoZeroRequestMatchesHTTPSourceSemantics(t *testing.T) {
+	t.Run("GET validates JSON tags without requiring a body", func(t *testing.T) {
+		type request struct {
+			Query string `form:"query,optional"`
+			//nolint:staticcheck // go-zero mapping intentionally extends JSON tag options.
+			Body string `json:"body,optional"`
+		}
+		req := httptest.NewRequest(http.MethodGet, "/search?query=gofly", nil)
+		var got request
+		if err := BindGoZeroRequest(req, &got); err != nil {
+			t.Fatalf("BindGoZeroRequest: %v", err)
+		}
+		if got.Query != "gofly" || got.Body != "" {
+			t.Fatalf("bound request = %+v", got)
+		}
+	})
+
+	t.Run("POST form values are bound without JSON decoding", func(t *testing.T) {
+		type request struct {
+			Page int `form:"page,range=[1:10]"`
+		}
+		req := httptest.NewRequest(http.MethodPost, "/search", strings.NewReader("page=3"))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		var got request
+		if err := BindGoZeroRequest(req, &got); err != nil {
+			t.Fatalf("BindGoZeroRequest: %v", err)
+		}
+		if got.Page != 3 {
+			t.Fatalf("Page = %d, want 3", got.Page)
+		}
+	})
+
+	t.Run("empty form values are absent", func(t *testing.T) {
+		type request struct {
+			Page int `form:"page,optional"`
+		}
+		req := httptest.NewRequest(http.MethodGet, "/search?page=", nil)
+		var got request
+		if err := BindGoZeroRequest(req, &got); err != nil {
+			t.Fatalf("BindGoZeroRequest: %v", err)
+		}
+		if got.Page != 0 {
+			t.Fatalf("Page = %d, want zero", got.Page)
+		}
+	})
+}
+
+func TestParseGoZeroFieldTagRejectsUnsafeModifiers(t *testing.T) {
+	for _, raw := range []string{"age,range=[1:2", "age,range=[x:2]", "age,range=(2:2]", "age,optional=other", "role,options="} {
+		if _, _, err := parseGoZeroFieldTag(raw); err == nil {
+			t.Fatalf("parseGoZeroFieldTag(%q) succeeded, want error", raw)
+		}
+	}
+}
+
 func TestValidationFailuresErrorAndDefensiveCopy(t *testing.T) {
 	var empty ValidationFailures
 	if got := empty.Error(); got != "validation failed" {

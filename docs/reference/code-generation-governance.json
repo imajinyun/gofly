@@ -32,7 +32,7 @@
     {
       "id": "api-generator",
       "commands": ["gofly api new", "gofly api import", "gofly api diff"],
-      "risk": "API generation must preserve route layout, JSON envelopes, and import/diff behavior across goctl-compatible profiles",
+      "risk": "API generation must preserve the gofly-native route layout, JSON envelopes, and import/diff behavior across go-zero-compatible behavior profiles",
       "gate": "make goctl-generator-compat-check",
       "tests": ["TestExecuteAPINewWithGoZeroCompatibleProfile", "TestExecuteAPINewAcceptsGoctlReservedFlags", "TestIDLGenerateCommandsEmitJSONEnvelope"],
       "evidence": ["cmd/gofly/internal/command/idl_test.go", "cmd/gofly/internal/generator/api_codegen.go"]

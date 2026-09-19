@@ -10,7 +10,7 @@
     {
       "id": "go-zero-to-gofly",
       "example": "examples/goctl-model/cache-local",
-      "rollbackAction": "Keep goctl-compatible generated output pinned until gofly compatibility gates pass."
+      "rollbackAction": "Keep the previous go-zero-compatible behavior and gofly-native generated layout pinned until compatibility gates pass."
     },
     {
       "id": "kratos-to-gofly",

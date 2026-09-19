@@ -127,6 +127,28 @@ func (b *Breaker) DoWithAcceptable(ctx context.Context, fn func() error, accepta
 	return err
 }
 
+// Begin reserves permission for work whose result is reported asynchronously.
+// The returned completion function must be called exactly once with the final
+// outcome; repeated calls are ignored.
+func (b *Breaker) Begin(ctx context.Context) (func(bool), error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := b.allowProbe(); err != nil {
+		return nil, err
+	}
+	var once sync.Once
+	return func(success bool) {
+		once.Do(func() {
+			if success {
+				b.accept()
+				return
+			}
+			b.reject()
+		})
+	}, nil
+}
+
 // allowProbe reserves the single half-open probe for call paths that will
 // report a terminal result through accept or reject. Allow intentionally does
 // not reserve a probe to preserve its historic check-only contract.
@@ -210,16 +232,17 @@ type bucket struct {
 }
 
 type AdaptiveBreaker struct {
-	mu           sync.Mutex
-	state        State
-	openedAt     time.Time
-	openTimeout  time.Duration
-	window       time.Duration
-	bucketSize   time.Duration
-	buckets      []bucket
-	minRequests  int64
-	failureRatio float64
-	k            float64
+	mu            sync.Mutex
+	state         State
+	openedAt      time.Time
+	openTimeout   time.Duration
+	window        time.Duration
+	bucketSize    time.Duration
+	buckets       []bucket
+	minRequests   int64
+	failureRatio  float64
+	k             float64
+	halfOpenProbe bool
 }
 
 type BreakerSnapshot struct {
@@ -394,16 +417,74 @@ func (b *AdaptiveBreaker) Do(ctx context.Context, fn func() error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := b.Allow(); err != nil {
+	if err := b.allowProbe(); err != nil {
 		return err
 	}
+	settled := false
+	defer func() {
+		if !settled {
+			b.releaseProbe()
+		}
+	}()
 	err := fn()
+	settled = true
 	if err != nil {
 		b.MarkFailure()
 		return err
 	}
 	b.MarkSuccess()
 	return nil
+}
+
+// Begin reserves permission for work whose result is reported asynchronously.
+// The returned completion function must be called exactly once with the final
+// outcome; repeated calls are ignored.
+func (b *AdaptiveBreaker) Begin(ctx context.Context) (func(bool), error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := b.allowProbe(); err != nil {
+		return nil, err
+	}
+	var once sync.Once
+	return func(success bool) {
+		once.Do(func() {
+			if success {
+				b.MarkSuccess()
+				return
+			}
+			b.MarkFailure()
+		})
+	}, nil
+}
+
+func (b *AdaptiveBreaker) allowProbe() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	now := time.Now()
+	b.refreshLocked(now)
+	if b.state == Open {
+		return ErrOpen
+	}
+	if b.state == Closed && b.shouldOpenLocked(now) {
+		b.openLocked(now)
+		return ErrOpen
+	}
+	if b.state == HalfOpen {
+		if b.halfOpenProbe {
+			return ErrOpen
+		}
+		b.halfOpenProbe = true
+	}
+	return nil
+}
+
+func (b *AdaptiveBreaker) releaseProbe() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.state == HalfOpen {
+		b.halfOpenProbe = false
+	}
 }
 
 func (b *AdaptiveBreaker) MarkSuccess() {
@@ -416,6 +497,7 @@ func (b *AdaptiveBreaker) MarkSuccess() {
 	current.success++
 	if b.state == HalfOpen {
 		b.state = Closed
+		b.halfOpenProbe = false
 		b.resetLocked()
 	}
 }
@@ -477,6 +559,7 @@ func (b *AdaptiveBreaker) currentBucketLocked(now time.Time) *bucket {
 func (b *AdaptiveBreaker) openLocked(now time.Time) {
 	b.state = Open
 	b.openedAt = now
+	b.halfOpenProbe = false
 }
 
 func (b *AdaptiveBreaker) resetLocked() {

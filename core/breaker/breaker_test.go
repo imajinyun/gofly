@@ -128,6 +128,32 @@ func TestBreakerMarkSuccessAndFailure(t *testing.T) {
 	}
 }
 
+func TestBreakerBeginSettlesOnceAndReservesHalfOpenProbe(t *testing.T) {
+	brk := New(WithFailureThreshold(1), WithOpenTimeout(time.Millisecond))
+	complete, err := brk.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	complete(false)
+	complete(true)
+	if state := brk.State(); state != Open {
+		t.Fatalf("state after failed completion = %s, want open", state)
+	}
+
+	time.Sleep(2 * time.Millisecond)
+	probe, err := brk.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := brk.Begin(t.Context()); !errors.Is(err, ErrOpen) {
+		t.Fatalf("concurrent half-open Begin = %v, want ErrOpen", err)
+	}
+	probe(true)
+	if state := brk.State(); state != Closed {
+		t.Fatalf("state after successful completion = %s, want closed", state)
+	}
+}
+
 func TestAdaptiveBreakerOpensAndRecovers(t *testing.T) {
 	brk := NewAdaptive(
 		WithAdaptiveMinRequests(2),
@@ -153,6 +179,91 @@ func TestAdaptiveBreakerOpensAndRecovers(t *testing.T) {
 	}
 	if brk.State() != Closed {
 		t.Fatalf("state after half-open success = %v, want Closed", brk.State())
+	}
+}
+
+func TestAdaptiveBreakerBeginReservesHalfOpenProbe(t *testing.T) {
+	brk := NewAdaptive(
+		WithAdaptiveMinRequests(1),
+		WithAdaptiveFailureRatio(0.1),
+		WithAdaptiveK(1),
+		WithAdaptiveOpenTimeout(time.Millisecond),
+	)
+	complete, err := brk.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	complete(false)
+	complete(true)
+	if state := brk.State(); state != Open {
+		t.Fatalf("state after failed completion = %s, want open", state)
+	}
+
+	time.Sleep(2 * time.Millisecond)
+	probe, err := brk.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := brk.Begin(t.Context()); !errors.Is(err, ErrOpen) {
+		t.Fatalf("concurrent half-open Begin = %v, want ErrOpen", err)
+	}
+	probe(true)
+	if state := brk.State(); state != Closed {
+		t.Fatalf("state after successful completion = %s, want closed", state)
+	}
+}
+
+func TestAdaptiveBreakerHalfOpenAllowsOnlyOneDoProbe(t *testing.T) {
+	brk := NewAdaptive(
+		WithAdaptiveMinRequests(1),
+		WithAdaptiveFailureRatio(0.1),
+		WithAdaptiveK(1),
+		WithAdaptiveOpenTimeout(time.Millisecond),
+	)
+	_ = brk.Do(t.Context(), func() error { return errors.New("backend unavailable") })
+	time.Sleep(2 * time.Millisecond)
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- brk.Do(t.Context(), func() error {
+			close(started)
+			<-release
+			return nil
+		})
+	}()
+	<-started
+	if err := brk.Do(t.Context(), func() error { return nil }); !errors.Is(err, ErrOpen) {
+		t.Fatalf("concurrent half-open Do = %v, want ErrOpen", err)
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("half-open probe error = %v, want nil", err)
+	}
+}
+
+func TestAdaptiveBreakerHalfOpenReleasesProbeAfterPanic(t *testing.T) {
+	brk := NewAdaptive(
+		WithAdaptiveMinRequests(1),
+		WithAdaptiveFailureRatio(0.1),
+		WithAdaptiveK(1),
+		WithAdaptiveOpenTimeout(time.Millisecond),
+	)
+	_ = brk.Do(t.Context(), func() error { return errors.New("backend unavailable") })
+	time.Sleep(2 * time.Millisecond)
+
+	func() {
+		defer func() {
+			if recovered := recover(); recovered == nil {
+				t.Fatal("expected probe function to panic")
+			}
+		}()
+		_ = brk.Do(t.Context(), func() error { panic("boom") })
+	}()
+
+	if err := brk.Do(t.Context(), func() error { return nil }); err != nil {
+		t.Fatalf("probe after panic = %v, want nil", err)
 	}
 }
 

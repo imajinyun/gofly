@@ -8,13 +8,14 @@ import (
 	"testing"
 	"time"
 
-	flygrpc "github.com/imajinyun/gofly/rpc/grpc"
 	"github.com/zeromicro/go-zero/core/proc"
 	"github.com/zeromicro/go-zero/core/service"
 	"github.com/zeromicro/go-zero/zrpc"
 	stdgrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/protobuf/types/known/wrapperspb"
+
+	flygrpc "github.com/imajinyun/gofly/rpc/grpc"
 )
 
 const echoMethod = "/interop.Echo/Call"

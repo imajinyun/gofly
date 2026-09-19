@@ -12,12 +12,13 @@ manifest_path = root / "docs" / "reference" / "goctl-api-flag-parity.json"
 missing = []
 
 required_surfaces = {
+    "api-go-style-profile": "implemented",
     "api-go-test": "implemented",
     "api-go-type-group": "implemented",
     "api-format-stdin": "implemented",
     "api-format-declare": "implemented",
 }
-required_flags = {"test", "type-group", "stdin", "declare"}
+required_flags = {"style", "profile", "test", "type-group", "stdin", "declare"}
 required_diff_categories = {
     "same-contract",
     "compatible-flag",
@@ -85,7 +86,7 @@ for source in manifest.get("sourceOfTruth") or []:
     require((root / source).exists(), f"sourceOfTruth path missing: {source}")
 
 policy = manifest.get("compatibilityPolicy") or {}
-for key in ("apiGoTest", "apiGoTypeGroup", "apiFormatStdin", "apiFormatDeclare"):
+for key in ("apiGoStyle", "apiGoTest", "apiGoTypeGroup", "apiFormatStdin", "apiFormatDeclare"):
     require(len(str(policy.get(key) or "").split()) >= 8, f"compatibilityPolicy.{key} must be actionable")
 require("skips missing type declaration checks" in str(policy.get("apiFormatDeclare") or ""), "apiFormatDeclare policy must describe missing type declaration behavior")
 
@@ -136,6 +137,7 @@ for needle in (
     require(needle in generator_text or needle in from_gozero_text or needle in makefile or needle in json.dumps(manifest), f"API flag parity evidence missing {needle!r}")
 
 for needle in (
+    "resolveAPIGenerationProfile",
     'fs.Bool("test"',
     'fs.Bool("type-group"',
     "Test: *test",
@@ -152,6 +154,8 @@ for needle in (
     require(needle in api_format_command, f"api format command missing {needle!r}")
 
 for needle in (
+    "writeGoZeroAPIGroupedTypesFiles",
+    "writeGoZeroAPIHandlerTestFile",
     "if opts.TypeGroup",
     "if opts.Test",
     "types_\"+lowerSnake",
@@ -164,6 +168,9 @@ for needle in (
 
 for needle in (
     "TestExecuteAPIGenAcceptsGoctlTemplateFlags",
+    "TestExecuteAPIGenStyleAndProfileAreEquivalent",
+    "TestExecuteAPIGenRejectsConflictingStyleAndProfile",
+    "TestGenerateRESTFromAPIGoZeroCompatibleHonorsTypeGroupAndTest",
     "TestAPIFormatStdinAndControlPlaneVerificationCoverageBuffer",
     "TestFormatAPIFromFileDeclareSkipsMissingTypeDeclaration",
     "TestExecuteAPIFormatAndDoc",

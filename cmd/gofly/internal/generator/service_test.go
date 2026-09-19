@@ -1425,27 +1425,27 @@ func TestServiceFilesForProfileCoverageBuffer(t *testing.T) {
 			wantAbsent: []string{"Dockerfile", "Makefile", filepath.Join("internal", "admin", "admin.go")},
 		},
 		{
-			name:    "go zero basic profile uses goctl layout and release assets",
+			name:    "go zero basic profile keeps native layout and release assets",
 			style:   ServiceStyleBasic,
 			profile: ProfileGoZeroCompatible,
 			want: []string{
 				"Dockerfile",
 				"Makefile",
-				filepath.Join("internal", "svc", "servicecontext.go"),
-				filepath.Join("internal", "app", "pinglogic.go"),
-				filepath.Join("internal", "api", "http", "routes.go"),
+				filepath.Join("internal", "svc", "service_context.go"),
+				filepath.Join("internal", "app", "ping.go"),
+				filepath.Join("internal", "routes", "routes.go"),
 			},
-			wantAbsent: []string{filepath.Join("internal", "routes", "routes.go"), filepath.Join("internal", "compat", "kitex", "adapter.go")},
+			wantAbsent: []string{filepath.Join("internal", "logic"), filepath.Join("internal", "types"), filepath.Join("internal", "compat", "kitex", "adapter.go")},
 		},
 		{
 			name:    "go zero minimal profile omits docker and makefile",
 			style:   ServiceStyleMinimal,
 			profile: ProfileGoZeroCompatible,
 			want: []string{
-				filepath.Join("internal", "types", "types.go"),
-				filepath.Join("internal", "api", "http", "pinghandler.go"),
+				filepath.Join("internal", "app", "ping.go"),
+				filepath.Join("internal", "api", "http", "v1", "ping", "ping.go"),
 			},
-			wantAbsent: []string{"Dockerfile", "Makefile"},
+			wantAbsent: []string{"Dockerfile", "Makefile", filepath.Join("internal", "types"), filepath.Join("internal", "logic")},
 		},
 	}
 	for _, tt := range tests {
@@ -3472,82 +3472,65 @@ func TestGenerateServiceScaffoldGoZeroCompatibleLayeredOutput(t *testing.T) {
 
 	for _, rel := range []string{
 		filepath.Join("cmd", "hello", "main.go"),
-		filepath.Join("internal", "api", "http", "routes.go"),
-		filepath.Join("internal", "api", "http", "pinghandler.go"),
-		filepath.Join("internal", "app", "pinglogic.go"),
-		filepath.Join("internal", "svc", "servicecontext.go"),
-		filepath.Join("internal", "types", "types.go"),
+		filepath.Join("internal", "routes", "routes.go"),
+		filepath.Join("internal", "api", "http", "v1", "ping", "ping.go"),
+		filepath.Join("internal", "app", "ping.go"),
+		filepath.Join("internal", "svc", "service_context.go"),
+		filepath.Join("internal", "compat", "gozero", "adapter.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
 			t.Fatalf("expected gozero-compatible generated file %s: %v", rel, err)
 		}
 	}
 	for _, rel := range []string{
-		filepath.Join("internal", "routes", "routes.go"),
-		filepath.Join("internal", "api", "v1", "ping", "ping.go"),
-		filepath.Join("internal", "service", "ping.go"),
-		filepath.Join("internal", "service", "ping_test.go"),
+		filepath.Join("internal", "api", "http", "routes.go"),
+		filepath.Join("internal", "logic"),
+		filepath.Join("internal", "types"),
+		filepath.Join("internal", "svc", "servicecontext.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err == nil {
 			t.Fatalf("unexpected legacy scaffold file %s", rel)
 		}
 	}
 
-	handlerData, err := os.ReadFile(filepath.Join(dir, "internal", "api", "http", "pinghandler.go"))
+	handlerData, err := os.ReadFile(filepath.Join(dir, "internal", "api", "http", "v1", "ping", "ping.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"package api",
+		"package ping",
 		`"example.com/hello/internal/app"`,
-		`"example.com/hello/internal/types"`,
-		"ctx.BindQuery(&req)",
-		"app.NewPingLogic(ctx.Request.Context(), svcCtx).Ping(&req)",
+		"app.Ping()",
 	} {
 		if !strings.Contains(string(handlerData), want) {
 			t.Fatalf("pinghandler.go missing %q:\n%s", want, handlerData)
 		}
 	}
 
-	logicData, err := os.ReadFile(filepath.Join(dir, "internal", "app", "pinglogic.go"))
+	logicData, err := os.ReadFile(filepath.Join(dir, "internal", "app", "ping.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
 		"package app",
-		"type PingLogic struct",
-		"func NewPingLogic(ctx context.Context, svcCtx *svc.ServiceContext) *PingLogic",
-		`return &types.PingResponse{Message: "hello " + name}, nil`,
+		"type PingResponse struct",
+		"func Ping() PingResponse",
+		`return PingResponse{Message: "pong"}`,
 	} {
 		if !strings.Contains(string(logicData), want) {
 			t.Fatalf("pinglogic.go missing %q:\n%s", want, logicData)
 		}
 	}
 
-	typesData, err := os.ReadFile(filepath.Join(dir, "internal", "types", "types.go"))
+	routesData, err := os.ReadFile(filepath.Join(dir, "internal", "routes", "routes.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"package types",
-		"type PingRequest struct",
-		"type PingResponse struct",
-		`json:"name,optional" form:"name,optional"`,
-	} {
-		if !strings.Contains(string(typesData), want) {
-			t.Fatalf("types.go missing %q:\n%s", want, typesData)
-		}
-	}
-
-	routesData, err := os.ReadFile(filepath.Join(dir, "internal", "api", "http", "routes.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{
-		"package api",
-		"func RegisterHandlers(server *rest.Server, svcCtx *svc.ServiceContext)",
-		`Path: "/ping"`,
-		`rest.WithPrefix("/api/v1")`,
+		"package routes",
+		"func RegisterRoutes(server *rest.Server, svcCtx *svc.ServiceContext)",
+		`api := server.Group("/api")`,
+		`Path: "/v1/ping"`,
 	} {
 		if !strings.Contains(string(routesData), want) {
 			t.Fatalf("routes.go missing %q:\n%s", want, routesData)
@@ -3559,8 +3542,8 @@ func TestGenerateServiceScaffoldGoZeroCompatibleLayeredOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`api "example.com/hello/internal/api/http"`,
-		"api.RegisterHandlers(httpServer, svcCtx)",
+		`"example.com/hello/internal/routes"`,
+		"routes.RegisterRoutes(httpServer, svcCtx)",
 		"svc.NewServiceContext(c)",
 	} {
 		if !strings.Contains(string(mainData), want) {

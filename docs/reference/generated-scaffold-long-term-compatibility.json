@@ -140,7 +140,7 @@
       "surface": "profile",
       "evidence": ["docs/reference/goctl-generator-compatibility.json"],
       "gate": "make goctl-generator-compat-check",
-      "rollbackOrEscalation": "Rollback by pinning the goctl-compatible profile and discarding incompatible profile changes."
+      "rollbackOrEscalation": "Rollback by pinning the go-zero-compatible behavior profile while preserving the gofly-native layout."
     },
     {
       "id": "route-layout-boundary",
@@ -208,8 +208,8 @@
     {
       "id": "goctl-compatibility-review",
       "command": "make goctl-generator-compat-check",
-      "expectedEvidence": "goctl-compatible profile, flags, route layout, and API tooling remain covered by runnable tests.",
-      "rollbackOrEscalation": "Rollback by preserving old goctl-compatible behavior until migration guidance is available."
+      "expectedEvidence": "go-zero-compatible behavior, goctl-style flags, gofly-native route layout, and API tooling remain covered by runnable tests.",
+      "rollbackOrEscalation": "Rollback by preserving the previous compatibility behavior and native layout until migration guidance is available."
     },
     {
       "id": "importer-compatibility-review",

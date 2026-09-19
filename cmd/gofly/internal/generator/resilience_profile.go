@@ -13,6 +13,34 @@ const (
 	generatedGovernanceBreakerWindowNS = "30000000000"
 )
 
+type generatedRPCMethodRule struct {
+	Service string
+	Method  string
+}
+
+func generatedRPCMethodTimeoutRuleName(method generatedRPCMethodRule) string {
+	return strings.ReplaceAll(lowerSnake(method.Service+"_"+method.Method), "_", "-") + "-timeout"
+}
+
+func generatedRPCMethodTimeoutRulesJSON(methods []generatedRPCMethodRule) string {
+	var rules strings.Builder
+	rules.WriteByte('[')
+	for index, method := range methods {
+		if index > 0 {
+			rules.WriteByte(',')
+		}
+		rules.WriteString(`{"name":`)
+		rules.WriteString(strconv.Quote(generatedRPCMethodTimeoutRuleName(method)))
+		rules.WriteString(`,"priority":-1000,"transport":"rpc","service":`)
+		rules.WriteString(strconv.Quote(method.Service))
+		rules.WriteString(`,"method":`)
+		rules.WriteString(strconv.Quote(method.Method))
+		rules.WriteString(`,"policy":{"timeout":2000000000}}`)
+	}
+	rules.WriteByte(']')
+	return rules.String()
+}
+
 func withGeneratedResilienceTemplateData(data map[string]string, serviceName string) map[string]string {
 	if data == nil {
 		data = map[string]string{}

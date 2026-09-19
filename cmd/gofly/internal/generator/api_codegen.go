@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"go.yaml.in/yaml/v2"
 )
@@ -137,20 +138,14 @@ func GenerateRESTFromAPI(opts APIOptions) error {
 	if err != nil {
 		return err
 	}
+	if err := ValidateAPI(doc); err != nil {
+		return err
+	}
 	profile, err := normalizeGenerationProfile(opts.Profile)
 	if err != nil {
 		return err
 	}
 	if profile == ProfileGoZeroCompatible {
-		baseOpts := opts
-		baseOpts.Dir = filepath.Join(baseOpts.Dir, "internal", "api", "http")
-		if strings.TrimSpace(baseOpts.Package) == "" {
-			baseOpts.Package = "api"
-		}
-		baseOpts.Package = lowerName(baseOpts.Package)
-		if err := writeRESTFiles(doc, baseOpts); err != nil {
-			return err
-		}
 		return writeGoZeroCompatibleRESTFiles(doc, opts)
 	}
 	opts.Dir = filepath.Join(opts.Dir, "internal", "api", "http")
@@ -2429,16 +2424,7 @@ func openAPIResponsesForMethod(method IDLMethod, doc IDLDocument, messageNames m
 		response["description"] = "OK"
 	}
 	responses := map[string]any{strconv.Itoa(statusCode): response}
-	for _, item := range strings.Split(method.Doc["responses"], "<br>") {
-		codeText, description, ok := strings.Cut(strings.TrimSpace(item), "-")
-		if !ok {
-			continue
-		}
-		code, ok := apiResponseStatusCode(strings.TrimSpace(codeText))
-		if !ok {
-			continue
-		}
-		description = strings.TrimSpace(description)
+	for code, description := range apiResponseDescriptions(method) {
 		key := strconv.Itoa(code)
 		if code == statusCode {
 			if description != "" {
@@ -2449,6 +2435,21 @@ func openAPIResponsesForMethod(method IDLMethod, doc IDLDocument, messageNames m
 		responses[key] = map[string]any{"description": description}
 	}
 	return responses
+}
+
+func apiResponseDescriptions(method IDLMethod) map[int]string {
+	descriptions := make(map[int]string)
+	for _, item := range strings.Split(method.Doc["responses"], "<br>") {
+		codeText, description, ok := strings.Cut(strings.TrimSpace(item), "-")
+		if !ok {
+			continue
+		}
+		code, ok := apiResponseStatusCode(strings.TrimSpace(codeText))
+		if ok {
+			descriptions[code] = strings.TrimSpace(description)
+		}
+	}
+	return descriptions
 }
 
 func openAPITags(doc IDLDocument) []map[string]any {
@@ -3065,10 +3066,16 @@ func writeGoZeroCompatibleRESTFiles(doc IDLDocument, opts APIOptions) error {
 	if err != nil {
 		return fmt.Errorf("infer api module: %w", err)
 	}
-	if err := writeGoZeroAPITypesFile(opts.Dir, doc); err != nil {
+	if err := writeGoZeroAPITypesFiles(opts.Dir, doc, opts.TypeGroup); err != nil {
 		return err
 	}
-	expected := expectedGoZeroAPIBusinessFiles(doc.Services)
+	jwtNames := goZeroAPIJWTNames(doc.Services)
+	signatureNames := goZeroAPISignatureNames(doc.Services)
+	if err := writeGoZeroAPIConfigFiles(opts.Dir, doc.Services[0].Name, jwtNames, signatureNames); err != nil {
+		return err
+	}
+	services := goZeroAPIRouteServices(opts.Dir, doc.Services)
+	expected := expectedGoZeroAPIBusinessFiles(services)
 	middlewares := goZeroAPIServiceMiddlewares(doc.Services)
 	if err := writeGoZeroAPIMiddlewareFiles(opts.Dir, middlewares); err != nil {
 		return err
@@ -3076,35 +3083,176 @@ func writeGoZeroCompatibleRESTFiles(doc IDLDocument, opts APIOptions) error {
 	if err := writeGoZeroAPIServiceContextFile(opts.Dir, module, middlewares); err != nil {
 		return err
 	}
-	if err := writeGoZeroAPIMainFile(opts.Dir, module, doc.Services[0].Name); err != nil {
+	if err := writeGoZeroAPIMainFile(opts.Dir, module, doc.Services[0].Name, jwtNames); err != nil {
 		return err
 	}
-	for _, svc := range doc.Services {
+	for _, svc := range services {
+		group := goflyAPIServiceGroup(svc)
 		for _, method := range svc.Methods {
-			if err := writeGoZeroAPILogicFile(opts.Dir, module, svc.Server.Group, method); err != nil {
+			if err := writeGoZeroAPILogicFile(opts.Dir, module, group, method); err != nil {
 				return err
 			}
-			if err := writeGoZeroAPIHandlerFile(opts.Dir, module, svc.Server.Group, method); err != nil {
+			if err := writeGoZeroAPIHandlerFile(opts.Dir, module, group, method, goZeroAPIServerBool(svc.Server, "sse")); err != nil {
 				return err
+			}
+			if opts.Test {
+				if err := writeGoZeroAPIHandlerTestFile(opts.Dir, module, group, method); err != nil {
+					return err
+				}
 			}
 		}
 	}
-	if err := writeGoZeroAPIRoutesFile(opts.Dir, module, doc.Services); err != nil {
+	if err := writeGoZeroAPIRoutesFile(opts.Dir, module, services); err != nil {
 		return err
 	}
 	return writeGoZeroAPIStaleReport(opts.Dir, expected)
 }
 
+func writeGoZeroAPITypesFiles(root string, doc IDLDocument, typeGroup bool) error {
+	if !typeGroup {
+		return writeGoZeroAPITypesFile(root, doc)
+	}
+	typesPath := filepath.Join("internal", "app", "model", "types.go")
+	if existing, err := ReadFileUnderRoot(root, typesPath, "gozero-compatible api types"); err == nil && !bytes.Contains(existing, []byte(goZeroAPIGeneratedTypesMarker)) {
+		return fmt.Errorf("cannot apply --type-group while %s is user-owned", typesPath)
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("read gozero-compatible api types: %w", err)
+	}
+	return writeGoZeroAPIGroupedTypesFiles(root, doc)
+}
+
+func writeGoZeroAPIGroupedTypesFiles(root string, doc IDLDocument) error {
+	grouped := make(map[string]map[string]IDLMessage)
+	messageGroups := make(map[string]map[string]struct{})
+	for _, service := range doc.Services {
+		group := goZeroAPITypeGroupName(service.Server.Group)
+		for _, method := range service.Methods {
+			for _, name := range []string{method.Request, method.Response} {
+				name = strings.TrimSpace(name)
+				if name == "" {
+					continue
+				}
+				if messageGroups[name] == nil {
+					messageGroups[name] = make(map[string]struct{})
+				}
+				messageGroups[exportName(name)][group] = struct{}{}
+			}
+		}
+	}
+	for _, msg := range doc.Messages {
+		group := "types"
+		if groups := messageGroups[exportName(msg.Name)]; len(groups) == 1 {
+			for name := range groups {
+				group = name
+			}
+		}
+		if grouped[group] == nil {
+			grouped[group] = make(map[string]IDLMessage)
+		}
+		grouped[group][msg.Name] = msg
+	}
+
+	groups := make([]string, 0, len(grouped))
+	for group := range grouped {
+		groups = append(groups, group)
+	}
+	sort.Strings(groups)
+	desired := make(map[string]struct{}, len(groups))
+	for _, group := range groups {
+		desired[group+".go"] = struct{}{}
+		rel := filepath.Join("internal", "app", "model", group+".go")
+		if existing, err := ReadFileUnderRoot(root, rel, "gozero-compatible grouped api types"); err == nil && !bytes.Contains(existing, []byte(goZeroAPIGeneratedTypesMarker)) {
+			return fmt.Errorf("gozero-compatible grouped types target %s is user-owned", rel)
+		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("read gozero-compatible grouped types %s: %w", rel, err)
+		}
+	}
+	if err := cleanupGoZeroAPIGeneratedTypeFiles(root, desired); err != nil {
+		return err
+	}
+	for _, group := range groups {
+		names := make([]string, 0, len(grouped[group]))
+		for name := range grouped[group] {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		var b bytes.Buffer
+		fprintf(&b, "package model\n\n")
+		fprintf(&b, "%s\n\n", goZeroAPIGeneratedTypesMarker)
+		for _, name := range names {
+			writeAPIMessage(&b, grouped[group][name])
+		}
+		formatted, err := format.Source(b.Bytes())
+		if err != nil {
+			return fmt.Errorf("format gozero-compatible grouped types %s: %w", group, err)
+		}
+		rel := filepath.Join("internal", "app", "model", group+".go")
+		if err := writeGeneratedFileUnder(root, rel, formatted); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func cleanupGoZeroAPIGeneratedTypeFiles(root string, desired map[string]struct{}) error {
+	dir, err := SafeTarget(root, filepath.Join("internal", "app", "model"), "gozero-compatible api types")
+	if err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read gozero-compatible api types directory: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || filepath.Ext(entry.Name()) != ".go" {
+			continue
+		}
+		if _, ok := desired[entry.Name()]; ok {
+			continue
+		}
+		rel := filepath.Join("internal", "app", "model", entry.Name())
+		data, err := ReadFileUnderRoot(root, rel, "gozero-compatible api types")
+		if err != nil {
+			return err
+		}
+		if !bytes.Contains(data, []byte(goZeroAPIGeneratedTypesMarker)) {
+			continue
+		}
+		target, err := SafeTarget(root, rel, "gozero-compatible api types")
+		if err != nil {
+			return err
+		}
+		if err := os.Remove(target); err != nil {
+			return fmt.Errorf("remove obsolete gozero-compatible api types %s: %w", rel, err)
+		}
+	}
+	return nil
+}
+
+func goZeroAPITypeGroupName(group string) string {
+	group = strings.Trim(strings.TrimSpace(group), "/")
+	if group == "" {
+		return "types"
+	}
+	return lowerSnake(group)
+}
+
 func writeGoZeroAPITypesFile(root string, doc IDLDocument) error {
 	var b bytes.Buffer
-	existing, err := ReadFileUnderRoot(root, filepath.Join("internal", "types", "types.go"), "gozero-compatible api types")
+	existing, err := ReadFileUnderRoot(root, filepath.Join("internal", "app", "model", "types.go"), "gozero-compatible api types")
 	if err == nil && !bytes.Contains(existing, []byte(goZeroAPIGeneratedTypesMarker)) {
 		return appendGoZeroAPITypesFile(root, existing, doc)
 	}
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("read gozero-compatible api types: %w", err)
 	}
-	fprintf(&b, "package types\n\n")
+	if err := cleanupGoZeroAPIGeneratedTypeFiles(root, map[string]struct{}{"types.go": {}}); err != nil {
+		return err
+	}
+	fprintf(&b, "package model\n\n")
 	fprintf(&b, "%s\n\n", goZeroAPIGeneratedTypesMarker)
 	for _, msg := range doc.Messages {
 		writeAPIMessage(&b, msg)
@@ -3113,7 +3261,159 @@ func writeGoZeroAPITypesFile(root string, doc IDLDocument) error {
 	if err != nil {
 		return fmt.Errorf("format gozero-compatible api types: %w", err)
 	}
-	return writeGeneratedFileUnder(root, filepath.Join("internal", "types", "types.go"), formatted)
+	return writeGeneratedFileUnder(root, filepath.Join("internal", "app", "model", "types.go"), formatted)
+}
+
+func goZeroAPIJWTNames(services []IDLService) []string {
+	seen := make(map[string]struct{})
+	names := make([]string, 0)
+	for _, service := range services {
+		name := strings.TrimSpace(service.Server.JWT)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func goZeroAPISignatureNames(services []IDLService) []string {
+	seen := make(map[string]struct{})
+	names := make([]string, 0)
+	for _, service := range services {
+		name := strings.TrimSpace(service.Server.Values["signature"])
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func writeGoZeroAPIConfigFiles(root, serviceName string, jwtNames, signatureNames []string) error {
+	var configFile bytes.Buffer
+	fprintf(&configFile, "package config\n\n")
+	fprintf(&configFile, "import \"github.com/imajinyun/gofly/rest\"\n\n")
+	fprintf(&configFile, "type Config struct {\n\trest.Config `json:\",inline\" yaml:\",inline\"`\n}\n")
+	formatted, err := format.Source(configFile.Bytes())
+	if err != nil {
+		return fmt.Errorf("format gozero-compatible api config: %w", err)
+	}
+	if err := writeGeneratedFileUnderIfMissing(root, filepath.Join("internal", "config", "config.go"), formatted); err != nil {
+		return err
+	}
+
+	var runtimeFile bytes.Buffer
+	fprintf(&runtimeFile, "package config\n\n")
+	fprintf(&runtimeFile, "import (\n")
+	fprintf(&runtimeFile, "\t\"errors\"\n")
+	fprintf(&runtimeFile, "\t\"fmt\"\n")
+	if len(jwtNames) > 0 || len(signatureNames) > 0 {
+		fprintf(&runtimeFile, "\t\"strings\"\n")
+	}
+	if len(signatureNames) > 0 {
+		fprintf(&runtimeFile, "\t\"sync\"\n")
+	}
+	fprintf(&runtimeFile, "\t\"time\"\n\n")
+	fprintf(&runtimeFile, "\t\"github.com/imajinyun/gofly/app\"\n")
+	fprintf(&runtimeFile, "\t\"github.com/imajinyun/gofly/core/auth\"\n")
+	fprintf(&runtimeFile, "\tcoreconfig \"github.com/imajinyun/gofly/core/config\"\n")
+	fprintf(&runtimeFile, "\t\"github.com/imajinyun/gofly/rest\"\n")
+	fprintf(&runtimeFile, ")\n\n")
+	fprintf(&runtimeFile, "type apiJWTConfig struct {\n\tAccessSecret string `json:\"AccessSecret\" yaml:\"AccessSecret\"`\n}\n\n")
+	fprintf(&runtimeFile, "type apiSignatureConfig struct {\n\tSecret string `json:\"Secret\" yaml:\"Secret\"`\n\tMaxAge string `json:\"MaxAge\" yaml:\"MaxAge\"`\n}\n\n")
+	fprintf(&runtimeFile, "type apiRuntimeConfig struct {\n")
+	fprintf(&runtimeFile, "\tName string `json:\"Name\" yaml:\"Name\"`\n")
+	fprintf(&runtimeFile, "\tHost string `json:\"Host\" yaml:\"Host\"`\n")
+	fprintf(&runtimeFile, "\tPort int `json:\"Port\" yaml:\"Port\"`\n")
+	fprintf(&runtimeFile, "\tTimeout int64 `json:\"Timeout\" yaml:\"Timeout\"`\n")
+	fprintf(&runtimeFile, "\tRest rest.Config `json:\"rest\" yaml:\"rest\"`\n")
+	for index, name := range jwtNames {
+		fprintf(&runtimeFile, "\tJWT%d apiJWTConfig `json:%q yaml:%q`\n", index, name, name)
+	}
+	if len(signatureNames) > 0 {
+		fprintf(&runtimeFile, "\tSignatures map[string]apiSignatureConfig `json:\"Signatures\" yaml:\"Signatures\"`\n")
+	}
+	fprintf(&runtimeFile, "}\n\n")
+	fprintf(&runtimeFile, "var generatedRequiredJWT = %#v\n\n", jwtNames)
+	fprintf(&runtimeFile, "var generatedRequiredSignatures = %#v\n\n", signatureNames)
+	if len(signatureNames) > 0 {
+		fprintf(&runtimeFile, "var generatedSignatureRegistry struct {\n\tsync.RWMutex\n\tmiddlewares map[string]rest.Middleware\n}\n\n")
+	}
+	fprintf(&runtimeFile, "func LoadAPIRuntime(path string, defaultName string, requiredJWT []string) (Config, rest.Config, map[string]auth.Validator, error) {\n")
+	fprintf(&runtimeFile, "\tvar c Config\n")
+	fprintf(&runtimeFile, "\tif err := coreconfig.Load(path, &c, coreconfig.WithEnvExpansion()); err != nil {\n\t\treturn Config{}, rest.Config{}, nil, err\n\t}\n")
+	fprintf(&runtimeFile, "\tif validator, ok := any(&c).(interface{ validateAPIRuntime() error }); ok {\n")
+	fprintf(&runtimeFile, "\t\tif err := validator.validateAPIRuntime(); err != nil { return Config{}, rest.Config{}, nil, err }\n")
+	fprintf(&runtimeFile, "\t}\n")
+	fprintf(&runtimeFile, "\tvar runtimeConfig apiRuntimeConfig\n")
+	fprintf(&runtimeFile, "\tif err := coreconfig.Load(path, &runtimeConfig, coreconfig.WithEnvExpansion()); err != nil {\n\t\treturn Config{}, rest.Config{}, nil, err\n\t}\n")
+	fprintf(&runtimeFile, "\tconf := runtimeConfig.Rest\n")
+	fprintf(&runtimeFile, "\tif conf.Name == \"\" { conf.Name = runtimeConfig.Name }\n")
+	fprintf(&runtimeFile, "\tif conf.Name == \"\" { conf.Name = defaultName }\n")
+	fprintf(&runtimeFile, "\tif conf.Host == \"\" { conf.Host = runtimeConfig.Host }\n")
+	fprintf(&runtimeFile, "\tif conf.Port == 0 { conf.Port = runtimeConfig.Port }\n")
+	fprintf(&runtimeFile, "\tif conf.Timeout == 0 && runtimeConfig.Timeout > 0 { conf.Timeout = time.Duration(runtimeConfig.Timeout) * time.Millisecond }\n")
+	fprintf(&runtimeFile, "\tif provider, ok := any(&c).(interface{ ServiceConf() app.ServiceConf }); ok { conf = provider.ServiceConf().RESTConfig(conf) }\n")
+	fprintf(&runtimeFile, "\tif requiredJWT == nil { requiredJWT = generatedRequiredJWT }\n")
+	fprintf(&runtimeFile, "\tvalidators := make(map[string]auth.Validator, len(requiredJWT))\n")
+	for index, name := range jwtNames {
+		fprintf(&runtimeFile, "\tif secret := strings.TrimSpace(runtimeConfig.JWT%d.AccessSecret); secret != \"\" { validators[%q] = auth.JWTValidator([]byte(secret), auth.JWTOptions{}) }\n", index, name)
+	}
+	fprintf(&runtimeFile, "\tvar missing []error\n")
+	fprintf(&runtimeFile, "\tfor _, name := range requiredJWT { if validators[name] == nil { missing = append(missing, fmt.Errorf(\"JWT validator %%q requires %%s.AccessSecret\", name, name)) } }\n")
+	if len(signatureNames) > 0 {
+		fprintf(&runtimeFile, "\tsignatures := make(map[string]rest.Middleware, len(generatedRequiredSignatures))\n")
+		for _, name := range signatureNames {
+			fprintf(&runtimeFile, "\tif signatureConfig, ok := runtimeConfig.Signatures[%q]; ok { if secret := strings.TrimSpace(signatureConfig.Secret); secret != \"\" { maxAge := 5 * time.Minute; if raw := strings.TrimSpace(signatureConfig.MaxAge); raw != \"\" { parsed, err := time.ParseDuration(raw); if err != nil || parsed <= 0 { missing = append(missing, fmt.Errorf(\"signature middleware %s has invalid MaxAge %%q\", raw)) } else { maxAge = parsed } }; signatures[%q] = rest.SignatureAuthMiddleware(auth.SignatureOptions{Secret: []byte(secret), MaxAge: maxAge}) } }\n", name, name, name)
+		}
+		fprintf(&runtimeFile, "\tfor _, name := range generatedRequiredSignatures { if signatures[name] == nil { missing = append(missing, fmt.Errorf(\"signature middleware %%q requires Signatures.%%s.Secret\", name, name)) } }\n")
+	}
+	fprintf(&runtimeFile, "\tif err := errors.Join(missing...); err != nil { return Config{}, rest.Config{}, nil, err }\n")
+	if len(signatureNames) > 0 {
+		fprintf(&runtimeFile, "\tgeneratedSignatureRegistry.Lock(); generatedSignatureRegistry.middlewares = signatures; generatedSignatureRegistry.Unlock()\n")
+	}
+	fprintf(&runtimeFile, "\treturn c, conf, validators, nil\n}\n\n")
+	if len(signatureNames) > 0 {
+		fprintf(&runtimeFile, "func APISignatureMiddleware(name string) rest.Middleware {\n\tgeneratedSignatureRegistry.RLock(); defer generatedSignatureRegistry.RUnlock(); return generatedSignatureRegistry.middlewares[name]\n}\n")
+	}
+	formatted, err = format.Source(runtimeFile.Bytes())
+	if err != nil {
+		return fmt.Errorf("format gozero-compatible api runtime config: %w", err)
+	}
+	if err := writeGeneratedFileUnder(root, filepath.Join("internal", "config", "api_runtime.gen.go"), formatted); err != nil {
+		return err
+	}
+
+	var config bytes.Buffer
+	fprintf(&config, "Name: %s\nHost: 127.0.0.1\nPort: 8080\n", serviceName)
+	for _, name := range jwtNames {
+		fprintf(&config, "%s:\n  AccessSecret: \"\"\n  AccessExpire: 3600\n", name)
+	}
+	if len(signatureNames) > 0 {
+		fprintf(&config, "Signatures:\n")
+	}
+	for _, name := range signatureNames {
+		fprintf(&config, "  %s:\n    Secret: \"${%s_SECRET}\"\n    MaxAge: 5m\n", name, strings.ToUpper(strings.NewReplacer("-", "_", ".", "_").Replace(name)))
+	}
+	for _, ext := range []string{".yaml", ".yml", ".toml", ".json"} {
+		if _, err := os.Lstat(filepath.Join(root, "etc", serviceName+ext)); err == nil {
+			return nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("inspect gozero-compatible api config: %w", err)
+		}
+	}
+	return writeGeneratedFileUnderIfMissing(root, filepath.Join("etc", serviceName+".yaml"), config.Bytes())
 }
 
 const goZeroAPIGeneratedTypesMarker = "// Code generated by gofly api gen --profile gozero-compatible; DO NOT EDIT."
@@ -3136,11 +3436,11 @@ func appendGoZeroAPITypesFile(root string, existing []byte, doc IDLDocument) err
 	if err != nil {
 		return fmt.Errorf("format gozero-compatible api types: %w", err)
 	}
-	return writeGeneratedFileUnder(root, filepath.Join("internal", "types", "types.go"), formatted)
+	return writeGeneratedFileUnder(root, filepath.Join("internal", "app", "model", "types.go"), formatted)
 }
 
 func writeGoZeroAPIServiceContextFile(root string, module string, middlewares []string) error {
-	path := filepath.Join(root, "internal", "svc", "servicecontext.go")
+	path := filepath.Join(root, "internal", "svc", "service_context.go")
 	if _, err := os.Stat(path); err == nil {
 		return nil
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -3151,21 +3451,24 @@ func writeGoZeroAPIServiceContextFile(root string, module string, middlewares []
 	fprintf(&b, "import (\n")
 	fprintf(&b, "\t\"github.com/imajinyun/gofly/core/auth\"\n")
 	fprintf(&b, "\t\"github.com/imajinyun/gofly/rest\"\n")
+	fprintf(&b, "\n\t%q\n", strings.TrimRight(module, "/")+"/internal/config")
 	if len(middlewares) > 0 {
-		fprintf(&b, "\n\t%q\n", strings.TrimRight(module, "/")+"/internal/middleware")
+		fprintf(&b, "\t%q\n", strings.TrimRight(module, "/")+"/internal/middleware")
 	}
 	fprintf(&b, ")\n\n")
 	fprintf(&b, "type ServiceContext struct {\n")
+	fprintf(&b, "\tConfig        config.Config\n")
 	fprintf(&b, "\tMiddlewares  map[string]rest.Middleware\n")
 	fprintf(&b, "\tJWTValidators map[string]auth.Validator\n")
 	fprintf(&b, "}\n\n")
-	fprintf(&b, "func NewServiceContext() *ServiceContext {\n")
+	fprintf(&b, "func NewServiceContext(c config.Config) *ServiceContext {\n")
 	fprintf(&b, "\tmiddlewares := map[string]rest.Middleware{}\n")
 	for _, name := range middlewares {
 		typeName := goZeroAPIMiddlewareTypeName(name)
 		fprintf(&b, "\tmiddlewares[%q] = middleware.New%s().Middleware()\n", name, typeName)
 	}
 	fprintf(&b, "\treturn &ServiceContext{\n")
+	fprintf(&b, "\t\tConfig:        c,\n")
 	fprintf(&b, "\t\tMiddlewares:  middlewares,\n")
 	fprintf(&b, "\t\tJWTValidators: map[string]auth.Validator{},\n")
 	fprintf(&b, "\t}\n")
@@ -3174,7 +3477,7 @@ func writeGoZeroAPIServiceContextFile(root string, module string, middlewares []
 	if err != nil {
 		return fmt.Errorf("format gozero-compatible service context: %w", err)
 	}
-	return writeGeneratedFileUnder(root, filepath.Join("internal", "svc", "servicecontext.go"), formatted)
+	return writeGeneratedFileUnder(root, filepath.Join("internal", "svc", "service_context.go"), formatted)
 }
 
 func writeGoZeroAPIMiddlewareFiles(root string, names []string) error {
@@ -3211,10 +3514,9 @@ func writeGoZeroAPIMiddlewareFiles(root string, names []string) error {
 	return nil
 }
 
-func writeGoZeroAPIMainFile(root string, module string, serviceName string) error {
+func writeGoZeroAPIMainFile(root string, module string, serviceName string, jwtNames []string) error {
 	var b bytes.Buffer
 	fileName := goZeroAPIMainFileName(serviceName)
-	hasConfig := goZeroAPIConfigFileExists(root)
 	fprintf(&b, "package main\n\n")
 	fprintf(&b, "import (\n")
 	fprintf(&b, "\t\"context\"\n")
@@ -3222,24 +3524,20 @@ func writeGoZeroAPIMainFile(root string, module string, serviceName string) erro
 	fprintf(&b, "\t\"fmt\"\n")
 	fprintf(&b, "\t\"log\"\n\n")
 	fprintf(&b, "\t\"github.com/imajinyun/gofly/rest\"\n")
-	if hasConfig {
-		fprintf(&b, "\t%q\n", strings.TrimRight(module, "/")+"/internal/config")
-	}
-	fprintf(&b, "\tapi %q\n", strings.TrimRight(module, "/")+"/internal/api/http")
+	fprintf(&b, "\t%q\n", strings.TrimRight(module, "/")+"/internal/config")
+	fprintf(&b, "\t%q\n", strings.TrimRight(module, "/")+"/internal/routes")
 	fprintf(&b, "\t%q\n", strings.TrimRight(module, "/")+"/internal/svc")
 	fprintf(&b, ")\n\n")
 	fprintf(&b, "var configFile = flag.String(\"f\", \"etc/%s.yaml\", \"the config file\")\n\n", serviceName)
 	fprintf(&b, "func main() {\n")
 	fprintf(&b, "\tflag.Parse()\n")
-	fprintf(&b, "\t_ = *configFile\n\n")
-	fprintf(&b, "\tconf := rest.Config{Name: %q, Host: \"0.0.0.0\", Port: 8080}\n", serviceName)
+	fprintf(&b, "\tc, conf, validators, err := config.LoadAPIRuntime(*configFile, %q, %#v)\n", serviceName, jwtNames)
+	fprintf(&b, "\tif err != nil {\n\t\tlog.Fatalf(\"load API config: %%v\", err)\n\t}\n\n")
 	fprintf(&b, "\tserver := rest.MustNewServer(conf)\n")
 	fprintf(&b, "\tdefer func() { _ = server.Shutdown(context.Background()) }()\n\n")
-	if hasConfig {
-		fprintf(&b, "\tapi.RegisterHandlers(server, svc.NewServiceContext(config.Config{}))\n")
-	} else {
-		fprintf(&b, "\tapi.RegisterHandlers(server, svc.NewServiceContext())\n")
-	}
+	fprintf(&b, "\tstx := svc.NewServiceContext(c)\n")
+	fprintf(&b, "\tstx.JWTValidators = validators\n")
+	fprintf(&b, "\troutes.RegisterRoutes(server, stx)\n")
 	fprintf(&b, "\tfmt.Printf(\"Starting server at %%s:%%d...\\n\", conf.Host, conf.Port)\n")
 	fprintf(&b, "\tif err := server.Start(); err != nil {\n")
 	fprintf(&b, "\t\tlog.Fatal(err)\n")
@@ -3250,11 +3548,6 @@ func writeGoZeroAPIMainFile(root string, module string, serviceName string) erro
 		return fmt.Errorf("format gozero-compatible api main %s: %w", fileName, err)
 	}
 	return writeGeneratedFileUnderIfMissing(root, fileName, formatted)
-}
-
-func goZeroAPIConfigFileExists(root string) bool {
-	_, err := os.Stat(filepath.Join(root, "internal", "config", "config.go"))
-	return err == nil
 }
 
 func writeGoZeroAPILogicFile(root, module string, group string, method IDLMethod) error {
@@ -3268,7 +3561,7 @@ func writeGoZeroAPILogicFile(root, module string, group string, method IDLMethod
 	fprintf(&b, "import (\n")
 	fprintf(&b, "\t\"context\"\n\n")
 	fprintf(&b, "\t%q\n", strings.TrimRight(module, "/")+"/internal/svc")
-	fprintf(&b, "\t%q\n", strings.TrimRight(module, "/")+"/internal/types")
+	fprintf(&b, "\tappmodel %q\n", strings.TrimRight(module, "/")+"/internal/app/model")
 	fprintf(&b, ")\n\n")
 	fprintf(&b, "type %s struct {\n", logicName)
 	fprintf(&b, "\tctx context.Context\n")
@@ -3278,11 +3571,11 @@ func writeGoZeroAPILogicFile(root, module string, group string, method IDLMethod
 	fprintf(&b, "\treturn &%s{ctx: ctx, stx: stx}\n", logicName)
 	fprintf(&b, "}\n\n")
 	if strings.TrimSpace(method.Request) == "" {
-		fprintf(&b, "func (l *%s) %s() (*types.%s, error) {\n", logicName, methodName, responseName)
+		fprintf(&b, "func (l *%s) %s() (*appmodel.%s, error) {\n", logicName, methodName, responseName)
 	} else {
-		fprintf(&b, "func (l *%s) %s(req *types.%s) (*types.%s, error) {\n", logicName, methodName, requestName, responseName)
+		fprintf(&b, "func (l *%s) %s(req *appmodel.%s) (*appmodel.%s, error) {\n", logicName, methodName, requestName, responseName)
 	}
-	fprintf(&b, "\treturn &types.%s{}, nil\n", responseName)
+	fprintf(&b, "\treturn &appmodel.%s{}, nil\n", responseName)
 	fprintf(&b, "}\n")
 	formatted, err := format.Source(b.Bytes())
 	if err != nil {
@@ -3291,7 +3584,7 @@ func writeGoZeroAPILogicFile(root, module string, group string, method IDLMethod
 	return writeGeneratedFileUnderIfMissing(root, filepath.Join("internal", "app", goZeroAPILogicFile(group, methodName)), formatted)
 }
 
-func writeGoZeroAPIHandlerFile(root, module string, group string, method IDLMethod) error {
+func writeGoZeroAPIHandlerFile(root, module string, group string, method IDLMethod, sse bool) error {
 	var b bytes.Buffer
 	packageName := goZeroAPIHandlerPackage(group)
 	handlerName := goZeroAPIHandlerName(method)
@@ -3299,19 +3592,21 @@ func writeGoZeroAPIHandlerFile(root, module string, group string, method IDLMeth
 	requestName := exportName(method.Request)
 	fprintf(&b, "package %s\n\n", packageName)
 	fprintf(&b, "import (\n")
-	fprintf(&b, "\t\"net/http\"\n\n")
+	if !sse {
+		fprintf(&b, "\t\"net/http\"\n\n")
+	}
 	fprintf(&b, "\t\"github.com/imajinyun/gofly/rest\"\n\n")
 	fprintf(&b, "\t%s %q\n", goZeroAPILogicAlias(group), strings.TrimRight(module, "/")+"/internal/app"+goZeroAPIGroupImportSuffix(group))
 	fprintf(&b, "\t%q\n", strings.TrimRight(module, "/")+"/internal/svc")
 	if strings.TrimSpace(method.Request) != "" {
-		fprintf(&b, "\t%q\n", strings.TrimRight(module, "/")+"/internal/types")
+		fprintf(&b, "\tappmodel %q\n", strings.TrimRight(module, "/")+"/internal/app/model")
 	}
 	fprintf(&b, ")\n\n")
 	fprintf(&b, "func %s(stx *svc.ServiceContext) rest.HandlerFunc {\n", handlerName)
 	fprintf(&b, "\treturn func(ctx *rest.Context) {\n")
 	if strings.TrimSpace(method.Request) != "" {
-		fprintf(&b, "\t\tvar req types.%s\n", requestName)
-		fprintf(&b, "\t\tif err := ctx.%s(&req); err != nil {\n", goZeroAPIBinder(method.HTTPMethod))
+		fprintf(&b, "\t\tvar req appmodel.%s\n", requestName)
+		fprintf(&b, "\t\tif err := ctx.BindGoZeroRequest(&req); err != nil {\n")
 		fprintf(&b, "\t\t\tctx.Error(err)\n")
 		fprintf(&b, "\t\t\treturn\n")
 		fprintf(&b, "\t\t}\n")
@@ -3323,14 +3618,41 @@ func writeGoZeroAPIHandlerFile(root, module string, group string, method IDLMeth
 	fprintf(&b, "\t\t\tctx.Error(err)\n")
 	fprintf(&b, "\t\t\treturn\n")
 	fprintf(&b, "\t\t}\n")
-	fprintf(&b, "\t\tctx.JSON(http.StatusOK, resp)\n")
+	if sse {
+		fprintf(&b, "\t\tif err := ctx.SSEJSON(rest.SSEEvent{}, resp); err != nil { ctx.Error(err) }\n")
+	} else {
+		fprintf(&b, "\t\tctx.JSON(http.StatusOK, resp)\n")
+	}
 	fprintf(&b, "\t}\n")
 	fprintf(&b, "}\n")
 	formatted, err := format.Source(b.Bytes())
 	if err != nil {
 		return fmt.Errorf("format gozero-compatible handler %s: %w", handlerName, err)
 	}
-	return writeGeneratedFileUnderIfMissing(root, filepath.Join("internal", "api", "http", goZeroAPIHandlerFile(group, handlerName)), formatted)
+	return writeGeneratedFileUnderIfMissing(root, filepath.Join("internal", "api", "http", "v1", goZeroAPIHandlerFile(group, handlerName)), formatted)
+}
+
+func writeGoZeroAPIHandlerTestFile(root, module string, group string, method IDLMethod) error {
+	var b bytes.Buffer
+	packageName := goZeroAPIHandlerPackage(group)
+	handlerName := goZeroAPIHandlerName(method)
+	fprintf(&b, "package %s\n\n", packageName)
+	fprintf(&b, "import (\n")
+	fprintf(&b, "\t\"testing\"\n\n")
+	fprintf(&b, "\t%q\n", strings.TrimRight(module, "/")+"/internal/svc")
+	fprintf(&b, ")\n\n")
+	fprintf(&b, "func Test%sGenerated(t *testing.T) {\n", handlerName)
+	fprintf(&b, "\tt.Helper()\n")
+	fprintf(&b, "\tif handler := %s(&svc.ServiceContext{}); handler == nil {\n", handlerName)
+	fprintf(&b, "\t\tt.Fatal(%q)\n", handlerName+" returned nil")
+	fprintf(&b, "\t}\n")
+	fprintf(&b, "}\n")
+	formatted, err := format.Source(b.Bytes())
+	if err != nil {
+		return fmt.Errorf("format gozero-compatible handler test %s: %w", handlerName, err)
+	}
+	name := strings.TrimSuffix(goZeroAPIHandlerFile(group, handlerName), ".go") + "_test.go"
+	return writeGeneratedFileUnderIfMissing(root, filepath.Join("internal", "api", "http", "v1", name), formatted)
 }
 
 func writeGeneratedFileUnderIfMissing(root string, name string, data []byte) error {
@@ -3366,18 +3688,19 @@ func expectedGoZeroAPIBusinessFiles(services []IDLService) goZeroAPIExpectedFile
 		Logics:   map[string]struct{}{},
 	}
 	for _, svc := range services {
+		group := goflyAPIServiceGroup(svc)
 		for _, method := range svc.Methods {
 			handlerName := goZeroAPIHandlerName(method)
 			methodName := exportName(method.Name)
-			expected.Handlers[filepath.ToSlash(filepath.Join("internal", "api", "http", goZeroAPIHandlerFile(svc.Server.Group, handlerName)))] = struct{}{}
-			expected.Logics[filepath.ToSlash(filepath.Join("internal", "app", goZeroAPILogicFile(svc.Server.Group, methodName)))] = struct{}{}
+			expected.Handlers[filepath.ToSlash(filepath.Join("internal", "api", "http", "v1", goZeroAPIHandlerFile(group, handlerName)))] = struct{}{}
+			expected.Logics[filepath.ToSlash(filepath.Join("internal", "app", goZeroAPILogicFile(group, methodName)))] = struct{}{}
 		}
 	}
 	return expected
 }
 
 func writeGoZeroAPIStaleReport(root string, expected goZeroAPIExpectedFiles) error {
-	staleHandlers, err := staleGoZeroAPIFiles(root, filepath.Join("internal", "api", "http"), expected.Handlers)
+	staleHandlers, err := staleGoZeroAPIFiles(root, filepath.Join("internal", "api", "http", "v1"), expected.Handlers)
 	if err != nil {
 		return err
 	}
@@ -3403,7 +3726,7 @@ func writeGoZeroAPIStaleReport(root string, expected goZeroAPIExpectedFiles) err
 		StaleLogics:    staleLogics,
 		ActiveHandlers: sortedGoZeroAPIExpectedFiles(expected.Handlers),
 		ActiveLogics:   sortedGoZeroAPIExpectedFiles(expected.Logics),
-		Note:           "stale api/http and app files are preserved on disk but are not registered by the current .api routes",
+		Note:           "stale api/http/v1 and app files are preserved on disk but are not registered by the current .api routes",
 	}
 	data, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
@@ -3426,9 +3749,6 @@ func staleGoZeroAPIFiles(root string, dir string, expected map[string]struct{}) 
 			return err
 		}
 		if entry.IsDir() {
-			if dir == filepath.Join("internal", "api", "http") && entry.Name() == "v1" {
-				return filepath.SkipDir
-			}
 			return nil
 		}
 		if filepath.Ext(path) != ".go" || filepath.Base(path) == "routes.go" {
@@ -3439,6 +3759,9 @@ func staleGoZeroAPIFiles(root string, dir string, expected map[string]struct{}) 
 			return err
 		}
 		rel = filepath.ToSlash(rel)
+		if strings.HasPrefix(rel, "internal/app/model/") {
+			return nil
+		}
 		if _, ok := expected[rel]; !ok {
 			stale = append(stale, rel)
 		}
@@ -3462,34 +3785,102 @@ func sortedGoZeroAPIExpectedFiles(expected map[string]struct{}) []string {
 
 func writeGoZeroAPIRoutesFile(root, module string, services []IDLService) error {
 	var b bytes.Buffer
-	fprintf(&b, "package api\n\n")
+	fprintf(&b, "package routes\n\n")
 	fprintf(&b, "import (\n")
+	if len(goZeroAPIJWTNames(services)) > 0 {
+		fprintf(&b, "\t\"context\"\n")
+	}
 	fprintf(&b, "\t\"net/http\"\n\n")
+	if goZeroAPIUsesTimeout(services) {
+		fprintf(&b, "\t\"time\"\n\n")
+	}
 	fprintf(&b, "\t\"github.com/imajinyun/gofly/rest\"\n")
+	if len(goZeroAPIJWTNames(services)) > 0 {
+		fprintf(&b, "\t\"github.com/imajinyun/gofly/core/auth\"\n")
+	}
+	if len(goZeroAPISignatureNames(services)) > 0 {
+		fprintf(&b, "\t%q\n", strings.TrimRight(module, "/")+"/internal/config")
+	}
 	fprintf(&b, "\t%q\n", strings.TrimRight(module, "/")+"/internal/svc")
-	for _, group := range goZeroAPIHandlerGroups(services) {
-		fprintf(&b, "\t%s %q\n", goZeroAPIHandlerPackage(group), strings.TrimRight(module, "/")+"/internal/api/http/"+lowerName(group))
+	if goZeroAPIHasMethods(services) {
+		fprintf(&b, "\tappmodel %q\n", strings.TrimRight(module, "/")+"/internal/app/model")
+	}
+	if goZeroAPIPingHandlerExists(root) {
+		fprintf(&b, "\tping %q\n", strings.TrimRight(module, "/")+"/internal/api/http/v1/ping")
+	}
+	for _, group := range goflyAPIHandlerGroups(services) {
+		fprintf(&b, "\t%s %q\n", goZeroAPIHandlerPackage(group), strings.TrimRight(module, "/")+"/internal/api/http/v1/"+lowerName(group))
 	}
 	fprintf(&b, ")\n\n")
-	fprintf(&b, "func RegisterHandlers(server *rest.Server, stx *svc.ServiceContext) {\n")
+	fprintf(&b, "func RegisterRoutes(server *rest.Server, stx *svc.ServiceContext) {\n")
+	fprintf(&b, "\tif server == nil { panic(\"REST server is required\") }\n")
+	fprintf(&b, "\tif stx == nil { panic(\"service context is required\") }\n")
 	if goZeroAPIPingHandlerExists(root) {
-		fprintf(&b, "\tserver.AddRoute(rest.Route{Method: http.MethodGet, Path: \"/ping\", Handler: PingHandler(stx)}, rest.WithPrefix(\"/api/v1\"))\n")
+		fprintf(&b, "\tserver.AddRoute(rest.Route{Method: http.MethodGet, Path: \"/ping\", Handler: ping.PingHandler(stx)}, rest.WithPrefix(\"/api/v1\"))\n")
 	}
 	for _, svc := range services {
+		svc.Server.Group = goflyAPIServiceGroup(svc)
 		prefix := strings.TrimRight(strings.TrimSpace(svc.Server.Prefix), "/")
 		for _, method := range svc.Methods {
-			writeGoZeroAPIRouteRegistration(&b, svc, method, prefix)
+			responses := writeGoZeroAPIRouteResponses(&b, method)
+			writeGoZeroAPIRouteRegistration(&b, svc, method, prefix, responses)
 		}
 	}
 	fprintf(&b, "}\n")
+	if len(goZeroAPIJWTNames(services)) > 0 {
+		fprintf(&b, "\nfunc requiredJWTValidator(stx *svc.ServiceContext, name string) auth.Validator {\n")
+		fprintf(&b, "\treturn func(ctx context.Context, token string) (context.Context, error) {\n")
+		fprintf(&b, "\t\tvalidator := stx.JWTValidators[name]\n")
+		fprintf(&b, "\t\tif validator == nil { return ctx, auth.ErrMissingCredentials }\n")
+		fprintf(&b, "\t\treturn validator(ctx, token)\n")
+		fprintf(&b, "\t}\n}\n")
+	}
 	formatted, err := format.Source(b.Bytes())
 	if err != nil {
 		return fmt.Errorf("format gozero-compatible routes: %w", err)
 	}
-	return writeGeneratedFileUnder(root, filepath.Join("internal", "api", "http", "routes.go"), formatted)
+	return writeGeneratedFileUnder(root, filepath.Join("internal", "routes", "routes.go"), formatted)
 }
 
-func writeGoZeroAPIRouteRegistration(b *bytes.Buffer, svc IDLService, method IDLMethod, prefix string) {
+func goZeroAPIUsesTimeout(services []IDLService) bool {
+	for _, service := range services {
+		if _, ok := goZeroAPIServerDuration(service.Server, "timeout"); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func writeGoZeroAPIRouteResponses(b *bytes.Buffer, method IDLMethod) string {
+	variable := "responses" + exportName(method.Name)
+	statusCode := http.StatusOK
+	if parsed, ok := apiResponseStatusCode(method.Doc["respcode"]); ok {
+		statusCode = parsed
+	}
+	descriptions := apiResponseDescriptions(method)
+	description := http.StatusText(statusCode)
+	if documented := strings.TrimSpace(descriptions[statusCode]); documented != "" {
+		description = documented
+	}
+	if description == "" {
+		description = "OK"
+	}
+	fprintf(b, "\t%s := rest.DefaultErrorResponses()\n", variable)
+	fprintf(b, "\t%s[%q] = rest.JSONResponse(%q, rest.StructSchema(appmodel.%s{}))\n", variable, strconv.Itoa(statusCode), description, exportName(method.Response))
+	codes := make([]int, 0, len(descriptions))
+	for code := range descriptions {
+		if code != statusCode {
+			codes = append(codes, code)
+		}
+	}
+	sort.Ints(codes)
+	for _, code := range codes {
+		fprintf(b, "\t%s[%q] = rest.Response{Description: %q}\n", variable, strconv.Itoa(code), descriptions[code])
+	}
+	return variable
+}
+
+func writeGoZeroAPIRouteRegistration(b *bytes.Buffer, svc IDLService, method IDLMethod, prefix string, responses string) {
 	methodName := exportName(strings.ToLower(method.HTTPMethod))
 	handlerName := goZeroAPIHandlerName(method)
 	handlerCall := goZeroAPIHandlerCall(svc.Server.Group, handlerName)
@@ -3497,22 +3888,29 @@ func writeGoZeroAPIRouteRegistration(b *bytes.Buffer, svc IDLService, method IDL
 	if prefix != "" {
 		optionVars = append(optionVars, fmt.Sprintf("rest.WithPrefix(%q)", prefix))
 	}
-	if len(optionVars) > 0 || svc.Server.JWT != "" || len(svc.Server.Middleware) > 0 {
+	if timeout, ok := goZeroAPIServerDuration(svc.Server, "timeout"); ok {
+		optionVars = append(optionVars, fmt.Sprintf("rest.WithTimeout(%s)", goDurationExpression(timeout)))
+	}
+	if maxBodyBytes, ok := goZeroAPIServerMaxBodyBytes(svc.Server); ok {
+		optionVars = append(optionVars, fmt.Sprintf("rest.WithMaxBodyBytes(%d)", maxBodyBytes))
+	}
+	if goZeroAPIServerBool(svc.Server, "sse") {
+		optionVars = append(optionVars, "rest.WithSSE()")
+	}
+	if len(optionVars) > 0 || svc.Server.JWT != "" || len(svc.Server.Middleware) > 0 || strings.TrimSpace(svc.Server.Values["signature"]) != "" {
 		fprintf(b, "\t{\n")
 		fprintf(b, "\t\topts := []rest.RouteOption{%s}\n", strings.Join(optionVars, ", "))
 		writeGoZeroAPIRouteDynamicOptions(b, svc)
-		fprintf(b, "\t\tserver.AddRoute(rest.Route{Method: http.Method%s, Path: %q, Handler: %s(stx)}, opts...)\n", methodName, method.HTTPPath, handlerCall)
+		fprintf(b, "\t\tserver.AddRoute(rest.Route{Method: http.Method%s, Path: %q, Responses: %s, Handler: %s(stx)}, opts...)\n", methodName, method.HTTPPath, responses, handlerCall)
 		fprintf(b, "\t}\n")
 		return
 	}
-	fprintf(b, "\tserver.AddRoute(rest.Route{Method: http.Method%s, Path: %q, Handler: %s(stx)})\n", methodName, method.HTTPPath, handlerCall)
+	fprintf(b, "\tserver.AddRoute(rest.Route{Method: http.Method%s, Path: %q, Responses: %s, Handler: %s(stx)})\n", methodName, method.HTTPPath, responses, handlerCall)
 }
 
 func writeGoZeroAPIRouteDynamicOptions(b *bytes.Buffer, svc IDLService) {
 	if svc.Server.JWT != "" {
-		fprintf(b, "\t\tif validator, ok := stx.JWTValidators[%q]; ok && validator != nil {\n", svc.Server.JWT)
-		fprintf(b, "\t\t\topts = append(opts, rest.WithAuth(validator))\n")
-		fprintf(b, "\t\t}\n")
+		fprintf(b, "\t\topts = append(opts, rest.WithAuth(requiredJWTValidator(stx, %q)))\n", svc.Server.JWT)
 	}
 	if len(svc.Server.Middleware) > 0 {
 		middlewareNames := goZeroAPIMiddlewareNames(svc.Server.Middleware)
@@ -3526,11 +3924,113 @@ func writeGoZeroAPIRouteDynamicOptions(b *bytes.Buffer, svc IDLService) {
 		fprintf(b, "\t\t\topts = append(opts, rest.WithMiddlewares(middlewares...))\n")
 		fprintf(b, "\t\t}\n")
 	}
+	if name := strings.TrimSpace(svc.Server.Values["signature"]); name != "" {
+		fprintf(b, "\t\tif mw := config.APISignatureMiddleware(%q); mw != nil { opts = append(opts, rest.WithMiddlewares(mw)) } else { panic(%q) }\n", name, fmt.Sprintf("signature middleware %q is required", name))
+	}
+}
+
+func goZeroAPIServerDuration(server IDLServerAnnotation, key string) (time.Duration, bool) {
+	raw, ok := server.Values[key]
+	if !ok {
+		return 0, false
+	}
+	duration, err := time.ParseDuration(strings.TrimSpace(raw))
+	return duration, err == nil && duration > 0
+}
+
+func goDurationExpression(duration time.Duration) string {
+	if duration%time.Hour == 0 {
+		return fmt.Sprintf("%d*time.Hour", duration/time.Hour)
+	}
+	if duration%time.Minute == 0 {
+		return fmt.Sprintf("%d*time.Minute", duration/time.Minute)
+	}
+	if duration%time.Second == 0 {
+		return fmt.Sprintf("%d*time.Second", duration/time.Second)
+	}
+	if duration%time.Millisecond == 0 {
+		return fmt.Sprintf("%d*time.Millisecond", duration/time.Millisecond)
+	}
+	return fmt.Sprintf("time.Duration(%d)", duration)
+}
+
+func goZeroAPIServerMaxBodyBytes(server IDLServerAnnotation) (int64, bool) {
+	raw, ok := server.Values["maxbodybytes"]
+	if !ok {
+		raw, ok = server.Values["maxbytes"]
+	}
+	if !ok {
+		return 0, false
+	}
+	value, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	return value, err == nil && value > 0
+}
+
+func goZeroAPIServerBool(server IDLServerAnnotation, key string) bool {
+	value, err := strconv.ParseBool(strings.TrimSpace(server.Values[key]))
+	return err == nil && value
 }
 
 func goZeroAPIPingHandlerExists(root string) bool {
-	_, err := os.Stat(filepath.Join(root, "internal", "api", "http", "pinghandler.go"))
+	_, err := os.Stat(filepath.Join(root, "internal", "api", "http", "v1", "ping", "ping.go"))
 	return err == nil
+}
+
+func goZeroAPIRouteServices(root string, services []IDLService) []IDLService {
+	preserveScaffoldPing := goZeroAPIPingHandlerExists(root)
+	filtered := make([]IDLService, 0, len(services))
+	for _, service := range services {
+		service.Methods = append([]IDLMethod(nil), service.Methods...)
+		prefix := strings.TrimRight(strings.TrimSpace(service.Server.Prefix), "/")
+		methods := service.Methods[:0]
+		for _, method := range service.Methods {
+			if preserveScaffoldPing && strings.EqualFold(strings.TrimSpace(method.HTTPMethod), http.MethodGet) && prefix+method.HTTPPath == "/api/v1/ping" {
+				continue
+			}
+			methods = append(methods, method)
+		}
+		service.Methods = methods
+		filtered = append(filtered, service)
+	}
+	return filtered
+}
+
+func goZeroAPIHasMethods(services []IDLService) bool {
+	for _, service := range services {
+		if len(service.Methods) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func goflyAPIServiceGroup(service IDLService) string {
+	if group := strings.TrimSpace(service.Server.Group); group != "" {
+		return group
+	}
+	name := strings.TrimSuffix(strings.TrimSuffix(strings.TrimSpace(service.Name), "-api"), "_api")
+	if name == "" {
+		return "api"
+	}
+	return lowerName(name)
+}
+
+func goflyAPIHandlerGroups(services []IDLService) []string {
+	seen := make(map[string]struct{}, len(services))
+	groups := make([]string, 0, len(services))
+	for _, service := range services {
+		if len(service.Methods) == 0 {
+			continue
+		}
+		group := goflyAPIServiceGroup(service)
+		if _, ok := seen[group]; ok {
+			continue
+		}
+		seen[group] = struct{}{}
+		groups = append(groups, group)
+	}
+	sort.Strings(groups)
+	return groups
 }
 
 func goZeroAPIHandlerName(method IDLMethod) string {
@@ -3541,7 +4041,7 @@ func goZeroAPIHandlerName(method IDLMethod) string {
 }
 
 func goZeroAPIHandlerFile(group string, handlerName string) string {
-	file := lowerName(handlerName) + ".go"
+	file := strings.TrimSuffix(lowerName(handlerName), "handler") + ".go"
 	if !goZeroAPIHasGroup(group) {
 		return file
 	}
@@ -3563,7 +4063,7 @@ func goZeroAPIHandlerCall(group string, handlerName string) string {
 }
 
 func goZeroAPILogicFile(group string, methodName string) string {
-	file := lowerName(methodName) + "logic.go"
+	file := lowerName(methodName) + ".go"
 	if !goZeroAPIHasGroup(group) {
 		return file
 	}
@@ -3652,14 +4152,10 @@ func goZeroAPIMiddlewareFile(name string) string {
 
 func goZeroAPIMainFileName(serviceName string) string {
 	name := strings.ToLower(strings.TrimSpace(serviceName))
-	name = strings.TrimSuffix(name, "-api")
-	name = strings.TrimSuffix(name, "_api")
-	name = strings.ReplaceAll(name, "-", "")
-	name = strings.ReplaceAll(name, "_", "")
 	if name == "" {
-		return "main.go"
+		name = "service"
 	}
-	return name + ".go"
+	return filepath.Join("cmd", name, "main.go")
 }
 
 func goZeroAPIBinder(method string) string {

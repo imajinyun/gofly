@@ -91,6 +91,9 @@ func AdaptiveLimitStreamServerInterceptor(limiter *limit.AdaptiveLimiter) stdgrp
 }
 
 func grpcOutcomeAcceptable(err error) bool {
+	if errors.Is(err, context.Canceled) {
+		return true
+	}
 	switch status.Code(err) {
 	case codes.OK, codes.Canceled, codes.InvalidArgument, codes.NotFound, codes.AlreadyExists, codes.PermissionDenied, codes.Unauthenticated, codes.FailedPrecondition:
 		return true
@@ -265,6 +268,70 @@ func TimeoutUnaryClientInterceptor(timeout time.Duration) stdgrpc.UnaryClientInt
 		defer cancel()
 		return invoker(callCtx, method, req, reply, cc, opts...)
 	}
+}
+
+// TimeoutStreamClientInterceptor applies one deadline to the complete client
+// stream lifecycle. CloseSend only half-closes the sending side; the deadline
+// remains active until the final response or terminal receive error arrives.
+func TimeoutStreamClientInterceptor(timeout time.Duration) stdgrpc.StreamClientInterceptor {
+	return func(ctx context.Context, desc *stdgrpc.StreamDesc, cc *stdgrpc.ClientConn, method string, streamer stdgrpc.Streamer, opts ...stdgrpc.CallOption) (stdgrpc.ClientStream, error) {
+		if timeout <= 0 {
+			return streamer(ctx, desc, cc, method, opts...)
+		}
+		callCtx, cancel := context.WithTimeout(ctx, timeout)
+		stream, err := streamer(callCtx, desc, cc, method, opts...)
+		if err != nil {
+			cancel()
+			return nil, err
+		}
+		wrapped := &timeoutClientStream{
+			ClientStream:  stream,
+			cancel:        cancel,
+			serverStreams: desc.ServerStreams,
+		}
+		context.AfterFunc(callCtx, wrapped.finish)
+		return wrapped, nil
+	}
+}
+
+type timeoutClientStream struct {
+	stdgrpc.ClientStream
+	cancel        context.CancelFunc
+	once          sync.Once
+	serverStreams bool
+}
+
+func (s *timeoutClientStream) CloseSend() error {
+	return s.ClientStream.CloseSend()
+}
+
+func (s *timeoutClientStream) Header() (metadata.MD, error) {
+	md, err := s.ClientStream.Header()
+	if err != nil {
+		s.finish()
+	}
+	return md, err
+}
+
+func (s *timeoutClientStream) RecvMsg(message any) error {
+	err := s.ClientStream.RecvMsg(message)
+	if err != nil || !s.serverStreams {
+		s.finish()
+	}
+	return err
+}
+
+func (s *timeoutClientStream) SendMsg(message any) error {
+	err := s.ClientStream.SendMsg(message)
+	// Send EOF requires RecvMsg to obtain the final response and status.
+	if err != nil && !errors.Is(err, io.EOF) {
+		s.finish()
+	}
+	return err
+}
+
+func (s *timeoutClientStream) finish() {
+	s.once.Do(s.cancel)
 }
 
 func contextWithIncomingTrace(ctx context.Context) context.Context {

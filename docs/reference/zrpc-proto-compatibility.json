@@ -13,11 +13,14 @@
     "rpc/grpc/server.go",
     "rpc/grpc/resolver.go",
     "rpc/grpc/balancer.go",
+    "core/discovery/etcdv3/zrpc_resolver.go",
+    "core/discovery/etcdv3/zrpc_registrar.go",
     "cmd/gofly/internal/command/rpc_gen_command.go",
     "cmd/gofly/internal/command/rpc_protoc_command.go",
     "testdata/zrpc-runtime-interop/go.mod",
     "testdata/zrpc-runtime-interop/go.sum",
     "testdata/zrpc-runtime-interop/interop_test.go",
+    "testdata/zrpc-runtime-interop/etcd_discovery_test.go",
     "testdata/zrpc-runtime-interop/streaming_test.go"
   ],
   "referenceFramework": "goctl rpc protoc / go-zero zRPC",
@@ -93,6 +96,24 @@
       "gate": "make zrpc-proto-compatibility-check",
       "reason": "The isolated interoperability module executes all three standard gRPC streaming modes through real zRPC and gofly server and client wrappers in both directions.",
       "rollbackOrEscalation": "Keep streaming traffic on the previously validated RPC runtime and remove streaming interoperability claims if any direction or lifecycle scenario regresses."
+    },
+    {
+      "id": "zrpc-etcd-discovery",
+      "status": "supported",
+      "surface": "go-zero zRPC etcd endpoint discovery",
+      "evidence": ["NewZRPCResolver", "TestZRPCResolverReadsRawEndpointLayout", "TestZRPCResolverWatchPublishesSnapshots", "TestZRPCServerDiscoveredByGoflyClientThroughEtcd", "ServiceContext.InitRPCClients"],
+      "gate": "make zrpc-proto-compatibility-check",
+      "reason": "Generated clients read the native zRPC key-per-instance etcd layout, react to endpoint updates, reuse identical cluster connections, and close owned resolver resources without adding go-zero to the root module; the interoperability fixture also resolves and invokes a real go-zero server registered by its native Publisher.",
+      "rollbackOrEscalation": "Keep explicit endpoints or an injected discovery resolver available and remove automatic zRPC etcd compatibility claims if raw endpoint decoding or lifecycle ownership regresses."
+    },
+    {
+      "id": "zrpc-etcd-registration",
+      "status": "supported",
+      "surface": "go-zero zRPC etcd endpoint registration",
+      "evidence": ["NewZRPCRegistrar", "TestZRPCRegistrarPublishesRawEndpointLayout", "TestZRPCRegistrarAndResolverRoundTripConfiguredEndpoint", "TestZRPCRegistrarRegistrationIDAndBoundaries", "TestGoflyServerDiscoveredByZRPCClientThroughEtcd", "goZeroRPCMainTemplate"],
+      "gate": "make zrpc-proto-compatibility-check",
+      "reason": "Generated servers can explicitly publish the native zRPC key-per-instance raw endpoint layout, which a real go-zero zRPC client resolves through Etcd before invoking the gofly service; together with the reverse go-zero Publisher to gofly resolver call, this proves bidirectional discovery interoperability and lease-owned removal on shutdown without replacing gofly's native registry format.",
+      "rollbackOrEscalation": "Remove the top-level generated Etcd block and use native gofly discovery if lease ownership, raw endpoint publication, or go-zero client discovery regresses."
     },
     {
       "id": "grpc-runtime-golden-path",

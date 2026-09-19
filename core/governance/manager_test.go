@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -129,7 +130,7 @@ func TestManagerStartLoadsAndWatchesProvider(t *testing.T) {
 
 func TestManagerUsesConfiguredRuleFile(t *testing.T) {
 	path := t.TempDir() + "/governance.json"
-	data := []byte(`{"rules":[{"name":"file-rpc","transport":"rpc","service":"greeter","policy":{"timeout":3000000000}}]}`)
+	data := []byte(`{"rules":[{"name":"file-rpc","transport":"rpc","service":"greeter","policy":{"timeout":3000000000,"retry":{"attempts":2,"statuses":[14]}}}]}`)
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +142,7 @@ func TestManagerUsesConfiguredRuleFile(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	decision := m.RuleSet().Match(Request{Transport: TransportRPC, Service: "greeter"})
-	if !decision.Matched || decision.RuleName != "file-rpc" || decision.Policy.Timeout != 3*time.Second {
+	if !decision.Matched || decision.RuleName != "file-rpc" || decision.Policy.Timeout != 3*time.Second || !slices.Equal(decision.Policy.Retry.Statuses, []int{14}) {
 		t.Fatalf("decision = %#v, want file rule", decision)
 	}
 	if snapshot := m.Snapshot(); snapshot.Source != "file:"+path || snapshot.Config.RuleFile != path {

@@ -3,14 +3,20 @@ package etcdv3
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
+	"maps"
+	"net"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"google.golang.org/grpc"
 
 	"github.com/imajinyun/gofly/core/discovery"
 	"github.com/imajinyun/gofly/rpc"
@@ -617,7 +623,9 @@ func (f *fakeEtcdKV) Txn(ctx context.Context) clientv3.Txn {
 }
 
 type fakeEtcdLease struct {
-	id clientv3.LeaseID
+	id      clientv3.LeaseID
+	mu      sync.Mutex
+	revoked []clientv3.LeaseID
 }
 
 func (f *fakeEtcdLease) Grant(ctx context.Context, ttl int64) (*clientv3.LeaseGrantResponse, error) {
@@ -625,6 +633,9 @@ func (f *fakeEtcdLease) Grant(ctx context.Context, ttl int64) (*clientv3.LeaseGr
 }
 
 func (f *fakeEtcdLease) Revoke(ctx context.Context, id clientv3.LeaseID) (*clientv3.LeaseRevokeResponse, error) {
+	f.mu.Lock()
+	f.revoked = append(f.revoked, id)
+	f.mu.Unlock()
 	return &clientv3.LeaseRevokeResponse{}, nil
 }
 
@@ -650,7 +661,7 @@ func (f *fakeEtcdLease) KeepAliveOnce(ctx context.Context, id clientv3.LeaseID) 
 func (f *fakeEtcdLease) Close() error { return nil }
 
 type fakeEtcdWatcher struct {
-	ch clientv3.WatchChan
+	ch chan clientv3.WatchResponse
 }
 
 func (f *fakeEtcdWatcher) Watch(ctx context.Context, key string, opts ...clientv3.OpOption) clientv3.WatchChan {
@@ -743,6 +754,242 @@ func TestRegisterResolveWithFakeClient(t *testing.T) {
 	}
 }
 
+func TestZRPCResolverReadsRawEndpointLayout(t *testing.T) {
+	client := newFakeEtcdClient(t)
+	fakeKV := client.KV.(*fakeEtcdKV)
+	fakeKV.data["/rpc/greeter/101"] = " 127.0.0.1:8081 "
+	fakeKV.data["/rpc/greeter/102"] = "127.0.0.1:8082"
+	fakeKV.data["/rpc/greeter/blank"] = " "
+	fakeKV.data["/rpc/greeter-v2/201"] = "127.0.0.1:9081"
+
+	resolver, err := NewZRPCResolverWithClient(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = resolver.Close(context.Background()) })
+
+	instances, err := resolver.Resolve(t.Context(), "/rpc/greeter")
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if len(instances) != 2 || instances[0].ID != "101" || instances[0].Endpoint != "127.0.0.1:8081" ||
+		instances[1].ID != "102" || instances[1].Endpoint != "127.0.0.1:8082" {
+		t.Fatalf("resolved instances = %#v", instances)
+	}
+	if _, err := resolver.Resolve(t.Context(), "/rpc/missing"); !errors.Is(err, discovery.ErrNoInstances) {
+		t.Fatalf("missing service error = %v, want ErrNoInstances", err)
+	}
+	if _, err := resolver.Resolve(t.Context(), " "); err == nil || !strings.Contains(err.Error(), "service key is required") {
+		t.Fatalf("empty service error = %v", err)
+	}
+}
+
+func TestZRPCRegistrarPublishesRawEndpointLayout(t *testing.T) {
+	client := newFakeEtcdClient(t)
+	registrar, err := NewZRPCRegistrarWithClient(client, Config{TTL: 5 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := registrar.Register(t.Context(), discovery.Instance{
+		ID: "ignored-native-id", Service: "/rpc/greeter", Endpoint: "127.0.0.1:8081",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := lease.Instance(); got.ID != "999" || got.Service != "/rpc/greeter" {
+		t.Fatalf("registered instance = %#v, want lease-derived zRPC id", got)
+	}
+	fakeKV := client.KV.(*fakeEtcdKV)
+	if got := fakeKV.data["/rpc/greeter/999"]; got != "127.0.0.1:8081" {
+		t.Fatalf("published endpoint = %q, want raw endpoint", got)
+	}
+	if err := lease.KeepAlive(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if lease.ExpiresAt().IsZero() {
+		t.Fatal("lease expiry was not tracked")
+	}
+	if err := lease.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := lease.Close(t.Context()); err != nil {
+		t.Fatalf("idempotent lease close: %v", err)
+	}
+	fakeLease := client.Lease.(*fakeEtcdLease)
+	fakeLease.mu.Lock()
+	revoked := slices.Clone(fakeLease.revoked)
+	fakeLease.mu.Unlock()
+	if !slices.Equal(revoked, []clientv3.LeaseID{999}) {
+		t.Fatalf("revoked leases = %v, want [999]", revoked)
+	}
+	if err := registrar.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestZRPCRegistrarRegistrationIDAndBoundaries(t *testing.T) {
+	client := newFakeEtcdClient(t)
+	registrar, err := NewZRPCRegistrarWithClient(client, Config{RegistrationID: 42})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := registrar.Register(t.Context(), discovery.Instance{Service: "rpc/greeter/", Endpoint: "127.0.0.1:8081"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := client.KV.(*fakeEtcdKV).data["rpc/greeter/42"]; got != "127.0.0.1:8081" {
+		t.Fatalf("fixed registration endpoint = %q", got)
+	}
+	if err := registrar.Deregister(t.Context(), lease.Instance()); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := client.KV.(*fakeEtcdKV).data["rpc/greeter/42"]; ok {
+		t.Fatal("deregistered endpoint remained published")
+	}
+	if err := registrar.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registrar.Register(t.Context(), discovery.Instance{Service: "rpc/greeter", Endpoint: "127.0.0.1:8081"}); err == nil || !strings.Contains(err.Error(), "closed") {
+		t.Fatalf("register after close error = %v", err)
+	}
+	if _, err := NewZRPCRegistrar(Config{}); err == nil || !strings.Contains(err.Error(), "endpoint") {
+		t.Fatalf("empty config error = %v", err)
+	}
+	if _, err := NewZRPCRegistrarWithClient(nil, Config{}); err == nil || !strings.Contains(err.Error(), "client is nil") {
+		t.Fatalf("nil client error = %v", err)
+	}
+	if err := (*ZRPCRegistrar)(nil).Close(t.Context()); err != nil {
+		t.Fatalf("nil close: %v", err)
+	}
+}
+
+func TestZRPCResolverUsesConfiguredEtcdEndpoint(t *testing.T) {
+	server := newZRPCFakeEtcdServer(t, map[string]string{
+		"/rpc/greeter/101": "127.0.0.1:8081",
+		"/rpc/greeter/102": "127.0.0.1:8082",
+		"/rpc/other/201":   "127.0.0.1:9081",
+	})
+	resolver, err := NewZRPCResolver(Config{Endpoints: []string{server.endpoint}, DialTimeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = resolver.Close(context.Background()) })
+	instances, err := resolver.Resolve(t.Context(), "/rpc/greeter")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(instances) != 2 || instances[0].Endpoint != "127.0.0.1:8081" || instances[1].Endpoint != "127.0.0.1:8082" {
+		t.Fatalf("resolved instances = %#v", instances)
+	}
+}
+
+func TestZRPCRegistrarAndResolverRoundTripConfiguredEndpoint(t *testing.T) {
+	server := newZRPCFakeEtcdServer(t, nil)
+	registrar, err := NewZRPCRegistrar(Config{Endpoints: []string{server.endpoint}, DialTimeout: time.Second, TTL: 5 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver, err := NewZRPCResolver(Config{Endpoints: []string{server.endpoint}, DialTimeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = resolver.Close(context.Background()); _ = registrar.Close(context.Background()) })
+	lease, err := registrar.Register(t.Context(), discovery.Instance{Service: "/rpc/greeter", Endpoint: "127.0.0.1:8081"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	instances, err := resolver.Resolve(t.Context(), "/rpc/greeter")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(instances) != 1 || instances[0].Endpoint != "127.0.0.1:8081" || instances[0].ID != lease.Instance().ID {
+		t.Fatalf("resolved instances = %#v, lease = %#v", instances, lease.Instance())
+	}
+	if err := lease.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolver.Resolve(t.Context(), "/rpc/greeter"); !errors.Is(err, discovery.ErrNoInstances) {
+		t.Fatalf("resolve after revoke error = %v, want ErrNoInstances", err)
+	}
+}
+
+func TestZRPCResolverWatchPublishesSnapshots(t *testing.T) {
+	client := newFakeEtcdClient(t)
+	fakeKV := client.KV.(*fakeEtcdKV)
+	fakeKV.data["/rpc/greeter/101"] = "127.0.0.1:8081"
+	watcher := client.Watcher.(*fakeEtcdWatcher)
+	resolver, err := NewZRPCResolverWithClient(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = resolver.Close(context.Background()) })
+
+	ctx, cancel := context.WithCancel(t.Context())
+	updates, err := resolver.Watch(ctx, "/rpc/greeter")
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial := <-updates
+	if initial.Type != discovery.EventSnapshot || len(initial.Instances) != 1 {
+		t.Fatalf("initial event = %#v", initial)
+	}
+
+	watcher.ch <- clientv3.WatchResponse{Events: []*clientv3.Event{{
+		Type: clientv3.EventTypePut,
+		Kv:   &mvccpb.KeyValue{Key: []byte("/rpc/greeter/102"), Value: []byte("127.0.0.1:8082")},
+	}}}
+	added := <-updates
+	if len(added.Instances) != 2 || len(added.Changes.Added) != 1 || added.Changes.Added[0].Endpoint != "127.0.0.1:8082" {
+		t.Fatalf("added event = %#v", added)
+	}
+
+	watcher.ch <- clientv3.WatchResponse{Events: []*clientv3.Event{{
+		Type: clientv3.EventTypeDelete,
+		Kv:   &mvccpb.KeyValue{Key: []byte("/rpc/greeter/101")},
+	}}}
+	removed := <-updates
+	if len(removed.Instances) != 1 || len(removed.Changes.Removed) != 1 || removed.Changes.Removed[0].Endpoint != "127.0.0.1:8081" {
+		t.Fatalf("removed event = %#v", removed)
+	}
+	cancel()
+	select {
+	case _, ok := <-updates:
+		if ok {
+			t.Fatal("watch remained open after cancellation")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("watch did not stop after cancellation")
+	}
+}
+
+func TestZRPCResolverConstructionAndCloseBoundaries(t *testing.T) {
+	if _, err := NewZRPCResolver(Config{}); err == nil || !strings.Contains(err.Error(), "endpoint is required") {
+		t.Fatalf("empty config error = %v", err)
+	}
+	if _, err := NewZRPCResolverWithClient(nil); err == nil || !strings.Contains(err.Error(), "client is nil") {
+		t.Fatalf("nil client error = %v", err)
+	}
+	if err := (*ZRPCResolver)(nil).Close(context.Background()); err != nil {
+		t.Fatalf("nil close: %v", err)
+	}
+	if _, err := (*ZRPCResolver)(nil).Resolve(t.Context(), "/rpc/greeter"); err == nil || !strings.Contains(err.Error(), "not initialized") {
+		t.Fatalf("nil resolve error = %v", err)
+	}
+	if _, err := (*ZRPCResolver)(nil).Watch(t.Context(), "/rpc/greeter"); err == nil || !strings.Contains(err.Error(), "not initialized") {
+		t.Fatalf("nil watch error = %v", err)
+	}
+	resolver, err := NewZRPCResolver(Config{Endpoints: []string{"127.0.0.1:1"}, DialTimeout: time.Millisecond})
+	if err != nil {
+		t.Fatalf("lazy resolver: %v", err)
+	}
+	if err := resolver.Close(context.Background()); err != nil {
+		t.Fatalf("first close: %v", err)
+	}
+	if err := resolver.Close(context.Background()); err != nil {
+		t.Fatalf("second close: %v", err)
+	}
+}
+
 func TestFailoverResolverMatrixWithFakeClient(t *testing.T) {
 	client := newFakeEtcdClient(t)
 	defer client.Close()
@@ -806,4 +1053,111 @@ func newEtcdTestClient(t *testing.T) *clientv3.Client {
 		t.Fatalf("new etcd test client: %v", err)
 	}
 	return client
+}
+
+type zrpcFakeEtcdServer struct {
+	etcdserverpb.UnimplementedKVServer
+	etcdserverpb.UnimplementedWatchServer
+	etcdserverpb.UnimplementedLeaseServer
+	endpoint string
+	server   *grpc.Server
+	mu       sync.Mutex
+	values   map[string]string
+	leases   map[int64][]string
+	nextID   int64
+}
+
+func newZRPCFakeEtcdServer(t *testing.T, values map[string]string) *zrpcFakeEtcdServer {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverValues := maps.Clone(values)
+	if serverValues == nil {
+		serverValues = make(map[string]string)
+	}
+	server := &zrpcFakeEtcdServer{endpoint: listener.Addr().String(), server: grpc.NewServer(), values: serverValues, leases: make(map[int64][]string), nextID: 100}
+	etcdserverpb.RegisterKVServer(server.server, server)
+	etcdserverpb.RegisterWatchServer(server.server, server)
+	etcdserverpb.RegisterLeaseServer(server.server, server)
+	t.Cleanup(func() { server.server.Stop(); _ = listener.Close() })
+	go func() { _ = server.server.Serve(listener) }()
+	return server
+}
+
+func (s *zrpcFakeEtcdServer) Range(_ context.Context, request *etcdserverpb.RangeRequest) (*etcdserverpb.RangeResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	response := &etcdserverpb.RangeResponse{Header: &etcdserverpb.ResponseHeader{Revision: 1}}
+	prefix := string(request.Key)
+	for key, value := range s.values {
+		if strings.HasPrefix(key, prefix) {
+			response.Kvs = append(response.Kvs, &mvccpb.KeyValue{Key: []byte(key), Value: []byte(value)})
+		}
+	}
+	response.Count = int64(len(response.Kvs))
+	return response, nil
+}
+
+func (s *zrpcFakeEtcdServer) Put(_ context.Context, request *etcdserverpb.PutRequest) (*etcdserverpb.PutResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := string(request.Key)
+	s.values[key] = string(request.Value)
+	if request.Lease != 0 {
+		s.leases[request.Lease] = append(s.leases[request.Lease], key)
+	}
+	return &etcdserverpb.PutResponse{Header: &etcdserverpb.ResponseHeader{Revision: 1}}, nil
+}
+
+func (s *zrpcFakeEtcdServer) LeaseGrant(_ context.Context, request *etcdserverpb.LeaseGrantRequest) (*etcdserverpb.LeaseGrantResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id := request.ID
+	if id == 0 {
+		s.nextID++
+		id = s.nextID
+	}
+	s.leases[id] = nil
+	return &etcdserverpb.LeaseGrantResponse{Header: &etcdserverpb.ResponseHeader{Revision: 1}, ID: id, TTL: request.TTL}, nil
+}
+
+func (s *zrpcFakeEtcdServer) LeaseRevoke(_ context.Context, request *etcdserverpb.LeaseRevokeRequest) (*etcdserverpb.LeaseRevokeResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, key := range s.leases[request.ID] {
+		delete(s.values, key)
+	}
+	delete(s.leases, request.ID)
+	return &etcdserverpb.LeaseRevokeResponse{Header: &etcdserverpb.ResponseHeader{Revision: 2}}, nil
+}
+
+func (s *zrpcFakeEtcdServer) LeaseKeepAlive(stream etcdserverpb.Lease_LeaseKeepAliveServer) error {
+	for {
+		request, err := stream.Recv()
+		if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if err := stream.Send(&etcdserverpb.LeaseKeepAliveResponse{Header: &etcdserverpb.ResponseHeader{Revision: 1}, ID: request.ID, TTL: 5}); err != nil {
+			return err
+		}
+	}
+}
+
+func (s *zrpcFakeEtcdServer) Watch(stream etcdserverpb.Watch_WatchServer) error {
+	if _, err := stream.Recv(); err != nil {
+		return err
+	}
+	if err := stream.Send(&etcdserverpb.WatchResponse{Header: &etcdserverpb.ResponseHeader{Revision: 1}, WatchId: 1, Created: true}); err != nil {
+		return err
+	}
+	_, err := stream.Recv()
+	if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
+		return nil
+	}
+	return err
 }

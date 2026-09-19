@@ -3,14 +3,19 @@ package generator
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"io/fs"
 	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/imajinyun/gofly/core/governance"
 )
 
 func TestGenerateGRPCScaffold(t *testing.T) {
@@ -43,7 +48,7 @@ service Admin { rpc Ping(common.Request) returns (google.protobuf.Empty); }
 	if err := GenerateGRPCScaffold(context.Background(), opts); err != nil {
 		t.Fatal(err)
 	}
-	logicPath := filepath.Join(outputDir, "internal/logic/chat/sendlogic.go")
+	logicPath := filepath.Join(outputDir, "internal/app/chat/send.go")
 	logic, err := os.ReadFile(logicPath)
 	if err != nil {
 		t.Fatal(err)
@@ -66,7 +71,7 @@ service Admin { rpc Ping(common.Request) returns (google.protobuf.Empty); }
 	if !bytes.Equal(logic, preserved) {
 		t.Fatal("business logic overwritten")
 	}
-	if _, err := os.Stat(filepath.Join(outputDir, "internal/logic/chat/addedlogic.go")); err != nil {
+	if _, err := os.Stat(filepath.Join(outputDir, "internal/app/chat/added.go")); err != nil {
 		t.Fatal(err)
 	}
 	for _, rel := range []string{
@@ -86,7 +91,59 @@ service Admin { rpc Ping(common.Request) returns (google.protobuf.Empty); }
 	if !strings.Contains(string(configData), `"policy": "gofly_p2c_ewma"`) {
 		t.Fatalf("descriptor scaffold config missing load-balancing default: %s", configData)
 	}
-	clientData, err := os.ReadFile(filepath.Join(outputDir, "pkg", "client", "chat_grpc.gen.go"))
+	configSource, err := os.ReadFile(filepath.Join(outputDir, "internal", "config", "config.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(configSource), "flygrpc.WithClientCallTimeout(timeout)") {
+		t.Fatalf("descriptor scaffold client timeout does not cover unary and streaming RPCs: %s", configSource)
+	}
+	wantRules := []governance.Rule{
+		{Name: "chat-v1-chat-send-timeout", Priority: -1000, Transport: governance.TransportRPC, Service: "chat.v1.Chat", Method: "Send", Policy: governance.Policy{Timeout: 2 * time.Second}},
+		{Name: "chat-v1-chat-upload-timeout", Priority: -1000, Transport: governance.TransportRPC, Service: "chat.v1.Chat", Method: "Upload", Policy: governance.Policy{Timeout: 2 * time.Second}},
+		{Name: "chat-v1-chat-watch-timeout", Priority: -1000, Transport: governance.TransportRPC, Service: "chat.v1.Chat", Method: "Watch", Policy: governance.Policy{Timeout: 2 * time.Second}},
+		{Name: "chat-v1-chat-talk-timeout", Priority: -1000, Transport: governance.TransportRPC, Service: "chat.v1.Chat", Method: "Talk", Policy: governance.Policy{Timeout: 2 * time.Second}},
+		{Name: "chat-v1-admin-ping-timeout", Priority: -1000, Transport: governance.TransportRPC, Service: "chat.v1.Admin", Method: "Ping", Policy: governance.Policy{Timeout: 2 * time.Second}},
+	}
+	var appConfig struct {
+		Rules []governance.Rule `json:"rules"`
+	}
+	if err := json.Unmarshal(configData, &appConfig); err != nil {
+		t.Fatalf("decode generated RPC config: %v", err)
+	}
+	if !reflect.DeepEqual(appConfig.Rules, wantRules) {
+		t.Fatalf("generated config rules = %#v, want %#v", appConfig.Rules, wantRules)
+	}
+	governanceData, err := os.ReadFile(filepath.Join(outputDir, "etc", "governance.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persistedRules []governance.Rule
+	if err := json.Unmarshal(governanceData, &persistedRules); err != nil {
+		t.Fatalf("decode generated governance rules: %v", err)
+	}
+	if !reflect.DeepEqual(persistedRules, wantRules) {
+		t.Fatalf("generated governance rules = %#v, want %#v", persistedRules, wantRules)
+	}
+	override := governance.Rule{
+		Name: "operator-send-timeout", Transport: governance.TransportRPC,
+		Service: "chat.v1.Chat", Method: "Send", Policy: governance.Policy{Timeout: 7 * time.Second},
+	}
+	merged := governance.NewRuleSet(append(wantRules, override)...)
+	decision := merged.Match(governance.Request{Transport: governance.TransportRPC, Service: "chat.v1.Chat", Method: "Send"})
+	if !decision.Matched || decision.RuleName != override.Name || decision.Policy.Timeout != 7*time.Second {
+		t.Fatalf("operator rule did not override generated default: %#v", decision)
+	}
+	methodDefaults, err := os.ReadFile(filepath.Join(outputDir, "internal", "config", "rpc_methods.gen.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"chat.v1.Chat", `Method: "Added"`, `Method: "Upload"`, `Method: "Watch"`, `Method: "Talk"`, "chat.v1.Admin", `Method: "Ping"`, "Priority: -1000"} {
+		if !strings.Contains(string(methodDefaults), want) {
+			t.Fatalf("generated method defaults missing %q: %s", want, methodDefaults)
+		}
+	}
+	clientData, err := os.ReadFile(filepath.Join(outputDir, "internal", "api", "rpc", "chat_client.gen.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +194,7 @@ service Admin { rpc Ping(common.Request) returns (google.protobuf.Empty); }
 			t.Fatal("inferred options changed existing output")
 		}
 	})
-	configuredClientTest := `package client
+	configuredClientTest := `package rpc
 
 import (
  "context"
@@ -146,6 +203,9 @@ import (
 
  "github.com/imajinyun/gofly/core/discovery"
  flygrpc "github.com/imajinyun/gofly/rpc/grpc"
+ stdgrpc "google.golang.org/grpc"
+ "google.golang.org/grpc/codes"
+ "google.golang.org/grpc/status"
  "google.golang.org/protobuf/types/known/emptypb"
  "example.com/chat/internal/config"
  "example.com/chat/internal/pb"
@@ -155,6 +215,11 @@ type configuredChatServer struct { pb.UnimplementedChatServer }
 
 func (configuredChatServer) Send(context.Context, *pb.Envelope_Payload) (*emptypb.Empty, error) {
  return &emptypb.Empty{}, nil
+}
+
+func (configuredChatServer) Watch(_ *emptypb.Empty, stream stdgrpc.ServerStreamingServer[pb.Envelope_Payload]) error {
+ <-stream.Context().Done()
+ return stream.Context().Err()
 }
 
 func TestConfiguredLoadBalancing(t *testing.T) {
@@ -177,7 +242,7 @@ func TestConfiguredLoadBalancing(t *testing.T) {
  }
  for _, policy := range []string{"", "round_robin", flygrpc.P2CEWMABalancerName, flygrpc.ConsistentHashBalancerName} {
   t.Run("policy "+policy, func(t *testing.T) {
-   cfg := config.Config{LoadBalancing: config.LoadBalancingConfig{Policy: policy}}
+   cfg := config.RPCClientConfig{Etcd: config.EtcdConfig{Hosts: []string{"memory"}, Key: "chat.v1.Chat"}, BalancerName: policy}
    client, conn, err := NewConfiguredChat(t.Context(), registry, cfg, nil, flygrpc.WithWaitForReady())
    if err != nil { t.Fatalf("NewConfiguredChat policy %q: %v", policy, err) }
    defer conn.Close()
@@ -188,13 +253,23 @@ func TestConfiguredLoadBalancing(t *testing.T) {
    }
   })
  }
- invalid := config.Config{LoadBalancing: config.LoadBalancingConfig{Policy: "least_request"}}
+ invalid := config.RPCClientConfig{Target: "127.0.0.1:1", NonBlock: true, BalancerName: "least_request"}
  if _, _, err := NewConfiguredChat(t.Context(), registry, invalid, nil); err == nil {
   t.Fatal("unsupported configured load-balancing policy was accepted")
  }
+ timeoutClient, timeoutConn, err := NewConfiguredChat(t.Context(), registry, config.RPCClientConfig{
+  Etcd: config.EtcdConfig{Hosts: []string{"memory"}, Key: "chat.v1.Chat"}, Timeout: 20, NonBlock: true,
+ }, nil, flygrpc.WithWaitForReady())
+ if err != nil { t.Fatal(err) }
+ defer timeoutConn.Close()
+ watch, err := timeoutClient.Watch(t.Context(), &emptypb.Empty{})
+ if err != nil { t.Fatal(err) }
+ if _, err := watch.Recv(); status.Code(err) != codes.DeadlineExceeded {
+  t.Fatalf("configured stream timeout = %v, want DeadlineExceeded", err)
+ }
 }
 `
-	if err := os.WriteFile(filepath.Join(outputDir, "pkg", "client", "configured_balancing_test.go"), []byte(configuredClientTest), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(outputDir, "internal", "api", "rpc", "configured_balancing_test.go"), []byte(configuredClientTest), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	assertGeneratedProjectCompiles(t, outputDir)
@@ -222,7 +297,7 @@ func TestConfiguredLoadBalancing(t *testing.T) {
 				ctx, cancel = context.WithCancel(ctx)
 				cancel()
 			case "another application":
-				if err := writeGeneratedFileUnder(current.Dir, "internal/server/other_grpc.gen.go", []byte("package server\n")); err != nil {
+				if err := writeGeneratedFileUnder(current.Dir, "internal/api/rpc/other_grpc.gen.go", []byte("package rpc\n")); err != nil {
 					t.Fatal(err)
 				}
 			case "no service", "root go package", "logic collision":
@@ -291,6 +366,242 @@ func TestConfiguredLoadBalancing(t *testing.T) {
 	}
 }
 
+func TestGenerateGRPCScaffoldGoctlOptions(t *testing.T) {
+	if err := validateNativeGRPCToolchain(); err != nil {
+		t.Skip(err)
+	}
+	tests := []struct {
+		name       string
+		proto      string
+		opts       GRPCScaffoldOptions
+		want       []string
+		wantAbsent []string
+		wantErr    string
+	}{
+		{
+			name: "client disabled and package-derived name",
+			proto: `syntax = "proto3";
+package catalog.v1;
+option go_package = "example.com/catalog/internal/pb;pb";
+message Request {}
+message Response {}
+service Catalog { rpc Get(Request) returns (Response); }
+`,
+			opts: GRPCScaffoldOptions{NameFromPackage: true, NoClient: true},
+			want: []string{
+				"cmd/catalogv1/main.go",
+				"etc/catalogv1.json",
+				"internal/api/rpc/catalogv1_grpc.gen.go",
+				"internal/app/catalog/get.go",
+			},
+			wantAbsent: []string{"internal/api/rpc/catalogv1_client.gen.go"},
+		},
+		{
+			name: "multiple groups server logic and clients by service",
+			proto: `syntax = "proto3";
+package platform;
+option go_package = "example.com/platform/internal/pb;pb";
+message Request {}
+message Response {}
+service Catalog { rpc Get(Request) returns (Response); }
+service Inventory { rpc Check(Request) returns (Response); }
+`,
+			opts: GRPCScaffoldOptions{Module: "example.com/platform", NameFromPackage: true, Multiple: true, RequireMultiple: true},
+			want: []string{
+				"internal/api/rpc/register.gen.go",
+				"internal/api/rpc/catalog/catalog_grpc.gen.go",
+				"internal/api/rpc/inventory/inventory_grpc.gen.go",
+				"internal/app/catalog/get.go",
+				"internal/app/inventory/check.go",
+				"internal/api/rpc/catalog/catalog_client.gen.go",
+				"internal/api/rpc/inventory/inventory_client.gen.go",
+			},
+		},
+		{
+			name: "multiple services require explicit multiple mode",
+			proto: `syntax = "proto3";
+package platform;
+option go_package = "example.com/platform/internal/pb;pb";
+message Request {}
+service Catalog { rpc Get(Request) returns (Request); }
+service Inventory { rpc Check(Request) returns (Request); }
+`,
+			opts:    GRPCScaffoldOptions{Module: "example.com/platform", NameFromPackage: true, RequireMultiple: true},
+			wantErr: "rerun with --multiple",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			inputDir, outputDir := t.TempDir(), t.TempDir()
+			input := filepath.Join(inputDir, "service.proto")
+			if err := os.WriteFile(input, []byte(tt.proto), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			opts := tt.opts
+			opts.ProtoFile, opts.Dir = input, outputDir
+			err := GenerateGRPCScaffold(t.Context(), opts)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("GenerateGRPCScaffold error = %v, want %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, rel := range tt.want {
+				if _, err := os.Stat(filepath.Join(outputDir, filepath.FromSlash(rel))); err != nil {
+					t.Fatalf("expected generated file %s: %v", rel, err)
+				}
+			}
+			for _, rel := range tt.wantAbsent {
+				if _, err := os.Stat(filepath.Join(outputDir, filepath.FromSlash(rel))); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("unexpected generated file %s: %v", rel, err)
+				}
+			}
+			assertGeneratedProjectCompiles(t, outputDir)
+		})
+	}
+}
+
+func TestGenerateGRPCScaffoldMultipleProtoProject(t *testing.T) {
+	if err := validateNativeGRPCToolchain(); err != nil {
+		t.Skip(err)
+	}
+	inputDir, outputDir := t.TempDir(), t.TempDir()
+	protoFiles := []string{
+		filepath.Join(inputDir, "catalog.proto"),
+		filepath.Join(inputDir, "inventory.proto"),
+	}
+	contents := []string{
+		`syntax = "proto3";
+package catalog.v1;
+option go_package = "example.com/platform/internal/catalogpb;catalogpb";
+message GetRequest {}
+message GetResponse {}
+service Catalog { rpc Get(GetRequest) returns (GetResponse); }
+`,
+		`syntax = "proto3";
+package inventory.v1;
+option go_package = "example.com/platform/internal/inventorypb;inventorypb";
+message CheckRequest {}
+message CheckResponse {}
+service Inventory { rpc Check(CheckRequest) returns (CheckResponse); }
+`,
+	}
+	for index, name := range protoFiles {
+		if err := os.WriteFile(name, []byte(contents[index]), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	opts := GRPCScaffoldOptions{
+		ProtoFiles: protoFiles, Dir: outputDir, Module: "example.com/platform",
+		NameFromPackage: true, Multiple: true, RequireMultiple: true,
+	}
+	if err := GenerateGRPCScaffold(t.Context(), opts); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{
+		"internal/catalogpb/catalog.pb.go",
+		"internal/inventorypb/inventory.pb.go",
+		"internal/api/rpc/catalog/catalog_grpc.gen.go",
+		"internal/api/rpc/inventory/inventory_grpc.gen.go",
+		"internal/app/catalog/get.go",
+		"internal/app/inventory/check.go",
+		"internal/api/rpc/catalog/catalog_client.gen.go",
+		"internal/api/rpc/inventory/inventory_client.gen.go",
+	} {
+		if _, err := os.Stat(filepath.Join(outputDir, filepath.FromSlash(rel))); err != nil {
+			t.Fatalf("expected multi-proto scaffold file %s: %v", rel, err)
+		}
+	}
+	register, err := os.ReadFile(filepath.Join(outputDir, "internal/api/rpc/register.gen.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, source := range []string{"// source: catalog.proto", "// source: inventory.proto"} {
+		if !bytes.Contains(register, []byte(source)) {
+			t.Fatalf("register output missing %q: %s", source, register)
+		}
+	}
+	logicPath := filepath.Join(outputDir, "internal/app/catalog/get.go")
+	logic, err := os.ReadFile(logicPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logic = bytes.Replace(logic, []byte("not implemented"), []byte("catalog business implementation"), 1)
+	if err := os.WriteFile(logicPath, logic, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	billingProto := filepath.Join(inputDir, "billing.proto")
+	if err := os.WriteFile(billingProto, []byte(`syntax = "proto3";
+package billing.v1;
+option go_package = "example.com/platform/internal/billingpb;billingpb";
+message ChargeRequest {}
+message ChargeResponse {}
+service Billing { rpc Charge(ChargeRequest) returns (ChargeResponse); }
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	opts.ProtoFiles = append(opts.ProtoFiles, billingProto)
+	if err := GenerateGRPCScaffold(t.Context(), opts); err != nil {
+		t.Fatal(err)
+	}
+	preserved, err := os.ReadFile(logicPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(logic, preserved) {
+		t.Fatal("multi-proto regeneration overwrote business logic")
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "internal/app/billing/charge.go")); err != nil {
+		t.Fatalf("incremental multi-proto service was not generated: %v", err)
+	}
+	mainFiles, err := filepath.Glob(filepath.Join(outputDir, "cmd", "*", "main.go"))
+	if err != nil || len(mainFiles) != 1 {
+		t.Fatalf("generated main files = %v, err = %v", mainFiles, err)
+	}
+	discoveryTest := `package main
+
+import (
+ "context"
+ "testing"
+ "time"
+
+ "github.com/imajinyun/gofly/core/discovery"
+ flygrpc "github.com/imajinyun/gofly/rpc/grpc"
+ apprpc "example.com/platform/internal/api/rpc"
+)
+
+func TestAllDescriptorServicesAreDiscoverable(t *testing.T) {
+ registry := discovery.NewMemoryRegistry()
+ server := flygrpc.NewDefaultServer("127.0.0.1:0", "platform-process", nil, nil,
+  flygrpc.WithDiscovery(registry, discovery.Instance{ID: "platform-test", Service: "platform-process"}),
+  flygrpc.WithDiscoveryAliases(apprpc.DiscoveryAliases()...),
+ )
+ started := make(chan error, 1)
+ go func() { started <- server.Start() }()
+ t.Cleanup(func() {
+  _ = server.Shutdown(context.Background())
+  select { case err := <-started: if err != nil { t.Error(err) }; case <-time.After(time.Second): t.Error("timed out waiting for server shutdown") }
+ })
+ for _, service := range []string{"catalog.v1.Catalog", "inventory.v1.Inventory", "billing.v1.Billing"} {
+  deadline := time.Now().Add(time.Second)
+  for {
+   instances, resolveErr := registry.Resolve(t.Context(), service)
+   if resolveErr == nil && len(instances) == 1 { break }
+   if time.Now().After(deadline) { t.Fatalf("service %q was not discoverable: %v", service, resolveErr) }
+   time.Sleep(time.Millisecond)
+  }
+ }
+}
+`
+	if err := os.WriteFile(filepath.Join(filepath.Dir(mainFiles[0]), "discovery_test.go"), []byte(discoveryTest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	assertGeneratedProjectCompiles(t, outputDir)
+}
+
 func TestGenerateGRPCBindingCodeSupportsStreaming(t *testing.T) {
 	doc, err := ParseProto(`syntax = "proto3";
 package chat.v1;
@@ -313,7 +624,7 @@ service Chat { rpc Talk(stream ChatRequest) returns (stream ChatResponse); }
 	}
 }
 
-func TestGenerateRPCNewGoZeroCompatibleProducesRunnableGRPCProject(t *testing.T) {
+func TestGenerateRPCNewGoZeroCompatibleProducesRunnableGoflyProject(t *testing.T) {
 	dir := t.TempDir()
 	if err := GenerateRPCNew(RPCNewOptions{
 		Name:          "Greeter",
@@ -333,24 +644,46 @@ func TestGenerateRPCNewGoZeroCompatibleProducesRunnableGRPCProject(t *testing.T)
 		filepath.Join("internal", "config", "production_check.go"),
 		filepath.Join("internal", "config", "governance_recovery_test.go"),
 		filepath.Join("internal", "discovery", "registry.go"),
-		filepath.Join("internal", "logic", "sayhellologic.go"),
-		filepath.Join("internal", "server", "greeterserver.go"),
-		filepath.Join("internal", "svc", "servicecontext.go"),
+		filepath.Join("internal", "app", "greeter", "sayhello.go"),
+		filepath.Join("internal", "api", "rpc", "greeter.go"),
+		filepath.Join("internal", "api", "rpc", "greeter_client.go"),
+		filepath.Join("internal", "svc", "service_context.go"),
 		filepath.Join("internal", "pb", "Greeter.pb.go"),
 		filepath.Join("internal", "pb", "Greeter_grpc.pb.go"),
-		filepath.Join("pkg", "client", "greeter.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
 			t.Fatalf("generated runnable gRPC file %s: %v", rel, err)
+		}
+	}
+	for _, rel := range []string{
+		filepath.Join("internal", "logic"),
+		filepath.Join("internal", "server"),
+		filepath.Join("internal", "types"),
+		filepath.Join("internal", "svc", "servicecontext.go"),
+		filepath.Join("pkg", "client"),
+	} {
+		if _, err := os.Stat(filepath.Join(dir, rel)); err == nil {
+			t.Fatalf("generated project unexpectedly uses goctl layout path %s", rel)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("inspect forbidden generated path %s: %v", rel, err)
 		}
 	}
 	mainData, err := os.ReadFile(filepath.Join(dir, "cmd", "Greeter", "main.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"flygrpc.NewDefaultServer", "flygrpc.WithDiscovery", "flygrpc.WithAdaptiveLimiter", "limit.NewRuntimeCPUReader", "pb.RegisterGreeterServer", "app.Run"} {
+	for _, want := range []string{"flygrpc.NewDefaultServer", "flygrpc.WithDiscovery", "flygrpc.WithDiscoveryAliases", "appdiscovery.NewZRPCRegistrar", "serverService = c.Etcd.Key", "serverAliases = nil", "flygrpc.WithAdaptiveLimiter", "limit.NewRuntimeCPUReader", "stx.InitRPCClients(ctx, registry)", "stx.Close()", "pb.RegisterGreeterServer", "app.Run"} {
 		if !strings.Contains(string(mainData), want) {
 			t.Fatalf("generated main missing %q: %s", want, mainData)
+		}
+	}
+	svcData, err := os.ReadFile(filepath.Join(dir, "internal", "svc", "service_context.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"rpcClients   map[string]rpcClientResource", "rpcResolvers map[rpcResolverKey]rpcResolverResource", "func (s *ServiceContext) InitRPCClients", "appdiscovery.NewZRPCResolver", "func (s *ServiceContext) RPCClient", "func (s *ServiceContext) Close() error"} {
+		if !strings.Contains(string(svcData), want) {
+			t.Fatalf("generated service context missing %q: %s", want, svcData)
 		}
 	}
 	configData, err := os.ReadFile(filepath.Join(dir, "etc", "Greeter.json"))
@@ -362,11 +695,11 @@ func TestGenerateRPCNewGoZeroCompatibleProducesRunnableGRPCProject(t *testing.T)
 			t.Fatalf("generated config missing %q: %s", want, configData)
 		}
 	}
-	clientData, err := os.ReadFile(filepath.Join(dir, "pkg", "client", "greeter.go"))
+	clientData, err := os.ReadFile(filepath.Join(dir, "internal", "api", "rpc", "greeter_client.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"NewDiscoveredGreeter", "flygrpc.WithP2CEWMAResolver()", "NewConfiguredGreeter", "c.LoadBalancing.ResolverOption()"} {
+	for _, want := range []string{"NewDiscoveredGreeter", "flygrpc.WithP2CEWMAResolver()", "NewConfiguredGreeter", "c.TargetAndOptions"} {
 		if !strings.Contains(string(clientData), want) {
 			t.Fatalf("generated client missing %q: %s", want, clientData)
 		}

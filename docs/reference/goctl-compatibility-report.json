@@ -1,7 +1,7 @@
 {
   "schema": "gofly.goctl_compatibility_report.v1",
   "acceptanceGate": "make goctl-compatibility-report-check",
-  "positioning": "gofly provides a goctl-compatible migration path, not a full goctl replacement.",
+  "positioning": "gofly provides a go-zero-compatible behavior and configuration migration path while retaining its native layout; it is not a full goctl replacement.",
   "sourceOfTruth": [
     "docs/reference/goctl-compatibility-report.json",
     "docs/reference/goctl-surface-drift.json",
@@ -95,7 +95,7 @@
     "Treat oracle replay layout differences as report-only unless a future contract promotes byte-for-byte layout parity."
   ],
   "claimPolicy": {
-    "allowed": "Docs and release notes may claim goctl-compatible migration coverage only for stages with blocking gates or explicit report-only labels.",
+    "allowed": "Docs and release notes may claim go-zero-compatible behavior and configuration migration coverage only for stages with blocking gates or explicit report-only labels.",
     "forbidden": "Docs and release notes must not claim full goctl replacement, byte-for-byte output parity, or default external plugin execution."
   }
 }

@@ -202,6 +202,20 @@ func TimeoutMiddleware(timeout time.Duration) Middleware {
 	}
 }
 
+// SSEMiddleware prepares a response for a long-lived Server-Sent Events
+// stream. It intentionally does not write a status or flush before the handler
+// emits its first event.
+func SSEMiddleware() Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.Header().Set("Connection", "keep-alive")
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 func MaxBodyBytesMiddleware(maxBodyBytes int64) Middleware {
 	return func(next http.Handler) http.Handler {
 		if maxBodyBytes <= 0 {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
@@ -52,23 +53,30 @@ func rpcProtocCommand(args []string) error {
 	if flagProvided(fs, "c") {
 		*client = *c
 	}
+	goflyPlugin, useGoflyPlugin, externalPlugins := resolveGoflyProtocPlugin(*pluginArg)
+	zrpcScaffold := *zrpcOut != "" && !useGoflyPlugin
 	if *style != "go_zero" {
-		warnNoopFlag("rpc protoc", "style", "standard protoc output is not style-aware")
+		if zrpcScaffold {
+			return fmt.Errorf("%w: --zrpc_out currently requires --style go_zero", errUsage)
+		}
+		warnNoopFlag("rpc protoc", "style", "protoc and gofly plugin output are not style-aware")
 	}
 	if *home != "" || *remote != "" || *branch != "" {
-		warnNoopFlag("rpc protoc", "home/remote/branch", "template source does not affect standard protoc output")
+		if zrpcScaffold {
+			return fmt.Errorf("%w: --home, --remote, and --branch are not supported with --zrpc_out", errUsage)
+		}
+		warnNoopFlag("rpc protoc", "home/remote/branch", "template source does not affect protoc or gofly plugin output")
 	}
-	goflyPlugin, useGoflyPlugin, externalPlugins := resolveGoflyProtocPlugin(*pluginArg)
-	if (*multiple || *m) && !useGoflyPlugin {
-		warnNoopFlag("rpc protoc", "multiple", "only affects --plugin gofly output")
+	if (*multiple || *m) && !useGoflyPlugin && !zrpcScaffold {
+		warnNoopFlag("rpc protoc", "multiple", "only affects --zrpc_out scaffold or --plugin gofly output")
 	}
-	if (flagProvided(fs, "client") || flagProvided(fs, "c")) && !useGoflyPlugin {
-		warnNoopFlag("rpc protoc", "client", "only affects --plugin gofly output")
+	if (flagProvided(fs, "client") || flagProvided(fs, "c")) && !useGoflyPlugin && !zrpcScaffold {
+		warnNoopFlag("rpc protoc", "client", "only affects --zrpc_out scaffold or --plugin gofly output")
 	}
-	if *nameFromFilename && !useGoflyPlugin {
-		warnNoopFlag("rpc protoc", "name-from-filename", "only affects --plugin gofly output")
+	if *nameFromFilename && !useGoflyPlugin && !zrpcScaffold {
+		warnNoopFlag("rpc protoc", "name-from-filename", "only affects --zrpc_out scaffold or --plugin gofly output")
 	}
-	if *module != "" && !useGoflyPlugin {
+	if *module != "" && !useGoflyPlugin && !zrpcScaffold {
 		warnNoopFlag("rpc protoc", "module", "module import paths are controlled by go_package and protoc options unless --plugin gofly is used")
 	}
 	if len(externalPlugins) > 0 {
@@ -82,6 +90,9 @@ func rpcProtocCommand(args []string) error {
 	if len(protoFiles) == 0 {
 		return fmt.Errorf("%w: proto file is required", errUsage)
 	}
+	if zrpcScaffold && len(externalPlugins) > 0 {
+		return fmt.Errorf("%w: external --plugin values are not supported with --zrpc_out scaffold", errUsage)
+	}
 	if *timeout <= 0 {
 		return fmt.Errorf("%w: --timeout must be greater than zero", errUsage)
 	}
@@ -91,6 +102,23 @@ func rpcProtocCommand(args []string) error {
 	}
 	if *zrpcOut != "" {
 		*dir = *zrpcOut
+	}
+	if zrpcScaffold {
+		name := ""
+		if *nameFromFilename {
+			name = strings.TrimSuffix(filepath.Base(protoFiles[0]), filepath.Ext(protoFiles[0]))
+		}
+		sp := spinner.New()
+		if isQuiet() || outputMode() == outputJSON {
+			sp.Disable()
+		}
+		sp.Start("generating zRPC-compatible scaffold...")
+		err := generator.GenerateGRPCScaffold(context.Background(), generator.GRPCScaffoldOptions{
+			ProtoFiles: protoFiles, ProtoPath: includePaths, Dir: *zrpcOut, Module: *module, Name: name,
+			NameFromPackage: !*nameFromFilename, NoClient: !*client, Multiple: *multiple || *m, RequireMultiple: true, Protoc: *protoc, Timeout: *timeout,
+		})
+		sp.Stop()
+		return err
 	}
 	if *goOut == "" {
 		*goOut = *dir

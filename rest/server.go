@@ -640,7 +640,7 @@ func (s *Server) routeMiddlewares(r Route, ro routeOptions) []Middleware {
 		s.governance.Register("adaptive-breaker", "adaptive_breaker", target, func() any { return brk.Snapshot() })
 		middlewares = append(middlewares, AdaptiveBreakerMiddleware(brk))
 	}
-	if ro.timeout > 0 {
+	if ro.timeout > 0 && !ro.sse {
 		middlewares = append(middlewares, TimeoutMiddleware(ro.timeout))
 	}
 	if ro.maxBodyBytes > 0 {
@@ -657,6 +657,9 @@ func (s *Server) routeMiddlewares(r Route, ro routeOptions) []Middleware {
 	}
 	middlewares = append(middlewares, ro.middlewares...)
 	middlewares = append(middlewares, r.Middlewares...)
+	if ro.sse {
+		middlewares = append(middlewares, SSEMiddleware())
+	}
 	return middlewares
 }
 
@@ -688,7 +691,8 @@ func (s *Server) runtimeMiddlewareChain() []coreruntime.MiddlewareLayer {
 	add(ro.adaptive != nil && ro.adaptive.enabled, "adaptive_rate_limit", "config", "adaptive limiter")
 	add(ro.concurrency != nil && ro.concurrency.enabled, "max_concurrency", "config", "concurrency limiter")
 	add(boolEnabled(ro.breaker), "breaker", "config", "adaptive circuit breaker")
-	add(ro.timeout > 0, "timeout", "config", "request deadline")
+	add(ro.sse, "sse", "route", "server-sent events stream")
+	add(ro.timeout > 0 && !ro.sse, "timeout", "config", "request deadline")
 	add(ro.maxBodyBytes > 0, "max_body_bytes", "config", "request body limit")
 	add(trimStringsEnabled(ro.trimStrings), "trim_strings", "config", "input normalization")
 	add(s.conf.Middlewares.CSRF != nil, "csrf", "config", "csrf protection")

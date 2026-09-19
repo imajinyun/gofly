@@ -33,9 +33,11 @@ const goZeroRPCConfigTemplate = `{
   "tls": {},
   "telemetry": {"enabled": false},
   "logJSON": true,
+  "etcd": {},
+  "clients": {},
   "loadBalancing": {"policy": "gofly_p2c_ewma"},
   "adaptiveLimit": {"enabled": true, "minLimit": 16, "maxLimit": 256, "initialLimit": 64, "cpuThresholdPermille": 800, "window": 10000000000, "targetLatency": 100000000, "targetErrorRatio": 0.05, "minSamples": 20},
-  "rules": [{"name": "greeter-timeout", "transport": "rpc", "method": "SayHello", "policy": {"timeout": 2000000000}}],
+  "rules": {{.RPCMethodRulesJSON}},
   "discovery": {
     "provider": "memory",
     "ttl": "15s",
@@ -48,17 +50,24 @@ const goZeroRPCConfigTemplate = `{
 const goZeroRPCConfigGoTemplate = `package config
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/imajinyun/gofly/core/discovery"
 	"github.com/imajinyun/gofly/core/governance"
 	"github.com/imajinyun/gofly/core/observability/trace"
 	"github.com/imajinyun/gofly/core/security"
+	corerpc "github.com/imajinyun/gofly/rpc"
 	flygrpc "github.com/imajinyun/gofly/rpc/grpc"
+
+	"google.golang.org/grpc/keepalive"
 )
 
 type Config struct {
@@ -79,6 +88,8 @@ type Config struct {
 	TLS           security.TLSConfig ` + "`json:\"tls,omitempty\"`" + `
 	Telemetry     trace.AgentConfig ` + "`json:\"telemetry,omitempty\"`" + `
 	LogJSON       bool ` + "`json:\"logJSON,omitempty\"`" + `
+	Etcd          EtcdConfig ` + "`json:\"etcd,omitempty\"`" + `
+	Clients       map[string]RPCClientConfig ` + "`json:\"clients,omitempty\"`" + `
 }
 
 type DiscoveryConfig struct {
@@ -97,6 +108,81 @@ type LoadBalancingConfig struct {
 	Policy string ` + "`json:\"policy,omitempty\"`" + `
 }
 
+// EtcdConfig carries the migration-critical subset of go-zero's EtcdConf.
+// Generated ServiceContext wiring constructs a read-only resolver for this
+// zRPC-compatible endpoint layout; direct constructors may inject one.
+type EtcdConfig struct {
+	Hosts              []string ` + "`json:\"hosts,omitempty\"`" + `
+	Key                string   ` + "`json:\"key,omitempty\"`" + `
+	ID                 int64    ` + "`json:\"id,omitempty\"`" + `
+	User               string   ` + "`json:\"user,omitempty\"`" + `
+	Pass               string   ` + "`json:\"pass,omitempty\"`" + `
+	CertFile           string   ` + "`json:\"certFile,omitempty\"`" + `
+	CertKeyFile        string   ` + "`json:\"certKeyFile,omitempty\"`" + `
+	CACertFile         string   ` + "`json:\"caCertFile,omitempty\"`" + `
+	InsecureSkipVerify bool     ` + "`json:\"insecureSkipVerify,omitempty\"`" + `
+}
+
+func (c EtcdConfig) ResolvedHosts() []string {
+	return compactRPCClientEndpoints(c.Hosts)
+}
+
+func (c EtcdConfig) TLSConfig() security.TLSConfig {
+	return security.TLSConfig{
+		CertFile: c.CertFile, KeyFile: c.CertKeyFile, CAFile: c.CACertFile,
+		InsecureSkipVerify: c.InsecureSkipVerify,
+	}
+}
+
+func (c EtcdConfig) Enabled() bool {
+	return len(c.ResolvedHosts()) > 0 || strings.TrimSpace(c.Key) != ""
+}
+
+func (c EtcdConfig) Validate() error {
+	if !c.Enabled() { return nil }
+	if len(c.ResolvedHosts()) == 0 || strings.TrimSpace(c.Key) == "" {
+		return errors.New("etcd requires hosts and key")
+	}
+	if c.ID < 0 { return errors.New("etcd id must be non-negative") }
+	if (strings.TrimSpace(c.User) == "") != (strings.TrimSpace(c.Pass) == "") {
+		return errors.New("etcd credentials require both user and pass")
+	}
+	if err := validateRPCClientTLS(c.TLSConfig()); err != nil { return fmt.Errorf("etcd TLS: %w", err) }
+	return nil
+}
+
+// RPCClientConfig is the generated-project compatibility adapter for the
+// migration-critical fields in zrpc.RpcClientConf. Timeout is in milliseconds.
+type RPCClientConfig struct {
+	Endpoints                []string           ` + "`json:\"endpoints,omitempty\"`" + `
+	Target                   string             ` + "`json:\"target,omitempty\"`" + `
+	Etcd                     EtcdConfig         ` + "`json:\"etcd,omitempty\"`" + `
+	App                      string             ` + "`json:\"app,omitempty\"`" + `
+	Token                    string             ` + "`json:\"token,omitempty\"`" + `
+	NonBlock                 bool               ` + "`json:\"nonBlock,omitempty\"`" + `
+	Timeout                  int64              ` + "`json:\"timeout,omitempty\"`" + `
+	KeepaliveTime            time.Duration      ` + "`json:\"keepaliveTime,omitempty\"`" + `
+	BalancerName             string             ` + "`json:\"balancerName,omitempty\"`" + `
+	TLS                      security.TLSConfig ` + "`json:\"tls,omitempty\"`" + `
+	AllowInsecureCredentials bool               ` + "`json:\"allowInsecureCredentials,omitempty\"`" + `
+}
+
+func (c *RPCClientConfig) UnmarshalJSON(data []byte) error {
+	type plain RPCClientConfig
+	value := plain{NonBlock: true, Timeout: 2000}
+	if err := json.Unmarshal(data, &value); err != nil { return err }
+	*c = RPCClientConfig(value)
+	return nil
+}
+
+func (c *RPCClientConfig) UnmarshalYAML(unmarshal func(any) error) error {
+	type plain RPCClientConfig
+	value := plain{NonBlock: true, Timeout: 2000}
+	if err := unmarshal(&value); err != nil { return err }
+	*c = RPCClientConfig(value)
+	return nil
+}
+
 func Validate(c Config) error {
 	if strings.TrimSpace(c.Name) == "" {
 		return errors.New("rpc service name is required")
@@ -109,6 +195,10 @@ func Validate(c Config) error {
 	}
 	if c.Discovery.ProviderName() != "memory" && strings.TrimSpace(c.Advertise) == "" {
 		return errors.New("rpc advertise address is required for external discovery")
+	}
+	if err := c.Etcd.Validate(); err != nil { return fmt.Errorf("rpc server: %w", err) }
+	if c.Etcd.Enabled() && strings.TrimSpace(c.Advertise) == "" {
+		return errors.New("rpc advertise address is required for zrpc etcd registration")
 	}
 	if c.Environment != "" && c.Environment != "development" && c.Environment != "production" {
 		return errors.New("environment must be development or production")
@@ -133,12 +223,18 @@ func Validate(c Config) error {
 			return errors.New("non-loopback admin requires adminTokenEnv and a protected network")
 		}
 	}
+	clientNames := make([]string, 0, len(c.Clients))
+	for name := range c.Clients { clientNames = append(clientNames, name) }
+	sort.Strings(clientNames)
+	for _, name := range clientNames {
+		if err := c.Clients[name].Validate(name); err != nil { return fmt.Errorf("rpc client %q: %w", name, err) }
+	}
 	return governance.ValidateRules(c.Rules...)
 }
 
 func (c LoadBalancingConfig) PolicyName() string {
 	policy := strings.ToLower(strings.TrimSpace(c.Policy))
-	if policy == "" { return flygrpc.P2CEWMABalancerName }
+	if policy == "" || policy == "p2c_ewma" { return flygrpc.P2CEWMABalancerName }
 	return policy
 }
 
@@ -153,6 +249,125 @@ func (c LoadBalancingConfig) ResolverOption() (flygrpc.ResolverOption, error) {
 	default:
 		return nil, errors.New("unsupported gRPC load-balancing policy " + policy)
 	}
+}
+
+// TargetAndOptions maps zRPC-style client configuration onto gofly's native
+// client and resolver options. Endpoints take precedence over Target, which
+// takes precedence over Etcd, matching zrpc.RpcClientConf.BuildTarget.
+func (c RPCClientConfig) TargetAndOptions(resolver discovery.Resolver, defaultService string) (string, []flygrpc.ClientOption, error) {
+	if err := c.Validate(defaultService); err != nil { return "", nil, err }
+	service := strings.TrimSpace(defaultService)
+	resolverOption, err := (LoadBalancingConfig{Policy: c.BalancerName}).ResolverOption()
+	if err != nil {
+		return "", nil, err
+	}
+	var target string
+	var options []flygrpc.ClientOption
+	if endpoints := compactRPCClientEndpoints(c.Endpoints); len(endpoints) > 0 {
+		target = flygrpc.Target(service)
+		options = append(options, flygrpc.WithStaticResolver(service, endpoints, resolverOption))
+	} else if direct := strings.TrimSpace(c.Target); direct != "" {
+		target = direct
+		options = append(options, flygrpc.WithBalancerName((LoadBalancingConfig{Policy: c.BalancerName}).PolicyName()))
+	} else {
+		key := strings.TrimSpace(c.Etcd.Key)
+		hosts := compactRPCClientEndpoints(c.Etcd.Hosts)
+		if key == "" || len(hosts) == 0 {
+			return "", nil, errors.New("rpc client requires endpoints, target, or etcd hosts and key")
+		}
+		if resolver == nil {
+			return "", nil, errors.New("rpc client etcd config requires a gofly discovery resolver")
+		}
+		target = flygrpc.Target(service)
+		options = append(options, flygrpc.WithServiceResolver(service, corerpc.NewDiscoveryResolver(resolver, key), resolverOption))
+	}
+	if (strings.TrimSpace(c.App) == "") != (strings.TrimSpace(c.Token) == "") {
+		return "", nil, errors.New("rpc client credentials require both app and token")
+	}
+	if err := validateRPCClientTLS(c.TLS); err != nil {
+		return "", nil, err
+	}
+	if rpcClientTLSConfigured(c.TLS) {
+		options = append(options, flygrpc.WithClientTLS(c.TLS))
+	}
+	if strings.TrimSpace(c.App) != "" {
+		if !rpcClientTLSConfigured(c.TLS) && !c.AllowInsecureCredentials {
+			return "", nil, errors.New("rpc client app/token credentials require TLS or explicit allowInsecureCredentials")
+		}
+		options = append(options, flygrpc.WithAppTokenCredentials(flygrpc.AppTokenCredentials{
+			App: strings.TrimSpace(c.App), Token: strings.TrimSpace(c.Token), AllowInsecure: c.AllowInsecureCredentials,
+		}))
+	}
+	if c.Timeout > 0 {
+		timeout := time.Duration(c.Timeout) * time.Millisecond
+		options = append(options, flygrpc.WithClientCallTimeout(timeout))
+	}
+	if c.KeepaliveTime > 0 {
+		options = append(options, flygrpc.WithClientKeepalive(keepalive.ClientParameters{Time: c.KeepaliveTime}))
+	}
+	if !c.NonBlock {
+		options = append(options, flygrpc.WithWaitForReady())
+	}
+	return target, options, nil
+}
+
+func (c RPCClientConfig) Validate(defaultService string) error {
+	if strings.TrimSpace(defaultService) == "" { return errors.New("rpc client service is required") }
+	if _, err := (LoadBalancingConfig{Policy: c.BalancerName}).ResolverOption(); err != nil { return err }
+	if len(compactRPCClientEndpoints(c.Endpoints)) == 0 && strings.TrimSpace(c.Target) == "" &&
+		(strings.TrimSpace(c.Etcd.Key) == "" || len(compactRPCClientEndpoints(c.Etcd.Hosts)) == 0) {
+		return errors.New("rpc client requires endpoints, target, or etcd hosts and key")
+	}
+	if (strings.TrimSpace(c.App) == "") != (strings.TrimSpace(c.Token) == "") {
+		return errors.New("rpc client credentials require both app and token")
+	}
+	if err := validateRPCClientTLS(c.TLS); err != nil { return err }
+	if strings.TrimSpace(c.App) != "" && !rpcClientTLSConfigured(c.TLS) && !c.AllowInsecureCredentials {
+		return errors.New("rpc client app/token credentials require TLS or explicit allowInsecureCredentials")
+	}
+	if c.Timeout < 0 { return errors.New("rpc client timeout must be non-negative") }
+	if c.KeepaliveTime < 0 { return errors.New("rpc client keepalive time must be non-negative") }
+	if c.RequiresEtcdResolver() {
+		if (strings.TrimSpace(c.Etcd.User) == "") != (strings.TrimSpace(c.Etcd.Pass) == "") {
+			return errors.New("rpc client etcd credentials require both user and pass")
+		}
+		if err := validateRPCClientTLS(c.Etcd.TLSConfig()); err != nil {
+			return fmt.Errorf("rpc client etcd TLS: %w", err)
+		}
+	}
+	return nil
+}
+
+func (c RPCClientConfig) RequiresEtcdResolver() bool {
+	return len(compactRPCClientEndpoints(c.Endpoints)) == 0 && strings.TrimSpace(c.Target) == "" &&
+		strings.TrimSpace(c.Etcd.Key) != "" && len(c.Etcd.ResolvedHosts()) > 0
+}
+
+func compactRPCClientEndpoints(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.TrimRight(strings.TrimSpace(value), "/")
+		if value == "" { continue }
+		if _, ok := seen[value]; ok { continue }
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
+func validateRPCClientTLS(c security.TLSConfig) error {
+	if strings.TrimSpace(c.ClientCAFile) != "" {
+		return errors.New("rpc client TLS does not accept server-only clientCAFile")
+	}
+	if (strings.TrimSpace(c.CertFile) == "") != (strings.TrimSpace(c.KeyFile) == "") {
+		return errors.New("rpc client TLS requires both certFile and keyFile")
+	}
+	return nil
+}
+
+func rpcClientTLSConfigured(c security.TLSConfig) bool {
+	return c.Enabled() || strings.TrimSpace(c.CAFile) != "" || strings.TrimSpace(c.ServerName) != "" || c.InsecureSkipVerify
 }
 
 func ResolveConfigPath(name string) string {
@@ -200,13 +415,58 @@ func parseDuration(value string, fallback time.Duration) time.Duration {
 }
 `
 
-const goZeroRPCDiscoveryTemplate = discoveryRegistryTemplate
+const goZeroRPCDiscoveryTemplate = discoveryRegistryTemplate + `
+
+// NewZRPCResolver connects to the etcd cluster declared by a zRPC-style
+// client config and reads its raw key/value endpoint layout. It is separate
+// from NewRegistry because gofly's native registry stores structured Instance
+// JSON under a different namespace contract.
+func NewZRPCResolver(ctx context.Context, cfg appconfig.EtcdConfig) (corediscovery.Resolver, closeFunc, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	tlsConfig, err := cfg.TLSConfig().ClientTLSConfig()
+	if err != nil {
+		return nil, nil, fmt.Errorf("configure zrpc etcd TLS: %w", err)
+	}
+	resolver, err := etcdv3.NewZRPCResolver(etcdv3.Config{
+		Endpoints: cfg.ResolvedHosts(), Username: cfg.User, Password: cfg.Pass, TLS: tlsConfig,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("create zrpc etcd resolver: %w", err)
+	}
+	return resolver, resolver.Close, nil
+}
+
+// NewZRPCRegistrar publishes the raw endpoint layout consumed by go-zero zRPC.
+// It is explicit and separate from NewRegistry so native gofly registration
+// retains its structured Instance JSON contract.
+func NewZRPCRegistrar(ctx context.Context, cfg appconfig.EtcdConfig) (corediscovery.Registrar, closeFunc, error) {
+	if ctx == nil { ctx = context.Background() }
+	if err := ctx.Err(); err != nil { return nil, nil, err }
+	if err := cfg.Validate(); err != nil { return nil, nil, err }
+	tlsConfig, err := cfg.TLSConfig().ClientTLSConfig()
+	if err != nil { return nil, nil, fmt.Errorf("configure zrpc etcd TLS: %w", err) }
+	registrar, err := etcdv3.NewZRPCRegistrar(etcdv3.Config{
+		Endpoints: cfg.ResolvedHosts(), Username: cfg.User, Password: cfg.Pass,
+		TLS: tlsConfig, RegistrationID: cfg.ID,
+	})
+	if err != nil { return nil, nil, fmt.Errorf("create zrpc etcd registrar: %w", err) }
+	return registrar, registrar.Close, nil
+}
+`
 
 const goZeroRPCConfigTestTemplate = `package config
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
+	"github.com/imajinyun/gofly/core/discovery"
 	flygrpc "github.com/imajinyun/gofly/rpc/grpc"
 )
 
@@ -236,7 +496,7 @@ func TestValidate(t *testing.T) {
 			if option, err := configured.LoadBalancing.ResolverOption(); err != nil || option == nil { t.Fatalf("ResolverOption = %v, %v", option, err) }
 		})
 	}
-	for _, name := range []string{"production plaintext", "partial TLS", "public admin", "missing token", "watch without file", "unknown environment"} {
+	for _, name := range []string{"production plaintext", "partial TLS", "public admin", "missing token", "watch without file", "unknown environment", "invalid client", "partial server etcd", "server etcd without advertise", "negative server etcd id"} {
 		t.Run(name, func(t *testing.T) {
 			invalid := cfg
 			switch name {
@@ -246,6 +506,10 @@ func TestValidate(t *testing.T) {
 			case "missing token": invalid.AuthTokenEnv = "GOFLY_TEST_MISSING_TOKEN"; t.Setenv(invalid.AuthTokenEnv, "")
 			case "watch without file": invalid.RuleWatch = true
 			case "unknown environment": invalid.Environment = "prod"
+			case "invalid client": invalid.Clients = map[string]RPCClientConfig{"orders.v1.Orders": {}}
+			case "partial server etcd": invalid.Etcd.Hosts = []string{"127.0.0.1:2379"}
+			case "server etcd without advertise": invalid.Etcd = EtcdConfig{Hosts: []string{"127.0.0.1:2379"}, Key: "greeter.rpc"}
+			case "negative server etcd id": invalid.Advertise = "127.0.0.1:8081"; invalid.Etcd = EtcdConfig{Hosts: []string{"127.0.0.1:2379"}, Key: "greeter.rpc", ID: -1}
 			}
 			if err := Validate(invalid); err == nil { t.Fatal("unsafe config accepted") }
 		})
@@ -256,6 +520,53 @@ func TestValidate(t *testing.T) {
 	invalid = cfg
 	invalid.AdaptiveLimit.InitialLimit = invalid.AdaptiveLimit.MaxLimit + 1
 	if err := Validate(invalid); err == nil { t.Fatal("invalid adaptive limit accepted") }
+	for _, client := range []RPCClientConfig{
+		{Etcd: EtcdConfig{Hosts: []string{"127.0.0.1:2379"}, Key: "greeter.rpc", User: "user"}},
+		{Etcd: EtcdConfig{Hosts: []string{"127.0.0.1:2379"}, Key: "greeter.rpc", CertFile: "client.crt"}},
+	} {
+		invalid = cfg
+		invalid.Clients = map[string]RPCClientConfig{"greeter.Greeter": client}
+		if err := Validate(invalid); err == nil { t.Fatal("invalid etcd client security config accepted") }
+	}
+}
+
+func TestRPCClientConfigMigration(t *testing.T) {
+	var defaults RPCClientConfig
+	if err := json.Unmarshal([]byte(` + "`{\"target\":\"dns:///greeter\"}`" + `), &defaults); err != nil { t.Fatal(err) }
+	if !defaults.NonBlock || defaults.Timeout != 2000 { t.Fatalf("zRPC defaults = %+v, want nonBlock=true timeout=2000", defaults) }
+	precedence := RPCClientConfig{Endpoints: []string{"127.0.0.1:8081"}, Target: "ignored:8081", Etcd: EtcdConfig{Hosts: []string{"127.0.0.1:2379"}, Key: "greeter.rpc"}}
+	if precedence.RequiresEtcdResolver() { t.Fatal("endpoint precedence should not create an etcd resolver") }
+	etcdOnly := RPCClientConfig{Etcd: EtcdConfig{Hosts: []string{" 127.0.0.1:2379 ", "127.0.0.1:2379"}, Key: "greeter.rpc"}}
+	if !etcdOnly.RequiresEtcdResolver() || len(etcdOnly.Etcd.ResolvedHosts()) != 1 { t.Fatalf("etcd resolver selection = %+v", etcdOnly) }
+	tests := []struct {
+		name string
+		cfg RPCClientConfig
+		resolver discovery.Resolver
+		wantTarget string
+		wantErr string
+	}{
+		{name: "endpoints precede target", cfg: RPCClientConfig{Endpoints: []string{"127.0.0.1:8081", "127.0.0.1:8082"}, Target: "ignored:8081", NonBlock: true}, wantTarget: flygrpc.Target("greeter.Greeter")},
+		{name: "direct target", cfg: RPCClientConfig{Target: "dns:///greeter", NonBlock: true}, wantTarget: "dns:///greeter"},
+		{name: "etcd bridge", cfg: RPCClientConfig{Etcd: EtcdConfig{Hosts: []string{"127.0.0.1:2379"}, Key: "greeter.rpc"}, NonBlock: true}, resolver: discovery.NewMemoryRegistry(), wantTarget: flygrpc.Target("greeter.Greeter")},
+		{name: "etcd requires resolver", cfg: RPCClientConfig{Etcd: EtcdConfig{Hosts: []string{"127.0.0.1:2379"}, Key: "greeter.rpc"}}, wantErr: "requires a gofly discovery resolver"},
+		{name: "partial credentials", cfg: RPCClientConfig{Target: "127.0.0.1:8081", App: "app"}, wantErr: "both app and token"},
+		{name: "credentials require transport security", cfg: RPCClientConfig{Target: "127.0.0.1:8081", App: "app", Token: "token"}, wantErr: "require TLS"},
+		{name: "explicit insecure credential migration", cfg: RPCClientConfig{Target: "127.0.0.1:8081", App: "app", Token: "token", AllowInsecureCredentials: true, NonBlock: true}, wantTarget: "127.0.0.1:8081"},
+		{name: "unsupported balancer", cfg: RPCClientConfig{Target: "127.0.0.1:8081", BalancerName: "least_request"}, wantErr: "unsupported gRPC load-balancing policy"},
+		{name: "missing destination", cfg: RPCClientConfig{}, wantErr: "requires endpoints, target, or etcd"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			target, options, err := tt.cfg.TargetAndOptions(tt.resolver, "greeter.Greeter")
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) { t.Fatalf("TargetAndOptions error = %v, want %q", err, tt.wantErr) }
+				return
+			}
+			if err != nil { t.Fatal(err) }
+			if target != tt.wantTarget { t.Fatalf("target = %q, want %q", target, tt.wantTarget) }
+			if len(options) == 0 { t.Fatal("client mapping produced no options") }
+		})
+	}
 }
 `
 
@@ -392,21 +703,157 @@ func TestGovernanceRuleRestartRecovery(t *testing.T) {
 const goZeroRPCSvcTemplate = `package svc
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"sort"
+	"strings"
+	"sync"
+
+	corediscovery "github.com/imajinyun/gofly/core/discovery"
 	"github.com/imajinyun/gofly/core/governance"
+	flygrpc "github.com/imajinyun/gofly/rpc/grpc"
 	"{{.Module}}/internal/config"
+	appdiscovery "{{.Module}}/internal/discovery"
 )
+
+type rpcClientResource struct {
+	conn *flygrpc.ClientConn
+}
+
+type rpcResolverResource struct {
+	resolver corediscovery.Resolver
+	close func(context.Context) error
+}
+
+type rpcResolverKey struct {
+	hosts string
+	user string
+	pass string
+	certFile string
+	certKeyFile string
+	caCertFile string
+	insecureSkipVerify bool
+}
 
 type ServiceContext struct {
 	Config config.Config
 	Rules *governance.RuleSet
+	mu sync.RWMutex
+	rpcClients map[string]rpcClientResource
+	rpcResolvers map[rpcResolverKey]rpcResolverResource
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
-	return &ServiceContext{Config: c, Rules: governance.NewRuleSet(c.Rules...)}
+	rules := governance.MergeRules(config.DefaultRPCMethodRules(), c.Rules)
+	return &ServiceContext{
+		Config: c, Rules: governance.NewRuleSet(rules...),
+		rpcClients: make(map[string]rpcClientResource), rpcResolvers: make(map[rpcResolverKey]rpcResolverResource),
+	}
+}
+
+func (s *ServiceContext) InitRPCClients(ctx context.Context, resolver corediscovery.Resolver) error {
+	names := make([]string, 0, len(s.Config.Clients))
+	for name := range s.Config.Clients { names = append(names, name) }
+	sort.Strings(names)
+	next := make(map[string]rpcClientResource, len(names))
+	nextResolvers := make(map[rpcResolverKey]rpcResolverResource)
+	for _, name := range names {
+		cfg := s.Config.Clients[name]
+		clientResolver := resolver
+		if cfg.RequiresEtcdResolver() {
+			key := newRPCResolverKey(cfg.Etcd)
+			resource, ok := nextResolvers[key]
+			if !ok {
+				var err error
+				resource.resolver, resource.close, err = appdiscovery.NewZRPCResolver(ctx, cfg.Etcd)
+				if err != nil { return errors.Join(fmt.Errorf("initialize rpc client %q discovery: %w", name, err), closeRPCResources(next, nextResolvers)) }
+				nextResolvers[key] = resource
+			}
+			clientResolver = resource.resolver
+		}
+		target, options, err := cfg.TargetAndOptions(clientResolver, name)
+		if err != nil { return errors.Join(fmt.Errorf("initialize rpc client %q: %w", name, err), closeRPCResources(next, nextResolvers)) }
+		conn, err := flygrpc.NewDefaultClient(ctx, target, name, s.Rules, nil, options...)
+		if err != nil { return errors.Join(fmt.Errorf("initialize rpc client %q: %w", name, err), closeRPCResources(next, nextResolvers)) }
+		next[name] = rpcClientResource{conn: conn}
+	}
+	s.mu.Lock()
+	previous, previousResolvers := s.rpcClients, s.rpcResolvers
+	s.rpcClients = next
+	s.rpcResolvers = nextResolvers
+	s.mu.Unlock()
+	return closeRPCResources(previous, previousResolvers)
+}
+
+func (s *ServiceContext) RPCClient(name string) (*flygrpc.ClientConn, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	resource, ok := s.rpcClients[name]
+	return resource.conn, ok
+}
+
+func (s *ServiceContext) Close() error {
+	s.mu.Lock()
+	clients, resolvers := s.rpcClients, s.rpcResolvers
+	s.rpcClients = make(map[string]rpcClientResource)
+	s.rpcResolvers = make(map[rpcResolverKey]rpcResolverResource)
+	s.mu.Unlock()
+	return closeRPCResources(clients, resolvers)
+}
+
+func newRPCResolverKey(c config.EtcdConfig) rpcResolverKey {
+	hosts := c.ResolvedHosts()
+	sort.Strings(hosts)
+	return rpcResolverKey{
+		hosts: strings.Join(hosts, "\x00"), user: c.User, pass: c.Pass,
+		certFile: c.CertFile, certKeyFile: c.CertKeyFile, caCertFile: c.CACertFile,
+		insecureSkipVerify: c.InsecureSkipVerify,
+	}
+}
+
+func closeRPCResources(clients map[string]rpcClientResource, resolvers map[rpcResolverKey]rpcResolverResource) error {
+	names := make([]string, 0, len(clients))
+	for name := range clients { names = append(names, name) }
+	sort.Sort(sort.Reverse(sort.StringSlice(names)))
+	var err error
+	for _, name := range names {
+		resource := clients[name]
+		if closeErr := resource.conn.Close(); closeErr != nil { err = errors.Join(err, fmt.Errorf("close rpc client %q: %w", name, closeErr)) }
+	}
+	for _, resource := range resolvers {
+		if resource.close != nil {
+			if closeErr := resource.close(context.Background()); closeErr != nil { err = errors.Join(err, fmt.Errorf("close rpc client discovery: %w", closeErr)) }
+		}
+	}
+	return err
 }
 `
 
-const goZeroRPCLogicTemplate = `package logic
+const goZeroRPCMethodDefaultsTemplate = `// Code generated by gofly. DO NOT EDIT.
+
+package config
+
+import (
+	"time"
+
+	"github.com/imajinyun/gofly/core/governance"
+)
+
+func DefaultRPCMethodRules() []governance.Rule {
+	return []governance.Rule{{
+		Name: "{{.RPCMethodRuleName}}", Priority: -1000,
+		Transport: governance.TransportRPC, Service: "{{.RPCService}}", Method: "SayHello",
+		Policy: governance.Policy{Timeout: 2 * time.Second},
+	}}
+}
+
+func DefaultRPCMethodGovernance() governance.Plugin {
+	return governance.NewPlugin("descriptor-rpc-method-defaults", DefaultRPCMethodRules()...)
+}
+`
+
+const goZeroRPCLogicTemplate = `package greeter
 
 import (
 	"context"
@@ -434,12 +881,12 @@ func (l *SayHelloLogic) SayHello(req *pb.SayHelloRequest) (*pb.SayHelloResponse,
 }
 `
 
-const goZeroRPCServerTemplate = `package server
+const goZeroRPCServerTemplate = `package rpc
 
 import (
 	"context"
 
-	"{{.Module}}/internal/logic"
+	appgreeter "{{.Module}}/internal/app/greeter"
 	"{{.Module}}/internal/pb"
 	"{{.Module}}/internal/svc"
 )
@@ -453,12 +900,16 @@ func NewGreeterServer(stx *svc.ServiceContext) *GreeterServer {
 	return &GreeterServer{stx: stx}
 }
 
+func DiscoveryAliases() []string {
+	return []string{"{{.RPCService}}"}
+}
+
 func (s *GreeterServer) SayHello(ctx context.Context, req *pb.SayHelloRequest) (*pb.SayHelloResponse, error) {
-	return logic.NewSayHelloLogic(ctx, s.stx).SayHello(req)
+	return appgreeter.NewSayHelloLogic(ctx, s.stx).SayHello(req)
 }
 `
 
-const goZeroRPCServerTestTemplate = `package server
+const goZeroRPCServerTestTemplate = `package rpc
 
 import (
 	"context"
@@ -472,7 +923,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	flygrpc "github.com/imajinyun/gofly/rpc/grpc"
-	appclient "{{.Module}}/pkg/client"
 	"{{.Module}}/internal/config"
 	"{{.Module}}/internal/pb"
 	"{{.Module}}/internal/svc"
@@ -512,10 +962,13 @@ func TestGreeterUnarySmoke(t *testing.T) {
 	if _, _, err := net.SplitHostPort(endpoint); err != nil {
 		t.Fatalf("registered endpoint = %q: %v", endpoint, err)
 	}
-	client, conn, err := appclient.NewConfiguredGreeter(
+	aliasLease, err := registry.Register(t.Context(), discovery.Instance{ID: "zrpc-key", Service: "/rpc/greeter", Endpoint: endpoint})
+	if err != nil { t.Fatal(err) }
+	defer aliasLease.Close(context.Background())
+	client, conn, err := NewConfiguredGreeter(
 		context.Background(),
 		registry,
-		config.Config{},
+		config.RPCClientConfig{Etcd: config.EtcdConfig{Hosts: []string{"memory"}, Key: "/rpc/greeter"}},
 		nil,
 		flygrpc.WithWaitForReady(),
 	)
@@ -534,8 +987,8 @@ func TestGreeterUnarySmoke(t *testing.T) {
 	}
 	for _, policy := range []string{"round_robin", flygrpc.P2CEWMABalancerName, flygrpc.ConsistentHashBalancerName} {
 		t.Run("configured load balancing "+policy, func(t *testing.T) {
-			configured := config.Config{LoadBalancing: config.LoadBalancingConfig{Policy: policy}}
-			configuredClient, configuredConn, err := appclient.NewConfiguredGreeter(
+			configured := config.RPCClientConfig{Etcd: config.EtcdConfig{Hosts: []string{"memory"}, Key: "/rpc/greeter"}, BalancerName: policy}
+			configuredClient, configuredConn, err := NewConfiguredGreeter(
 				t.Context(),
 				registry,
 				configured,
@@ -562,10 +1015,32 @@ func TestGreeterUnarySmoke(t *testing.T) {
 			}
 		})
 	}
-	invalid := config.Config{LoadBalancing: config.LoadBalancingConfig{Policy: "least_request"}}
-	if _, _, err := appclient.NewConfiguredGreeter(t.Context(), registry, invalid, nil); err == nil {
+	invalid := config.RPCClientConfig{Target: "127.0.0.1:1", NonBlock: true, BalancerName: "least_request"}
+	if _, _, err := NewConfiguredGreeter(t.Context(), registry, invalid, nil); err == nil {
 		t.Fatal("unsupported configured load-balancing policy was accepted")
 	}
+	stx.Config.Clients = map[string]config.RPCClientConfig{
+		"{{.RPCService}}": {Endpoints: []string{endpoint}, NonBlock: true},
+	}
+	if err := stx.InitRPCClients(t.Context(), registry); err != nil {
+		t.Fatalf("InitRPCClients: %v", err)
+	}
+	managedConn, ok := stx.RPCClient("{{.RPCService}}")
+	if !ok { t.Fatal("configured RPC client was not published") }
+	managedClient := pb.NewGreeterClient(managedConn.Conn())
+	if response, err := managedClient.SayHello(t.Context(), &pb.SayHelloRequest{Name: "managed"}); err != nil || response.GetMessage() != "hello managed" {
+		t.Fatalf("managed client response=%v err=%v", response, err)
+	}
+	if err := stx.Close(); err != nil { t.Fatalf("close service context: %v", err) }
+	if _, ok := stx.RPCClient("{{.RPCService}}"); ok { t.Fatal("closed RPC client remained published") }
+	stx.Config.Clients = map[string]config.RPCClientConfig{
+		"a.valid": {Target: "passthrough:///bufnet", NonBlock: true},
+		"b.invalid": {},
+	}
+	if err := stx.InitRPCClients(t.Context(), registry); err == nil || !strings.Contains(err.Error(), "b.invalid") {
+		t.Fatalf("partial initialization error = %v, want b.invalid", err)
+	}
+	if _, ok := stx.RPCClient("a.valid"); ok { t.Fatal("partial RPC client was published") }
 	stx.Rules.Replace(governance.Rule{Method: "SayHello", Policy: governance.Policy{RateLimit: governance.RateLimitPolicy{Rate: 1, Burst: 1}}})
 	if _, err := client.SayHello(ctx, &pb.SayHelloRequest{}); err != nil {
 		t.Fatal(err)
@@ -576,7 +1051,7 @@ func TestGreeterUnarySmoke(t *testing.T) {
 }
 `
 
-const goZeroRPCClientTemplate = `package client
+const goZeroRPCClientTemplate = `package rpc
 
 import (
 	"context"
@@ -601,13 +1076,13 @@ func NewDiscoveredGreeter(ctx context.Context, resolver discovery.Resolver, rule
 	return NewGreeter(ctx, flygrpc.Target("{{.RPCService}}"), rules, opts...)
 }
 
-func NewConfiguredGreeter(ctx context.Context, resolver discovery.Resolver, c config.Config, rules *governance.RuleSet, opts ...flygrpc.ClientOption) (pb.GreeterClient, *flygrpc.ClientConn, error) {
-	resolverOption, err := c.LoadBalancing.ResolverOption()
+func NewConfiguredGreeter(ctx context.Context, resolver discovery.Resolver, c config.RPCClientConfig, rules *governance.RuleSet, opts ...flygrpc.ClientOption) (pb.GreeterClient, *flygrpc.ClientConn, error) {
+	target, configured, err := c.TargetAndOptions(resolver, "{{.RPCService}}")
 	if err != nil {
 		return nil, nil, err
 	}
-	opts = append([]flygrpc.ClientOption{flygrpc.WithDiscoveryResolverOptions(resolver, "{{.RPCService}}", []flygrpc.ResolverOption{resolverOption})}, opts...)
-	return NewGreeter(ctx, flygrpc.Target("{{.RPCService}}"), rules, opts...)
+	opts = append(configured, opts...)
+	return NewGreeter(ctx, target, rules, opts...)
 }
 `
 
@@ -633,7 +1108,7 @@ import (
 	appconfig "{{.Module}}/internal/config"
 	appdiscovery "{{.Module}}/internal/discovery"
 	"{{.Module}}/internal/pb"
-	appserver "{{.Module}}/internal/server"
+	apprpc "{{.Module}}/internal/api/rpc"
 	"{{.Module}}/internal/svc"
 )
 
@@ -657,8 +1132,23 @@ func main() {
 		return
 	}
 	defer func() { _ = closeRegistry(context.Background()) }()
+	serverRegistrar := corediscovery.Registrar(registry)
+	serverService := c.Name
+	serverAliases := apprpc.DiscoveryAliases()
+	if c.Etcd.Enabled() {
+		zrpcRegistrar, closeZRPCRegistrar, err := appdiscovery.NewZRPCRegistrar(ctx, c.Etcd)
+		if err != nil { slog.Error("setup zrpc etcd registration", "error", err); return }
+		defer func() { _ = closeZRPCRegistrar(context.Background()) }()
+		serverRegistrar = zrpcRegistrar
+		serverService = c.Etcd.Key
+		serverAliases = nil
+	}
 	stx := svc.NewServiceContext(c)
-	manager, err := governance.NewManager(governance.Config{RuleFile: c.RuleFile, Watch: c.RuleWatch}, governance.WithRuleSet(stx.Rules))
+	if err := stx.InitRPCClients(ctx, registry); err != nil { slog.Error("setup RPC clients", "error", err); return }
+	defer func() {
+		if err := stx.Close(); err != nil { slog.Error("close RPC clients", "error", err) }
+	}()
+	manager, err := governance.NewManager(governance.Config{RuleFile: c.RuleFile, Watch: c.RuleWatch}, governance.WithRuleSet(stx.Rules), governance.WithPlugin(appconfig.DefaultRPCMethodGovernance()))
 	if err != nil { slog.Error("setup governance", "error", err); return }
 	if c.RuleFile != "" {
 		if err := manager.Reload(ctx); err != nil { slog.Error("load governance", "error", err); return }
@@ -689,14 +1179,15 @@ func main() {
 		flygrpc.WithServerTLS(c.TLS),
 		flygrpc.WithAdminAddr(c.AdminListenOn),
 		flygrpc.WithReflection(c.Reflection),
-		flygrpc.WithDiscovery(registry, corediscovery.Instance{
-			ID: c.Name, Service: c.Name, Endpoint: c.Advertise,
+		flygrpc.WithDiscovery(serverRegistrar, corediscovery.Instance{
+			ID: c.Name, Service: serverService, Endpoint: c.Advertise,
 			Metadata: map[string]string{"transport": "grpc"},
 		}, corediscovery.WithTTL(c.Discovery.RegistryTTL())),
+		flygrpc.WithDiscoveryAliases(serverAliases...),
 	)
 	if adaptiveLimiter != nil { serverOptions = append(serverOptions, flygrpc.WithAdaptiveLimiter(adaptiveLimiter)) }
 	grpcServer := flygrpc.NewDefaultServer(c.ListenOn, c.Name, stx.Rules, nil, serverOptions...)
-	pb.RegisterGreeterServer(grpcServer.GRPCServer(), appserver.NewGreeterServer(stx))
+	pb.RegisterGreeterServer(grpcServer.GRPCServer(), apprpc.NewGreeterServer(stx))
 	slog.Info("{{.Name}} gRPC starting", "listen_on", c.ListenOn, "admin_listen_on", c.AdminListenOn)
 	if err := app.Run(ctx, []app.Server{grpcServer}); err != nil {
 		slog.Error("{{.Name}} gRPC stopped", "error", err)

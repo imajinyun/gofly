@@ -4,6 +4,7 @@ package grpc
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -40,24 +41,25 @@ type Server struct {
 	enableReflection bool
 	stopTimeout      time.Duration
 
-	adminAddr       string
-	adminActualAddr string
-	adminServer     *http.Server
-	rules           *governance.RuleSet
-	manager         *governance.Manager
-	adminAuthorize  func(*http.Request) bool
-	registry        *metrics.Registry
-	tlsErr          error
-	runtime         *coreruntime.Registry
-	unaryNames      []string
-	streamNames     []string
-	discovery       discovery.Registrar
-	discoveryLease  discovery.Lease
-	discoveryOpts   []discovery.RegisterOption
-	discoveryEntry  discovery.Instance
-	healthServices  []string
-	adaptiveLimiter *limit.AdaptiveLimiter
-	ready           bool
+	adminAddr        string
+	adminActualAddr  string
+	adminServer      *http.Server
+	rules            *governance.RuleSet
+	manager          *governance.Manager
+	adminAuthorize   func(*http.Request) bool
+	registry         *metrics.Registry
+	tlsErr           error
+	runtime          *coreruntime.Registry
+	unaryNames       []string
+	streamNames      []string
+	discovery        discovery.Registrar
+	discoveryLeases  []discovery.Lease
+	discoveryOpts    []discovery.RegisterOption
+	discoveryEntry   discovery.Instance
+	discoveryAliases []string
+	healthServices   []string
+	adaptiveLimiter  *limit.AdaptiveLimiter
+	ready            bool
 }
 
 type ServerOption func(*serverOptions)
@@ -71,19 +73,20 @@ type serverOptions struct {
 	enableReflection   bool
 	stopTimeout        time.Duration
 
-	adminAddr       string
-	rules           *governance.RuleSet
-	manager         *governance.Manager
-	adminAuthorize  func(*http.Request) bool
-	registry        *metrics.Registry
-	tls             security.TLSConfig
-	unaryNames      []string
-	streamNames     []string
-	discovery       discovery.Registrar
-	discoveryOpts   []discovery.RegisterOption
-	discoveryEntry  discovery.Instance
-	healthServices  []string
-	adaptiveLimiter *limit.AdaptiveLimiter
+	adminAddr        string
+	rules            *governance.RuleSet
+	manager          *governance.Manager
+	adminAuthorize   func(*http.Request) bool
+	registry         *metrics.Registry
+	tls              security.TLSConfig
+	unaryNames       []string
+	streamNames      []string
+	discovery        discovery.Registrar
+	discoveryOpts    []discovery.RegisterOption
+	discoveryEntry   discovery.Instance
+	discoveryAliases []string
+	healthServices   []string
+	adaptiveLimiter  *limit.AdaptiveLimiter
 }
 
 func NewServer(opts ...ServerOption) *Server {
@@ -128,6 +131,7 @@ func NewServer(opts ...ServerOption) *Server {
 		discovery:        o.discovery,
 		discoveryOpts:    append([]discovery.RegisterOption(nil), o.discoveryOpts...),
 		discoveryEntry:   cloneDiscoveryInstance(o.discoveryEntry),
+		discoveryAliases: append([]string(nil), o.discoveryAliases...),
 		healthServices:   normalizedHealthServices(o.healthServices),
 		adaptiveLimiter:  o.adaptiveLimiter,
 	}
@@ -311,6 +315,15 @@ func WithDiscovery(registrar discovery.Registrar, instance discovery.Instance, o
 	}
 }
 
+// WithDiscoveryAliases registers additional service names at the same gRPC
+// endpoint. This supports generated projects that host multiple protobuf
+// services in one process while keeping one listener and lifecycle owner.
+func WithDiscoveryAliases(services ...string) ServerOption {
+	return func(o *serverOptions) {
+		o.discoveryAliases = append(o.discoveryAliases, services...)
+	}
+}
+
 // WithHealthServices adds service names whose gRPC health status follows the
 // server lifecycle in addition to the standard aggregate service name.
 func WithHealthServices(services ...string) ServerOption {
@@ -484,29 +497,72 @@ func (s *Server) registerDiscovery(ctx context.Context, listener net.Addr) error
 	if strings.TrimSpace(instance.Endpoint) == "" {
 		instance.Endpoint = grpcAdvertiseAddress(listener)
 	}
-	lease, err := s.discovery.Register(ctx, instance, s.discoveryOpts...)
-	if err != nil {
-		return fmt.Errorf("register grpc service %s: %w", instance.Service, err)
-	}
-	if lease == nil {
-		return fmt.Errorf("register grpc service %s: discovery registrar returned a nil lease", instance.Service)
+	services := normalizedDiscoveryServices(instance.Service, s.discoveryAliases)
+	leases := make([]discovery.Lease, 0, len(services))
+	for index, service := range services {
+		entry := cloneDiscoveryInstance(instance)
+		entry.Service = service
+		if index > 0 {
+			primaryID := strings.TrimSpace(leases[0].Instance().ID)
+			if primaryID == "" {
+				primaryID = entry.Endpoint
+			}
+			entry.ID = discoveryAliasID(primaryID, service)
+		}
+		lease, err := s.discovery.Register(ctx, entry, s.discoveryOpts...)
+		if err != nil {
+			return errors.Join(fmt.Errorf("register grpc service %s: %w", service, err), closeDiscoveryLeases(ctx, leases))
+		}
+		if lease == nil {
+			return errors.Join(fmt.Errorf("register grpc service %s: discovery registrar returned a nil lease", service), closeDiscoveryLeases(ctx, leases))
+		}
+		leases = append(leases, lease)
 	}
 	s.mu.Lock()
-	s.discoveryEntry = cloneDiscoveryInstance(lease.Instance())
-	s.discoveryLease = lease
+	s.discoveryEntry = cloneDiscoveryInstance(leases[0].Instance())
+	s.discoveryLeases = leases
 	s.mu.Unlock()
 	return nil
 }
 
 func (s *Server) closeDiscovery(ctx context.Context) error {
 	s.mu.Lock()
-	lease := s.discoveryLease
-	s.discoveryLease = nil
+	leases := s.discoveryLeases
+	s.discoveryLeases = nil
 	s.mu.Unlock()
-	if lease == nil {
-		return nil
+	return closeDiscoveryLeases(ctx, leases)
+}
+
+func closeDiscoveryLeases(ctx context.Context, leases []discovery.Lease) error {
+	var closeErr error
+	for index := len(leases) - 1; index >= 0; index-- {
+		if leases[index] != nil {
+			closeErr = errors.Join(closeErr, leases[index].Close(ctx))
+		}
 	}
-	return lease.Close(ctx)
+	return closeErr
+}
+
+func normalizedDiscoveryServices(primary string, aliases []string) []string {
+	services := make([]string, 0, len(aliases)+1)
+	seen := make(map[string]struct{}, len(aliases)+1)
+	for _, service := range append([]string{primary}, aliases...) {
+		service = strings.TrimSpace(service)
+		if service == "" {
+			continue
+		}
+		if _, ok := seen[service]; ok {
+			continue
+		}
+		seen[service] = struct{}{}
+		services = append(services, service)
+	}
+	return services
+}
+
+func discoveryAliasID(primaryID, service string) string {
+	digest := sha256.Sum256([]byte(service))
+	return fmt.Sprintf("%s-alias-%x", primaryID, digest[:8])
 }
 
 func (s *Server) setReady(ready bool) {

@@ -25,8 +25,8 @@ import (
 )
 
 // NewGRPCTranscoderFactory enables unary protobuf JSON, client-streaming NDJSON,
-// and server-streaming SSE calls for protocol grpc; callers configure TLS
-// through client options.
+// server-streaming SSE, and bidirectional-streaming WebSocket calls for protocol
+// grpc; callers configure TLS through client options.
 func NewGRPCTranscoderFactory(descriptors *descriptorpb.FileDescriptorSet, opts ...flygrpc.ClientOption) (TranscoderFactory, error) {
 	if descriptors == nil {
 		return nil, errors.New("grpc descriptor set is required")
@@ -72,6 +72,13 @@ type grpcTranscoder struct {
 	methods map[string]protoreflect.MethodDescriptor
 	types   *dynamicpb.Types
 }
+
+type establishedServerStreamError struct {
+	err error
+}
+
+func (e *establishedServerStreamError) Error() string { return e.err.Error() }
+func (e *establishedServerStreamError) Unwrap() error { return e.err }
 
 func (c *grpcTranscoder) CallRaw(ctx context.Context, method string, request any) (json.RawMessage, coremetadata.MD, error) {
 	descriptor, err := c.methodDescriptor(method)
@@ -121,16 +128,16 @@ func (c *grpcTranscoder) OpenServerStreamRaw(ctx context.Context, method string,
 	}
 	if err := stream.SendMsg(input); err != nil {
 		cancel()
-		return nil, nil, true, err
+		return nil, nil, true, &establishedServerStreamError{err: err}
 	}
 	if err := stream.CloseSend(); err != nil {
 		cancel()
-		return nil, nil, true, err
+		return nil, nil, true, &establishedServerStreamError{err: err}
 	}
 	headers, err := stream.Header()
 	if err != nil {
 		cancel()
-		return nil, nil, true, err
+		return nil, nil, true, &establishedServerStreamError{err: err}
 	}
 	return &grpcRawServerStream{stream: stream, descriptor: descriptor.Output(), types: c.types, cancel: cancel}, grpcTranscodeMetadata(headers), true, nil
 }

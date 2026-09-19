@@ -684,7 +684,7 @@ func TestExecuteRPCGenScaffold(t *testing.T) {
 	if !strings.Contains(output, `"scaffold": "true"`) {
 		t.Fatalf("missing scaffold result: %s", output)
 	}
-	for _, path := range []string{"cmd/greeter/main.go", "internal/pb/greeter_grpc.pb.go", "internal/logic/greeter/hellologic.go"} {
+	for _, path := range []string{"cmd/greeter/main.go", "internal/pb/greeter_grpc.pb.go", "internal/app/greeter/hello.go", "internal/api/rpc/greeter_grpc.gen.go"} {
 		if _, err := os.Stat(filepath.Join(outputDir, path)); err != nil {
 			t.Fatal(err)
 		}
@@ -1096,6 +1096,167 @@ func TestExecuteRPCProtocAcceptsGoctlPositionalAndSrcAlias(t *testing.T) {
 		"--protoc", fakeProtoc,
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestExecuteRPCProtocGeneratesZRPCScaffold(t *testing.T) {
+	for _, tool := range []string{"protoc", "protoc-gen-go", "protoc-gen-go-grpc"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skipf("%s is not available: %v", tool, err)
+		}
+	}
+
+	dir := t.TempDir()
+	protoPath := filepath.Join(dir, "billing.proto")
+	proto := `syntax = "proto3";
+package billing.v1;
+option go_package = "example.com/billing/internal/pb;pb";
+message ChargeRequest {}
+message ChargeResponse {}
+service Billing { rpc Charge(ChargeRequest) returns (ChargeResponse); }
+`
+	if err := os.WriteFile(protoPath, []byte(proto), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outDir := filepath.Join(dir, "generated")
+	args := []string{
+		"rpc", "protoc", protoPath,
+		"--zrpc_out", outDir,
+		"--module", "example.com/billing",
+		"--client=false",
+	}
+	if err := Execute(args); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{
+		"cmd/billingv1/main.go",
+		"etc/billingv1.json",
+		"internal/api/rpc/billingv1_grpc.gen.go",
+		"internal/app/billing/charge.go",
+		"internal/svc/service_context.go",
+	} {
+		if _, err := os.Stat(filepath.Join(outDir, filepath.FromSlash(rel))); err != nil {
+			t.Fatalf("expected zRPC scaffold file %s: %v", rel, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "internal/api/rpc/billingv1_client.gen.go")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("--client=false generated a client or stat failed: %v", err)
+	}
+
+	logicPath := filepath.Join(outDir, "internal/app/billing/charge.go")
+	logic, err := os.ReadFile(logicPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logic = bytes.Replace(logic, []byte("not implemented"), []byte("business implementation"), 1)
+	if err := os.WriteFile(logicPath, logic, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Execute(args); err != nil {
+		t.Fatal(err)
+	}
+	preserved, err := os.ReadFile(logicPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(logic, preserved) {
+		t.Fatal("rpc protoc --zrpc_out overwrote business logic")
+	}
+}
+
+func TestExecuteRPCProtocZRPCScaffoldOptionsAndBoundaries(t *testing.T) {
+	for _, tool := range []string{"protoc", "protoc-gen-go", "protoc-gen-go-grpc"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skipf("%s is not available: %v", tool, err)
+		}
+	}
+
+	dir := t.TempDir()
+	protoPath := filepath.Join(dir, "platform.proto")
+	proto := `syntax = "proto3";
+package ignored.package;
+option go_package = "example.com/platform/internal/pb;pb";
+message Request {}
+service Catalog { rpc Get(Request) returns (Request); }
+service Inventory { rpc Check(Request) returns (Request); }
+`
+	if err := os.WriteFile(protoPath, []byte(proto), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outDir := filepath.Join(dir, "multiple")
+	if err := Execute([]string{
+		"rpc", "protoc", protoPath,
+		"--zrpc_out", outDir,
+		"--module", "example.com/platform",
+		"--name-from-filename",
+		"--multiple",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{
+		"cmd/platform/main.go",
+		"internal/api/rpc/register.gen.go",
+		"internal/api/rpc/catalog/catalog_grpc.gen.go",
+		"internal/api/rpc/inventory/inventory_grpc.gen.go",
+		"internal/app/catalog/get.go",
+		"internal/app/inventory/check.go",
+		"internal/api/rpc/catalog/catalog_client.gen.go",
+		"internal/api/rpc/inventory/inventory_client.gen.go",
+	} {
+		if _, err := os.Stat(filepath.Join(outDir, filepath.FromSlash(rel))); err != nil {
+			t.Fatalf("expected zRPC multiple scaffold file %s: %v", rel, err)
+		}
+	}
+	secondProtoPath := filepath.Join(dir, "audit.proto")
+	secondProto := `syntax = "proto3";
+package audit.v1;
+option go_package = "example.com/platform/internal/auditpb;auditpb";
+message RecordRequest {}
+service Audit { rpc Record(RecordRequest) returns (RecordRequest); }
+`
+	if err := os.WriteFile(secondProtoPath, []byte(secondProto), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	multiProtoOut := filepath.Join(dir, "multi-proto")
+	if err := Execute([]string{
+		"rpc", "protoc", protoPath, secondProtoPath,
+		"--zrpc_out", multiProtoOut,
+		"--module", "example.com/platform",
+		"--multiple",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{
+		"internal/pb/platform.pb.go",
+		"internal/auditpb/audit.pb.go",
+		"internal/api/rpc/catalog/catalog_grpc.gen.go",
+		"internal/api/rpc/inventory/inventory_grpc.gen.go",
+		"internal/api/rpc/audit/audit_grpc.gen.go",
+		"internal/app/audit/record.go",
+	} {
+		if _, err := os.Stat(filepath.Join(multiProtoOut, filepath.FromSlash(rel))); err != nil {
+			t.Fatalf("expected zRPC multi-proto scaffold file %s: %v", rel, err)
+		}
+	}
+
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "multiple requires flag", args: []string{"rpc", "protoc", protoPath, "--zrpc_out", filepath.Join(dir, "missing-multiple"), "--module", "example.com/platform"}, want: "rerun with --multiple"},
+		{name: "duplicate primary proto", args: []string{"rpc", "protoc", protoPath, protoPath, "--zrpc_out", filepath.Join(dir, "duplicate-proto"), "--multiple", "--module", "example.com/platform"}, want: "duplicate proto input path"},
+		{name: "go zero style only", args: []string{"rpc", "protoc", protoPath, "--zrpc_out", filepath.Join(dir, "style"), "--style", "gorm"}, want: "requires --style go_zero"},
+		{name: "no external template source", args: []string{"rpc", "protoc", protoPath, "--zrpc_out", filepath.Join(dir, "template"), "--home", filepath.Join(dir, "home")}, want: "not supported with --zrpc_out"},
+		{name: "no external plugin", args: []string{"rpc", "protoc", protoPath, "--zrpc_out", filepath.Join(dir, "plugin"), "--plugin", "protoc-gen-api"}, want: "external --plugin values are not supported"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := Execute(tt.args)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Execute() error = %v, want %q", err, tt.want)
+			}
+		})
 	}
 }
 
@@ -1762,11 +1923,11 @@ func TestExecuteRPCProtocAcceptsGoctlReservedFlags(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	zrpcOut := filepath.Join(dir, "zrpc")
+	outDir := filepath.Join(dir, "standard")
 	if err := Execute([]string{
 		"rpc", "protoc",
 		"-src", protoPath,
-		"-zrpc_out", zrpcOut,
+		"-dir", outDir,
 		"-go_opt", "Mgoogle/protobuf/empty.proto=empty",
 		"--go_opt", "Mgoogle/protobuf/timestamp.proto=timestamp",
 		"-go-grpc_opt", "require_unimplemented_servers=false",
@@ -1792,8 +1953,8 @@ func TestExecuteRPCProtocAcceptsGoctlReservedFlags(t *testing.T) {
 	}
 	argsText := string(data)
 	for _, want := range []string{
-		"--go_out=" + zrpcOut,
-		"--go-grpc_out=" + zrpcOut,
+		"--go_out=" + outDir,
+		"--go-grpc_out=" + outDir,
 		"--go_opt=Mgoogle/protobuf/empty.proto=empty",
 		"--go_opt=Mgoogle/protobuf/timestamp.proto=timestamp",
 		"--go-grpc_opt=require_unimplemented_servers=false",
@@ -2142,6 +2303,9 @@ service user-api {
 
 func TestExecuteAPIGoAcceptsGoctlSingleDashFlags(t *testing.T) {
 	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/singledash\n\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	apiPath := filepath.Join(dir, "user.api")
 	api := `type PingRequest {
   Name string
@@ -2168,13 +2332,16 @@ service user-api {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(outDir, "internal", "api", "http", "v1", "types.go")); err != nil {
+	if _, err := os.Stat(filepath.Join(outDir, "internal", "app", "model", "types.go")); err != nil {
 		t.Fatalf("expected generated api file from single-dash flags: %v", err)
 	}
 }
 
 func TestExecuteAPIGenAcceptsGoctlTemplateFlags(t *testing.T) {
 	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/templateflags\n\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	apiPath := filepath.Join(dir, "user.api")
 	api := `type PingRequest {
   Name string
@@ -2207,16 +2374,77 @@ service user-api {
 		t.Fatal(err)
 	}
 	for _, rel := range []string{
-		filepath.Join("internal", "api", "http", "v1", "types_ping_request.go"),
-		filepath.Join("internal", "api", "http", "v1", "types_ping_response.go"),
-		filepath.Join("internal", "api", "http", "v1", "user_api", "routes_test.go"),
+		filepath.Join("internal", "app", "model", "types.go"),
+		filepath.Join("internal", "api", "http", "v1", "user", "ping_test.go"),
+		filepath.Join("internal", "app", "user", "ping.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(outDir, rel)); err != nil {
 			t.Fatalf("expected generated api file %s with test/type-group flags: %v", rel, err)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(outDir, "internal", "api", "http", "v1", "types.go")); err == nil {
-		t.Fatal("api gen --type-group should split DTOs instead of writing types.go")
+	for _, rel := range []string{
+		filepath.Join("internal", "types"),
+		filepath.Join("internal", "handler"),
+		filepath.Join("internal", "logic"),
+	} {
+		if _, err := os.Stat(filepath.Join(outDir, rel)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("api gen --style go_zero unexpectedly wrote goctl layout path %s: %v", rel, err)
+		}
+	}
+}
+
+func TestExecuteAPIGenStyleAndProfileAreEquivalent(t *testing.T) {
+	dir := t.TempDir()
+	apiPath := filepath.Join(dir, "user.api")
+	if err := os.WriteFile(apiPath, []byte(commandTestAPI), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	styleDir := filepath.Join(dir, "style")
+	profileDir := filepath.Join(dir, "profile")
+	for _, output := range []string{styleDir, profileDir} {
+		if err := os.MkdirAll(output, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(output, "go.mod"), []byte("module example.com/equivalent\n\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Execute([]string{"api", "go", "--api", apiPath, "--dir", styleDir, "--style", "go_zero", "--test", "--type-group"}); err != nil {
+		t.Fatalf("api go --style go_zero: %v", err)
+	}
+	if err := Execute([]string{"api", "go", "--api", apiPath, "--dir", profileDir, "--profile", "gozero-compatible", "--test", "--type-group"}); err != nil {
+		t.Fatalf("api go --profile gozero-compatible: %v", err)
+	}
+	for _, rel := range []string{
+		filepath.Join("internal", "app", "model", "types.go"),
+		filepath.Join("internal", "api", "http", "v1", "user", "ping.go"),
+		filepath.Join("internal", "api", "http", "v1", "user", "ping_test.go"),
+		filepath.Join("internal", "app", "user", "ping.go"),
+		filepath.Join("internal", "routes", "routes.go"),
+	} {
+		styleData, err := os.ReadFile(filepath.Join(styleDir, rel))
+		if err != nil {
+			t.Fatalf("read style output %s: %v", rel, err)
+		}
+		profileData, err := os.ReadFile(filepath.Join(profileDir, rel))
+		if err != nil {
+			t.Fatalf("read profile output %s: %v", rel, err)
+		}
+		if !bytes.Equal(styleData, profileData) {
+			t.Fatalf("style/profile output differs for %s\nstyle:\n%s\nprofile:\n%s", rel, styleData, profileData)
+		}
+	}
+}
+
+func TestExecuteAPIGenRejectsConflictingStyleAndProfile(t *testing.T) {
+	dir := t.TempDir()
+	apiPath := filepath.Join(dir, "user.api")
+	if err := os.WriteFile(apiPath, []byte(commandTestAPI), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := Execute([]string{"api", "go", "--api", apiPath, "--dir", filepath.Join(dir, "out"), "--style", "go_zero", "--profile", "gofly-ai"})
+	if err == nil || !strings.Contains(err.Error(), "requires --profile \"gozero-compatible\"") {
+		t.Fatalf("Execute err = %v, want style/profile conflict", err)
 	}
 }
 
@@ -2369,16 +2597,26 @@ func TestExecuteAPINewWithGoZeroCompatibleProfile(t *testing.T) {
 	for _, rel := range []string{
 		filepath.Join("cmd", "hello", "main.go"),
 		filepath.Join("internal", "config", "config.go"),
-		filepath.Join("internal", "api", "http", "pinghandler.go"),
-		filepath.Join("internal", "app", "pinglogic.go"),
-		filepath.Join("internal", "svc", "servicecontext.go"),
+		filepath.Join("internal", "api", "http", "v1", "ping", "ping.go"),
+		filepath.Join("internal", "app", "ping.go"),
+		filepath.Join("internal", "routes", "routes.go"),
+		filepath.Join("internal", "svc", "service_context.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
 			t.Fatalf("expected gozero-compatible API file %s: %v", rel, err)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(dir, "internal", "routes", "routes.go")); err == nil {
-		t.Fatal("gozero-compatible API profile should not generate legacy routes.go")
+	for _, rel := range []string{
+		filepath.Join("internal", "handler"),
+		filepath.Join("internal", "logic"),
+		filepath.Join("internal", "types"),
+		filepath.Join("internal", "svc", "servicecontext.go"),
+	} {
+		if _, err := os.Stat(filepath.Join(dir, rel)); err == nil {
+			t.Fatalf("gozero-compatible API profile unexpectedly generated goctl layout path %s", rel)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("inspect forbidden generated path %s: %v", rel, err)
+		}
 	}
 	cfg, err := generator.LoadConfig(filepath.Join(dir, generator.DefaultConfigFile))
 	if err != nil {
@@ -2401,7 +2639,7 @@ func TestExecuteAPINewUsesConfigProfileDefault(t *testing.T) {
 	if err := ExecuteWithIO([]string{"api", "new", "--config", filepath.Join(dir, generator.DefaultConfigFile), "--dir", dir, "--json"}, IOStreams{Out: &stdout}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "internal", "api", "http", "pinghandler.go")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, "internal", "api", "http", "v1", "ping", "ping.go")); err != nil {
 		t.Fatalf("expected gozero-compatible API scaffold from config profile: %v", err)
 	}
 	assertNewEnvelopeInput(t, stdout.Bytes(), "new.api", "new api", "profile", string(generator.ProfileGoZeroCompatible))
@@ -2445,7 +2683,8 @@ func TestExecuteAPINewAcceptsGoctlReservedFlags(t *testing.T) {
 		"go.mod",
 		"hello.api",
 		filepath.Join("cmd", "hello", "main.go"),
-		filepath.Join("internal", "api", "http", "pinghandler.go"),
+		filepath.Join("internal", "api", "http", "v1", "ping", "ping.go"),
+		filepath.Join("internal", "routes", "routes.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
 			t.Fatalf("expected api new file %s with accepted extra flags: %v", rel, err)
@@ -3126,6 +3365,7 @@ func TestExecuteAIManifestJSONEnvelope(t *testing.T) {
 	}
 	if commands["rpc protoc"].SupportsDryRun || !commands["rpc protoc"].MutatesFilesystem || commands["rpc protoc"].RiskLevel != "high" ||
 		!commandContainsString(commands["rpc protoc"].SideEffects, "runs protoc as an external process") ||
+		!commandContainsString(commands["rpc protoc"].SideEffects, "--zrpc_out writes a runnable scaffold and preserves existing business logic files") ||
 		!commandContainsString(commands["rpc protoc"].SideEffects, "forwards non-gofly plugin argv only when --allow-external-plugin is set") ||
 		!commandContainsString(commands["rpc protoc"].SideEffects, "rejects flag-like plugin values, URL schemes, whitespace, control characters and shell metacharacters") {
 		t.Fatalf("rpc protoc manifest should expose high-risk external plugin semantics: %+v", commands["rpc protoc"])
@@ -3632,10 +3872,10 @@ service user-api {
 		if err := os.WriteFile(filepath.Join(outDir, "go.mod"), []byte("module example.com/profile\n\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.MkdirAll(filepath.Join(outDir, "internal", "api", "http"), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(outDir, "internal", "api", "http", "v1"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(outDir, "internal", "api", "http", "oldhandler.go"), []byte("package handler\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(outDir, "internal", "api", "http", "v1", "oldhandler.go"), []byte("package v1\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.MkdirAll(filepath.Join(outDir, "internal", "app"), 0o755); err != nil {
@@ -3653,7 +3893,7 @@ service user-api {
 		assertGenerateEnvelopeInput(t, stdout.Bytes(), "staleReportPath", filepath.Join(outDir, ".gofly", "stale-api-files.json"))
 		assertGenerateEnvelopeInput(t, stdout.Bytes(), "staleHandlers", "1")
 		assertGenerateEnvelopeInput(t, stdout.Bytes(), "staleLogics", "1")
-		if _, err := os.Stat(filepath.Join(outDir, "internal", "api", "http", "v1", "types.go")); err != nil {
+		if _, err := os.Stat(filepath.Join(outDir, "internal", "app", "model", "types.go")); err != nil {
 			t.Fatalf("api gen --profile did not write generated file: %v", err)
 		}
 	})

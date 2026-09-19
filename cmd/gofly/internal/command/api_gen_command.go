@@ -3,8 +3,10 @@ package command
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
 )
@@ -22,16 +24,17 @@ func apiGenCommand(args []string) error {
 	test := fs.Bool("test", false, "generate test files")
 	typeGroup := fs.Bool("type-group", false, "group generated types")
 	jsonOut := registerCLIJSONOutputFlag(fs, "emit generation result as JSON")
-	registerGoctlTemplateFlags(fs)
+	style := registerGoctlTemplateFlags(fs)
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
 		return err
 	}
 	apiFile := file.resolve(leadingFile, remaining)
-	if *profile == "" {
-		*profile = *profileAlias
+	resolvedProfile, err := resolveAPIGenerationProfile(fs, *profile, *profileAlias, *style)
+	if err != nil {
+		return err
 	}
-	if err := generator.GenerateRESTFromAPI(generator.APIOptions{APIFile: apiFile, Dir: *dir, Package: *pkg, RPCPackage: *rpcPkg, Profile: *profile, Test: *test, TypeGroup: *typeGroup}); err != nil {
+	if err := generator.GenerateRESTFromAPI(generator.APIOptions{APIFile: apiFile, Dir: *dir, Package: *pkg, RPCPackage: *rpcPkg, Profile: resolvedProfile, Test: *test, TypeGroup: *typeGroup}); err != nil {
 		return err
 	}
 	if err := runPostPlugins(*pluginArg, generator.PluginRequest{
@@ -49,8 +52,8 @@ func apiGenCommand(args []string) error {
 		if *rpcPkg != "" {
 			inputs["rpcPackage"] = *rpcPkg
 		}
-		if *profile != "" {
-			inputs["profile"] = *profile
+		if resolvedProfile != "" {
+			inputs["profile"] = resolvedProfile
 		}
 		if *test {
 			inputs["test"] = "true"
@@ -62,6 +65,57 @@ func apiGenCommand(args []string) error {
 		return printJSONEnvelope("api.gen", buildIDLGeneratePlan("api gen", inputs, splitCSV(*pluginArg)))
 	}
 	return nil
+}
+
+func resolveAPIGenerationProfile(fs *flag.FlagSet, profile, profileAlias, style string) (string, error) {
+	profileProvided := flagProvided(fs, "profile")
+	aliasProvided := flagProvided(fs, "generation-profile")
+	styleProvided := flagProvided(fs, "style")
+
+	resolvedProfile := strings.TrimSpace(profile)
+	if aliasProvided {
+		resolvedAlias, err := generator.NormalizeGenerationProfile(profileAlias)
+		if err != nil {
+			return "", err
+		}
+		if profileProvided {
+			resolvedPrimary, err := generator.NormalizeGenerationProfile(profile)
+			if err != nil {
+				return "", err
+			}
+			if resolvedPrimary != resolvedAlias {
+				return "", fmt.Errorf("%w: --profile %q conflicts with --generation-profile %q", errUsage, profile, profileAlias)
+			}
+		}
+		resolvedProfile = string(resolvedAlias)
+	}
+
+	if !styleProvided {
+		return resolvedProfile, nil
+	}
+	if !isGoZeroAPIStyle(style) {
+		return "", fmt.Errorf("%w: unsupported API style %q", errUsage, style)
+	}
+	if resolvedProfile == "" {
+		return string(generator.ProfileGoZeroCompatible), nil
+	}
+	normalized, err := generator.NormalizeGenerationProfile(resolvedProfile)
+	if err != nil {
+		return "", err
+	}
+	if normalized != generator.ProfileGoZeroCompatible {
+		return "", fmt.Errorf("%w: --style %q requires --profile %q, got %q", errUsage, style, generator.ProfileGoZeroCompatible, resolvedProfile)
+	}
+	return string(normalized), nil
+}
+
+func isGoZeroAPIStyle(style string) bool {
+	switch strings.ToLower(strings.TrimSpace(style)) {
+	case "go_zero", "gozero", "go-zero":
+		return true
+	default:
+		return false
+	}
 }
 
 type apiStaleReportSummary struct {

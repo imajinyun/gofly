@@ -831,16 +831,16 @@ func TestCloneRulesEmpty(t *testing.T) {
 }
 
 func TestValidatePolicyBreakerAndCanaryEdgeCases(t *testing.T) {
-	if err := validatePolicy(Policy{Breaker: BreakerPolicy{FailureRatio: math.NaN()}}); err == nil {
+	if err := validatePolicy("", Policy{Breaker: BreakerPolicy{FailureRatio: math.NaN()}}); err == nil {
 		t.Fatal("validatePolicy NaN failure ratio should error")
 	}
-	if err := validatePolicy(Policy{Breaker: BreakerPolicy{FailureRatio: math.Inf(1)}}); err == nil {
+	if err := validatePolicy("", Policy{Breaker: BreakerPolicy{FailureRatio: math.Inf(1)}}); err == nil {
 		t.Fatal("validatePolicy Inf failure ratio should error")
 	}
-	if err := validatePolicy(Policy{Canary: CanaryPolicy{Ratio: math.NaN()}}); err == nil {
+	if err := validatePolicy("", Policy{Canary: CanaryPolicy{Ratio: math.NaN()}}); err == nil {
 		t.Fatal("validatePolicy NaN canary ratio should error")
 	}
-	if err := validatePolicy(Policy{Canary: CanaryPolicy{Ratio: math.Inf(1)}}); err == nil {
+	if err := validatePolicy("", Policy{Canary: CanaryPolicy{Ratio: math.Inf(1)}}); err == nil {
 		t.Fatal("validatePolicy Inf canary ratio should error")
 	}
 }
@@ -871,14 +871,47 @@ func TestValidatePolicyNegativeBoundaries(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validatePolicy(tt.policy)
+			err := validatePolicy("", tt.policy)
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("validatePolicy() error = %v, want containing %q", err, tt.want)
 			}
 		})
 	}
-	if err := validatePolicy(Policy{Retry: RetryPolicy{Statuses: []int{100, 599}}, Breaker: BreakerPolicy{FailureRatio: 1}, Canary: CanaryPolicy{Ratio: 1}}); err != nil {
+	if err := validatePolicy("", Policy{Retry: RetryPolicy{Statuses: []int{100, 599}}, Breaker: BreakerPolicy{FailureRatio: 1}, Canary: CanaryPolicy{Ratio: 1}}); err != nil {
 		t.Fatalf("validatePolicy valid boundary error = %v", err)
+	}
+}
+
+func TestValidateRulesRetryStatusesByTransport(t *testing.T) {
+	tests := []struct {
+		name      string
+		transport string
+		statuses  []int
+		wantError string
+	}{
+		{name: "rpc unavailable", transport: TransportRPC, statuses: []int{14}},
+		{name: "rpc ok is not retryable", transport: TransportRPC, statuses: []int{0}, wantError: "outside gRPC code range"},
+		{name: "rpc code above range", transport: TransportRPC, statuses: []int{17}, wantError: "outside gRPC code range"},
+		{name: "rest lower boundary", transport: TransportREST, statuses: []int{100}},
+		{name: "rest below range", transport: TransportREST, statuses: []int{99}, wantError: "outside HTTP status range"},
+		{name: "gateway upper boundary", transport: TransportGateway, statuses: []int{599}},
+		{name: "gateway above range", transport: TransportGateway, statuses: []int{600}, wantError: "outside HTTP status range"},
+		{name: "empty transport preserves HTTP compatibility", statuses: []int{503}},
+		{name: "empty transport rejects grpc-only code", statuses: []int{14}, wantError: "outside HTTP status range"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateRules(Rule{Transport: tt.transport, Policy: Policy{Retry: RetryPolicy{Statuses: tt.statuses}}})
+			if tt.wantError == "" {
+				if err != nil {
+					t.Fatalf("ValidateRules() error = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantError) {
+				t.Fatalf("ValidateRules() error = %v, want containing %q", err, tt.wantError)
+			}
+		})
 	}
 }
 

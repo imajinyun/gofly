@@ -17,21 +17,34 @@
     "cmd/gofly/internal/generator/idl_test.go"
   ],
   "compatibilityPolicy": {
-    "apiGoTest": "The --test flag must generate route or handler smoke tests that compile in generated projects.",
-    "apiGoTypeGroup": "The --type-group flag must split DTOs into per-type files and avoid writing a monolithic types.go for grouped output.",
+    "apiGoStyle": "An explicitly provided --style go_zero must select the same go-zero-compatible behavior as --profile gozero-compatible while retaining the gofly-native project layout; conflicting explicit values must fail.",
+    "apiGoTest": "The --test flag must generate handler smoke tests beside handlers in internal/api/http/v1 within the gofly-native layout.",
+    "apiGoTypeGroup": "The --type-group flag must group DTO files by @server group in internal/app/model and keep shared DTOs in types.go.",
     "apiFormatStdin": "The --stdin flag must read API content from standard input and emit formatted content to stdout or the requested output file.",
     "apiFormatDeclare": "The --declare flag skips missing type declaration checks during API formatting, matching goctl's migration-critical formatter behavior."
   },
   "apiSurfaces": [
     {
+      "id": "api-go-style-profile",
+      "goctlSurface": "goctl api go --style go_zero",
+      "goflySurface": "gofly api go --style go_zero / --profile gozero-compatible",
+      "status": "implemented",
+      "behavior": "both explicit selectors enable the same go-zero-compatible behavior without changing the gofly-native project layout, and conflicting selectors fail",
+      "evidence": [
+        "TestExecuteAPIGenStyleAndProfileAreEquivalent",
+        "TestExecuteAPIGenRejectsConflictingStyleAndProfile"
+      ],
+      "coveredFlags": ["style", "profile"]
+    },
+    {
       "id": "api-go-test",
       "goctlSurface": "goctl api go --test",
       "goflySurface": "gofly api go --test / gofly api gen --test",
       "status": "implemented",
-      "behavior": "generates route test files for generated REST services",
+      "behavior": "generates handler smoke tests beside gofly-native HTTP handlers",
       "evidence": [
         "TestExecuteAPIGenAcceptsGoctlTemplateFlags",
-        "TestGenerateRESTFromAPIWritesGatewayTypeGroupsAndRouteTests"
+        "TestGenerateRESTFromAPIGoZeroCompatibleHonorsTypeGroupAndTest"
       ],
       "coveredFlags": ["test"]
     },
@@ -40,10 +53,10 @@
       "goctlSurface": "goctl api go --type-group",
       "goflySurface": "gofly api go --type-group / gofly api gen --type-group",
       "status": "implemented",
-      "behavior": "writes per-message type files and suppresses monolithic types.go",
+      "behavior": "writes per-group DTO files in internal/app/model and keeps cross-group DTOs in types.go",
       "evidence": [
         "TestExecuteAPIGenAcceptsGoctlTemplateFlags",
-        "TestGenerateRESTFromAPITypeGroup"
+        "TestGenerateRESTFromAPIGoZeroCompatibleHonorsTypeGroupAndTest"
       ],
       "coveredFlags": ["type-group"]
     },
@@ -72,6 +85,8 @@
     }
   ],
   "requiredFlags": [
+    "style",
+    "profile",
     "test",
     "type-group",
     "stdin",

@@ -6,6 +6,7 @@ package etcdv3
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -30,6 +31,11 @@ type Config struct {
 	// Username/Password authenticate against etcd when set.
 	Username string
 	Password string
+	// TLS secures connections to etcd. It is cloned when a client is created.
+	TLS *tls.Config
+	// RegistrationID pins the child key used by ZRPCRegistrar. A zero value
+	// follows zRPC's default and uses the granted lease ID.
+	RegistrationID int64
 }
 
 func (c Config) withDefaults() Config {
@@ -64,12 +70,16 @@ func New(cfg Config) (*Registry, error) {
 	if len(cfg.Endpoints) == 0 {
 		return nil, fmt.Errorf("etcdv3: at least one endpoint is required")
 	}
-	client, err := clientv3.New(clientv3.Config{
+	clientConfig := clientv3.Config{
 		Endpoints:   cfg.Endpoints,
 		DialTimeout: cfg.DialTimeout,
 		Username:    cfg.Username,
 		Password:    cfg.Password,
-	})
+	}
+	if cfg.TLS != nil {
+		clientConfig.TLS = cfg.TLS.Clone()
+	}
+	client, err := clientv3.New(clientConfig)
 	if err != nil {
 		return nil, fmt.Errorf("etcdv3: connect: %w", err)
 	}

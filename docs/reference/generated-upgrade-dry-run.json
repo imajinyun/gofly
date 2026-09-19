@@ -45,8 +45,8 @@
   "goctlGeneratorCompatibility": {
     "source": "docs/reference/goctl-generator-compatibility.json",
     "acceptanceGate": "make goctl-generator-compat-check",
-    "integrationPolicy": "Upgrade dry runs must include goctl-compatible profile evidence, flag compatibility, route layout, and API tooling gates before promotion.",
-    "rollbackOrEscalation": "Rollback by pinning the goctl-compatible generator behavior and holding generated output until the compatibility gate passes.",
+    "integrationPolicy": "Upgrade dry runs must include go-zero-compatible behavior evidence, goctl-style flag compatibility, the gofly-native route layout, and API tooling gates before promotion.",
+    "rollbackOrEscalation": "Rollback by pinning the previous compatible generator behavior and holding generated output until the native-layout compatibility gate passes.",
     "requiredCapabilities": [
       "gozero-compatible-profile",
       "goctl-compatible-flags",
@@ -215,7 +215,7 @@
         "gate": "make goctl-generator-compat-check",
         "expectedOutput": "Verify goctl profile, flags, route layout, API import, route, and diff compatibility.",
         "failureClass": "candidate",
-        "rollbackOrEscalation": "Pin goctl-compatible behavior and hold release until compatibility evidence passes."
+        "rollbackOrEscalation": "Pin the previous go-zero-compatible behavior and gofly-native layout, then hold release until compatibility evidence passes."
       },
       {
         "id": "dependency-boundary-review",
@@ -375,9 +375,9 @@
       {
         "id": "gozero-compatible-profile",
         "surface": "profile",
-        "evidence": ["ProfileGoZeroCompatible", "goctl-layout", "route-layout-boundary"],
+        "evidence": ["ProfileGoZeroCompatible", "gozero-semantics", "route-layout-boundary"],
         "gate": "make goctl-generator-compat-check",
-        "rollbackOrEscalation": "Rollback by pinning the goctl-compatible profile and keeping route layout evidence unchanged."
+        "rollbackOrEscalation": "Rollback by pinning the go-zero-compatible behavior profile and keeping gofly-native route layout evidence unchanged."
       },
       {
         "id": "goctl-compatible-flags",
@@ -415,7 +415,7 @@
         "rollbackOrEscalation": "Rollback by rejecting unclassified generated diffs and requiring rollback notes."
       }
     ],
-    "promotionPolicy": "Promote only when goctl-compatible profile, goctl-style flags, API import, proto import, alias-collision, and rollback notes are all covered.",
+    "promotionPolicy": "Promote only when go-zero-compatible behavior, gofly-native layout, goctl-style flags, API import, proto import, alias-collision, and rollback notes are all covered.",
     "runtimeArtifactPolicy": ".tmp-test and other temporary directories hold runtime evidence and must not be committed."
   },
   "p11LiveUpgradeProof": {

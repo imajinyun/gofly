@@ -18,7 +18,7 @@
     "../gozero/tools/goctl/model/cmd.go"
   ],
   "surfacePolicy": {
-    "positioning": "gofly provides a goctl-compatible migration path, not a full goctl replacement.",
+    "positioning": "gofly provides a go-zero-compatible behavior and configuration migration path while retaining its native layout; it is not a full goctl replacement.",
     "claimPolicy": "Only surfaces listed as supported or enhanced with a runnable gate may be promoted in docs or release notes.",
     "driftPolicy": "New goctl surfaces first enter report-only classification, then become blocking only after fixture replay and generated smoke evidence exist."
   },

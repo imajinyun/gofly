@@ -225,6 +225,9 @@ func (g *Gateway) proxyWithRetry(r *http.Request, route Route, body []byte) (pro
 		result, err := g.proxyOnce(r, route, body)
 		last = result
 		last.Retries = attempt
+		if result.doNotRetry {
+			return last, err
+		}
 		if err != nil {
 			if attempt+1 < policy.Attempts {
 				continue

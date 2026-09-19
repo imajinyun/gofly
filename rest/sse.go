@@ -3,6 +3,7 @@
 package rest
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -14,6 +15,17 @@ type SSEEvent struct {
 	ID    string
 	Retry int
 	Data  string
+}
+
+// SSEJSON marshals v into the data field of an SSE event. It is useful for
+// generated handlers whose response contract is a structured Go value.
+func (c *Context) SSEJSON(event SSEEvent, v any) error {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Errorf("marshal SSE data: %w", err)
+	}
+	event.Data = string(data)
+	return c.SSE(event)
 }
 
 // SSE writes a Server-Sent Event to the response.

@@ -358,6 +358,79 @@ func TestGovernanceUnaryClientInterceptorEnforcesTimeout(t *testing.T) {
 	}
 }
 
+func TestGovernanceUnaryServerInterceptorEnforcesMethodTimeout(t *testing.T) {
+	rules := governance.NewRuleSet(governance.Rule{
+		Name:      "server method timeout",
+		Transport: governance.TransportRPC,
+		Service:   "greeter.Greeter",
+		Method:    "Slow",
+		Policy:    governance.Policy{Timeout: time.Millisecond},
+	})
+	interceptor := GovernanceUnaryServerInterceptor(rules)
+	_, err := interceptor(context.Background(), &struct{}{}, &stdgrpc.UnaryServerInfo{FullMethod: "/greeter.Greeter/Slow"}, func(ctx context.Context, req any) (any, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	})
+	if status.Code(err) != codes.DeadlineExceeded {
+		t.Fatalf("code = %s, want deadline exceeded", status.Code(err))
+	}
+}
+
+func TestGovernanceStreamInterceptorsEnforceMethodTimeout(t *testing.T) {
+	rules := governance.NewRuleSet(governance.Rule{
+		Name:      "stream method timeout",
+		Transport: governance.TransportRPC,
+		Service:   "greeter.Greeter",
+		Method:    "Talk",
+		Policy: governance.Policy{
+			Timeout:     time.Millisecond,
+			Concurrency: governance.ConcurrencyPolicy{Limit: 1},
+		},
+	})
+
+	t.Run("server stream lifecycle", func(t *testing.T) {
+		interceptor := GovernanceStreamServerInterceptor(rules)
+		err := interceptor(nil, testServerStream{ctx: context.Background()}, &stdgrpc.StreamServerInfo{FullMethod: "/greeter.Greeter/Talk", IsClientStream: true, IsServerStream: true}, func(srv any, stream stdgrpc.ServerStream) error {
+			<-stream.Context().Done()
+			return stream.Context().Err()
+		})
+		if status.Code(err) != codes.DeadlineExceeded {
+			t.Fatalf("code = %s, want deadline exceeded", status.Code(err))
+		}
+	})
+
+	t.Run("client stream cancellation releases concurrency", func(t *testing.T) {
+		interceptor := GovernanceStreamClientInterceptor(rules)
+		streamer := func(ctx context.Context, _ *stdgrpc.StreamDesc, _ *stdgrpc.ClientConn, _ string, _ ...stdgrpc.CallOption) (stdgrpc.ClientStream, error) {
+			return &fakeClientStream{ctx: ctx}, nil
+		}
+		stream, err := interceptor(context.Background(), &stdgrpc.StreamDesc{ClientStreams: true, ServerStreams: true}, nil, "/greeter.Greeter/Talk", streamer)
+		if err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case <-stream.Context().Done():
+			if !errors.Is(stream.Context().Err(), context.DeadlineExceeded) {
+				t.Fatalf("stream context = %v, want deadline exceeded", stream.Context().Err())
+			}
+		case <-time.After(time.Second):
+			t.Fatal("stream context did not reach its method timeout")
+		}
+		deadline := time.Now().Add(time.Second)
+		for {
+			next, nextErr := interceptor(context.Background(), &stdgrpc.StreamDesc{ClientStreams: true, ServerStreams: true}, nil, "/greeter.Greeter/Talk", streamer)
+			if nextErr == nil {
+				next.(*governanceClientStream).finish(nil)
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("timed-out stream retained concurrency permit: %v", nextErr)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	})
+}
+
 func TestGovernanceStreamClientInterceptorEnforcesRateLimit(t *testing.T) {
 	rules := governance.NewRuleSet(governance.Rule{
 		Name:      "stream client rate limit",
@@ -414,7 +487,7 @@ func TestGovernanceStreamClientInterceptorEnforcesConcurrency(t *testing.T) {
 	if _, err := interceptor(context.Background(), &stdgrpc.StreamDesc{ServerStreams: true}, nil, "/greeter.Greeter/Subscribe", streamer); status.Code(err) != codes.Unavailable {
 		t.Fatalf("half-closed stream released concurrency: %v", err)
 	}
-	first.(*governanceClientStream).finish()
+	first.(*governanceClientStream).finish(nil)
 	third, err := interceptor(context.Background(), &stdgrpc.StreamDesc{ServerStreams: true}, nil, "/greeter.Greeter/Subscribe", streamer)
 	if err != nil {
 		t.Fatalf("third stream after release: %v", err)
@@ -1029,7 +1102,7 @@ func TestGovernanceClientStreamLifecycle(t *testing.T) {
 		for {
 			stream, err := interceptor(context.Background(), &stdgrpc.StreamDesc{ServerStreams: true}, nil, "/svc/Watch", streamer)
 			if err == nil {
-				stream.(*governanceClientStream).finish()
+				stream.(*governanceClientStream).finish(nil)
 				break
 			}
 			if time.Now().After(deadline) {
@@ -1038,6 +1111,163 @@ func TestGovernanceClientStreamLifecycle(t *testing.T) {
 			time.Sleep(time.Millisecond)
 		}
 	})
+}
+
+func TestTimeoutStreamClientInterceptorLifecycle(t *testing.T) {
+	t.Run("zero timeout is a no-op", func(t *testing.T) {
+		wantCtx := t.Context()
+		wantStream := &fakeClientStream{ctx: wantCtx}
+		stream, err := TimeoutStreamClientInterceptor(0)(wantCtx, &stdgrpc.StreamDesc{}, nil, "/svc/Call",
+			func(ctx context.Context, _ *stdgrpc.StreamDesc, _ *stdgrpc.ClientConn, _ string, _ ...stdgrpc.CallOption) (stdgrpc.ClientStream, error) {
+				if ctx != wantCtx {
+					t.Fatal("zero timeout replaced the call context")
+				}
+				return wantStream, nil
+			})
+		if err != nil || stream != wantStream {
+			t.Fatalf("stream=%v err=%v, want original stream", stream, err)
+		}
+	})
+
+	t.Run("open failure cancels timeout context", func(t *testing.T) {
+		var callCtx context.Context
+		stream, err := TimeoutStreamClientInterceptor(time.Hour)(t.Context(), &stdgrpc.StreamDesc{}, nil, "/svc/Call",
+			func(ctx context.Context, _ *stdgrpc.StreamDesc, _ *stdgrpc.ClientConn, _ string, _ ...stdgrpc.CallOption) (stdgrpc.ClientStream, error) {
+				callCtx = ctx
+				return nil, status.Error(codes.Unavailable, "open failed")
+			})
+		if stream != nil || status.Code(err) != codes.Unavailable || !errors.Is(callCtx.Err(), context.Canceled) {
+			t.Fatalf("stream=%v err=%v context=%v", stream, err, callCtx.Err())
+		}
+	})
+
+	for _, tc := range []struct {
+		name          string
+		clientStreams bool
+		serverStreams bool
+	}{
+		{name: "server streaming", serverStreams: true},
+		{name: "client streaming", clientStreams: true},
+		{name: "bidirectional", clientStreams: true, serverStreams: true},
+	} {
+		t.Run(tc.name+" deadline", func(t *testing.T) {
+			desc := &stdgrpc.StreamDesc{ClientStreams: tc.clientStreams, ServerStreams: tc.serverStreams}
+			stream, err := TimeoutStreamClientInterceptor(time.Millisecond)(t.Context(), desc, nil, "/svc/Call",
+				func(ctx context.Context, _ *stdgrpc.StreamDesc, _ *stdgrpc.ClientConn, _ string, _ ...stdgrpc.CallOption) (stdgrpc.ClientStream, error) {
+					return &fakeClientStream{ctx: ctx}, nil
+				})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := stream.CloseSend(); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-stream.Context().Done():
+				if !errors.Is(stream.Context().Err(), context.DeadlineExceeded) {
+					t.Fatalf("stream context = %v, want deadline exceeded", stream.Context().Err())
+				}
+			case <-time.After(time.Second):
+				t.Fatal("stream context did not reach its client timeout")
+			}
+		})
+	}
+
+	t.Run("terminal receive cancels without waiting for timeout", func(t *testing.T) {
+		inner := &fakeClientStream{recvErr: io.EOF}
+		stream, err := TimeoutStreamClientInterceptor(time.Hour)(t.Context(), &stdgrpc.StreamDesc{ServerStreams: true}, nil, "/svc/Watch",
+			func(ctx context.Context, _ *stdgrpc.StreamDesc, _ *stdgrpc.ClientConn, _ string, _ ...stdgrpc.CallOption) (stdgrpc.ClientStream, error) {
+				inner.ctx = ctx
+				return inner, nil
+			})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := stream.RecvMsg(nil); !errors.Is(err, io.EOF) {
+			t.Fatalf("receive = %v, want EOF", err)
+		}
+		if !errors.Is(stream.Context().Err(), context.Canceled) {
+			t.Fatalf("stream context = %v, want canceled", stream.Context().Err())
+		}
+	})
+
+	t.Run("parent cancellation propagates", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		stream, err := TimeoutStreamClientInterceptor(time.Hour)(ctx, &stdgrpc.StreamDesc{ServerStreams: true}, nil, "/svc/Watch",
+			func(ctx context.Context, _ *stdgrpc.StreamDesc, _ *stdgrpc.ClientConn, _ string, _ ...stdgrpc.CallOption) (stdgrpc.ClientStream, error) {
+				return &fakeClientStream{ctx: ctx}, nil
+			})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cancel()
+		select {
+		case <-stream.Context().Done():
+			if !errors.Is(stream.Context().Err(), context.Canceled) {
+				t.Fatalf("stream context = %v, want canceled", stream.Context().Err())
+			}
+		case <-time.After(time.Second):
+			t.Fatal("stream did not inherit parent cancellation")
+		}
+	})
+
+	t.Run("client stream final response ends lifecycle", func(t *testing.T) {
+		inner := &fakeClientStream{}
+		stream, err := TimeoutStreamClientInterceptor(time.Hour)(t.Context(), &stdgrpc.StreamDesc{ClientStreams: true}, nil, "/svc/Upload",
+			func(ctx context.Context, _ *stdgrpc.StreamDesc, _ *stdgrpc.ClientConn, _ string, _ ...stdgrpc.CallOption) (stdgrpc.ClientStream, error) {
+				inner.ctx = ctx
+				return inner, nil
+			})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := stream.CloseSend(); err != nil {
+			t.Fatal(err)
+		}
+		if stream.Context().Err() != nil {
+			t.Fatalf("CloseSend ended receive lifecycle: %v", stream.Context().Err())
+		}
+		if err := stream.RecvMsg(nil); err != nil {
+			t.Fatal(err)
+		}
+		if !errors.Is(stream.Context().Err(), context.Canceled) {
+			t.Fatalf("final response context = %v, want canceled", stream.Context().Err())
+		}
+	})
+}
+
+func TestTimeoutStreamClientInterceptorReleasesGovernanceConcurrency(t *testing.T) {
+	rules := governance.NewRuleSet(governance.Rule{Policy: governance.Policy{Concurrency: governance.ConcurrencyPolicy{Limit: 1}}})
+	timeout := TimeoutStreamClientInterceptor(time.Millisecond)
+	governed := GovernanceStreamClientInterceptor(rules)
+	open := func(ctx context.Context) (stdgrpc.ClientStream, error) {
+		return timeout(ctx, &stdgrpc.StreamDesc{ClientStreams: true, ServerStreams: true}, nil, "/svc/Talk", func(ctx context.Context, desc *stdgrpc.StreamDesc, cc *stdgrpc.ClientConn, method string, opts ...stdgrpc.CallOption) (stdgrpc.ClientStream, error) {
+			return governed(ctx, desc, cc, method, func(ctx context.Context, _ *stdgrpc.StreamDesc, _ *stdgrpc.ClientConn, _ string, _ ...stdgrpc.CallOption) (stdgrpc.ClientStream, error) {
+				return &fakeClientStream{ctx: ctx}, nil
+			}, opts...)
+		})
+	}
+	first, err := open(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-first.Context().Done():
+	case <-time.After(time.Second):
+		t.Fatal("timed-out stream did not cancel")
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		next, nextErr := open(t.Context())
+		if nextErr == nil {
+			next.(*timeoutClientStream).finish()
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed-out stream retained governance concurrency: %v", nextErr)
+		}
+		time.Sleep(time.Millisecond)
+	}
 }
 
 func TestGovernanceBreakerPolicy(t *testing.T) {
@@ -1065,6 +1295,200 @@ func TestGovernanceBreakerPolicy(t *testing.T) {
 			t.Fatalf("updated policy reused open breaker: %v", err)
 		}
 	})
+}
+
+func TestGovernanceStreamClientBreakerTracksTerminalOutcomeOnce(t *testing.T) {
+	tests := []struct {
+		name     string
+		newInner func(context.Context) *fakeClientStream
+		finish   func(stdgrpc.ClientStream) error
+	}{
+		{
+			name: "header failure",
+			newInner: func(ctx context.Context) *fakeClientStream {
+				return &fakeClientStream{ctx: ctx, headerErr: status.Error(codes.Unavailable, "header failed")}
+			},
+			finish: func(stream stdgrpc.ClientStream) error {
+				_, err := stream.Header()
+				return err
+			},
+		},
+		{
+			name: "send failure",
+			newInner: func(ctx context.Context) *fakeClientStream {
+				return &fakeClientStream{ctx: ctx, sendErr: status.Error(codes.Unavailable, "send failed")}
+			},
+			finish: func(stream stdgrpc.ClientStream) error {
+				return stream.SendMsg(nil)
+			},
+		},
+		{
+			name: "receive failure",
+			newInner: func(ctx context.Context) *fakeClientStream {
+				return &fakeClientStream{ctx: ctx, recvErr: status.Error(codes.Unavailable, "receive failed")}
+			},
+			finish: func(stream stdgrpc.ClientStream) error {
+				return stream.RecvMsg(nil)
+			},
+		},
+		{
+			name: "close send failure",
+			newInner: func(ctx context.Context) *fakeClientStream {
+				return &fakeClientStream{ctx: ctx, closeSendErr: status.Error(codes.Unavailable, "close send failed")}
+			},
+			finish: func(stream stdgrpc.ClientStream) error {
+				return stream.CloseSend()
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rules := governance.NewRuleSet(governance.Rule{
+				Transport: governance.TransportRPC,
+				Policy: governance.Policy{
+					Retry:   governance.RetryPolicy{Attempts: 3, Statuses: []int{int(codes.Unavailable)}},
+					Breaker: governance.BreakerPolicy{Enabled: true, OpenTimeout: time.Hour},
+				},
+			})
+			interceptor := GovernanceStreamClientInterceptor(rules)
+			calls := 0
+			open := func() (stdgrpc.ClientStream, error) {
+				return interceptor(t.Context(), &stdgrpc.StreamDesc{ServerStreams: true}, nil, "/svc/Watch",
+					func(ctx context.Context, _ *stdgrpc.StreamDesc, _ *stdgrpc.ClientConn, _ string, _ ...stdgrpc.CallOption) (stdgrpc.ClientStream, error) {
+						calls++
+						return tt.newInner(ctx), nil
+					})
+			}
+			for i := 0; i < 3; i++ {
+				stream, err := open()
+				if err != nil {
+					t.Fatalf("open failure stream %d: %v", i, err)
+				}
+				if err := tt.finish(stream); status.Code(err) != codes.Unavailable {
+					t.Fatalf("terminal error %d = %v, want Unavailable", i, err)
+				}
+				if i == 0 {
+					if err := tt.finish(stream); status.Code(err) != codes.Unavailable {
+						t.Fatalf("repeated terminal error = %v, want Unavailable", err)
+					}
+				}
+			}
+			if stream, err := open(); stream != nil || status.Code(err) != codes.Unavailable {
+				t.Fatalf("open after threshold stream=%v err=%v, want breaker rejection", stream, err)
+			}
+			if calls != 3 {
+				t.Fatalf("streamer calls = %d, want 3", calls)
+			}
+		})
+	}
+}
+
+func TestGovernanceStreamClientBreakerAcceptsCompletedStream(t *testing.T) {
+	rules := governance.NewRuleSet(governance.Rule{
+		Transport: governance.TransportRPC,
+		Policy:    governance.Policy{Breaker: governance.BreakerPolicy{Enabled: true, OpenTimeout: time.Hour}},
+	})
+	interceptor := GovernanceStreamClientInterceptor(rules)
+	calls := 0
+	for i := 0; i < 4; i++ {
+		stream, err := interceptor(t.Context(), &stdgrpc.StreamDesc{ServerStreams: true}, nil, "/svc/Watch",
+			func(ctx context.Context, _ *stdgrpc.StreamDesc, _ *stdgrpc.ClientConn, _ string, _ ...stdgrpc.CallOption) (stdgrpc.ClientStream, error) {
+				calls++
+				return &fakeClientStream{ctx: ctx, recvErr: io.EOF}, nil
+			})
+		if err != nil {
+			t.Fatalf("open completed stream %d: %v", i, err)
+		}
+		if err := stream.RecvMsg(nil); !errors.Is(err, io.EOF) {
+			t.Fatalf("receive completed stream %d = %v, want EOF", i, err)
+		}
+	}
+	if calls != 4 {
+		t.Fatalf("streamer calls = %d, want 4", calls)
+	}
+}
+
+func TestGovernanceStreamClientBreakerTracksOpenFailures(t *testing.T) {
+	rules := governance.NewRuleSet(governance.Rule{
+		Transport: governance.TransportRPC,
+		Policy:    governance.Policy{Breaker: governance.BreakerPolicy{Enabled: true, OpenTimeout: time.Hour}},
+	})
+	interceptor := GovernanceStreamClientInterceptor(rules)
+	calls := 0
+	for i := 0; i < 3; i++ {
+		stream, err := interceptor(t.Context(), &stdgrpc.StreamDesc{ServerStreams: true}, nil, "/svc/Watch",
+			func(context.Context, *stdgrpc.StreamDesc, *stdgrpc.ClientConn, string, ...stdgrpc.CallOption) (stdgrpc.ClientStream, error) {
+				calls++
+				return nil, status.Error(codes.Unavailable, "open failed")
+			})
+		if stream != nil || status.Code(err) != codes.Unavailable {
+			t.Fatalf("open failure %d stream=%v err=%v", i, stream, err)
+		}
+	}
+	stream, err := interceptor(t.Context(), &stdgrpc.StreamDesc{ServerStreams: true}, nil, "/svc/Watch",
+		func(context.Context, *stdgrpc.StreamDesc, *stdgrpc.ClientConn, string, ...stdgrpc.CallOption) (stdgrpc.ClientStream, error) {
+			calls++
+			return &fakeClientStream{}, nil
+		})
+	if stream != nil || status.Code(err) != codes.Unavailable || calls != 3 {
+		t.Fatalf("breaker rejection stream=%v err=%v calls=%d, want nil Unavailable 3", stream, err, calls)
+	}
+}
+
+func TestGovernanceStreamClientBreakerAcceptsCallerCancellation(t *testing.T) {
+	rules := governance.NewRuleSet(governance.Rule{
+		Transport: governance.TransportRPC,
+		Policy:    governance.Policy{Breaker: governance.BreakerPolicy{Enabled: true, OpenTimeout: time.Hour}},
+	})
+	interceptor := GovernanceStreamClientInterceptor(rules)
+	for i := 0; i < 4; i++ {
+		ctx, cancel := context.WithCancel(t.Context())
+		stream, err := interceptor(ctx, &stdgrpc.StreamDesc{ServerStreams: true}, nil, "/svc/Watch",
+			func(ctx context.Context, _ *stdgrpc.StreamDesc, _ *stdgrpc.ClientConn, _ string, _ ...stdgrpc.CallOption) (stdgrpc.ClientStream, error) {
+				return &fakeClientStream{ctx: ctx}, nil
+			})
+		if err != nil {
+			cancel()
+			t.Fatalf("open stream %d: %v", i, err)
+		}
+		cancel()
+		select {
+		case <-stream.Context().Done():
+		case <-time.After(time.Second):
+			t.Fatal("canceled stream did not finish")
+		}
+	}
+}
+
+func TestGovernanceStreamClientBreakerSettlesPanickingOpen(t *testing.T) {
+	rules := governance.NewRuleSet(governance.Rule{
+		Transport: governance.TransportRPC,
+		Policy:    governance.Policy{Breaker: governance.BreakerPolicy{Enabled: true, OpenTimeout: time.Hour}},
+	})
+	interceptor := GovernanceStreamClientInterceptor(rules)
+	calls := 0
+	for i := 0; i < 3; i++ {
+		func() {
+			defer func() {
+				if recovered := recover(); recovered == nil {
+					t.Fatal("expected streamer to panic")
+				}
+			}()
+			_, _ = interceptor(t.Context(), &stdgrpc.StreamDesc{ServerStreams: true}, nil, "/svc/Watch",
+				func(context.Context, *stdgrpc.StreamDesc, *stdgrpc.ClientConn, string, ...stdgrpc.CallOption) (stdgrpc.ClientStream, error) {
+					calls++
+					panic("boom")
+				})
+		}()
+	}
+	stream, err := interceptor(t.Context(), &stdgrpc.StreamDesc{ServerStreams: true}, nil, "/svc/Watch",
+		func(context.Context, *stdgrpc.StreamDesc, *stdgrpc.ClientConn, string, ...stdgrpc.CallOption) (stdgrpc.ClientStream, error) {
+			calls++
+			return &fakeClientStream{}, nil
+		})
+	if stream != nil || status.Code(err) != codes.Unavailable || calls != 3 {
+		t.Fatalf("breaker after panics stream=%v err=%v calls=%d, want nil Unavailable 3", stream, err, calls)
+	}
 }
 
 func TestClientStreamObservabilityLifecycle(t *testing.T) {
@@ -1254,6 +1678,77 @@ func TestDefaultGRPCStreamingLifecycle(t *testing.T) {
 						t.Fatalf("terminal receive = %v", err)
 					}
 				}
+			}
+		})
+	}
+}
+
+func TestDefaultClientCallTimeoutCoversStreamingLifecycle(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		clientStreams bool
+		serverStreams bool
+	}{
+		{name: "server streaming", serverStreams: true},
+		{name: "client streaming", clientStreams: true},
+		{name: "bidirectional", clientStreams: true, serverStreams: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			listener := bufconn.Listen(1024 * 1024)
+			server := NewDefaultServer("", "test.TimeoutStreams", nil, nil, WithHealth(false))
+			handlerStarted := make(chan struct{})
+			handlerFinished := make(chan struct{})
+			desc := stdgrpc.StreamDesc{StreamName: "Wait", ClientStreams: tc.clientStreams, ServerStreams: tc.serverStreams}
+			desc.Handler = func(_ any, stream stdgrpc.ServerStream) error {
+				close(handlerStarted)
+				<-stream.Context().Done()
+				close(handlerFinished)
+				return stream.Context().Err()
+			}
+			server.RegisterService(&stdgrpc.ServiceDesc{ServiceName: "test.TimeoutStreams", HandlerType: (*interface{})(nil), Streams: []stdgrpc.StreamDesc{desc}}, struct{}{})
+			serveDone := make(chan error, 1)
+			go func() { serveDone <- server.GRPCServer().Serve(listener) }()
+			t.Cleanup(func() {
+				server.GRPCServer().Stop()
+				if err := <-serveDone; err != nil {
+					t.Error(err)
+				}
+			})
+
+			conn, err := NewDefaultClient(t.Context(), "passthrough:///bufnet", "test.TimeoutStreams", nil, nil,
+				WithClientCallTimeout(100*time.Millisecond),
+				WithDialOptions(
+					stdgrpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }),
+					stdgrpc.WithTransportCredentials(insecure.NewCredentials()),
+				),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
+
+			stream, err := conn.NewStream(t.Context(), &desc, "/test.TimeoutStreams/Wait")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := stream.SendMsg(&emptypb.Empty{}); err != nil {
+				t.Fatal(err)
+			}
+			if err := stream.CloseSend(); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-handlerStarted:
+			case <-time.After(time.Second):
+				t.Fatal("server stream handler did not start")
+			}
+			if err := stream.RecvMsg(&emptypb.Empty{}); status.Code(err) != codes.DeadlineExceeded {
+				t.Fatalf("receive error = %v, want DeadlineExceeded", err)
+			}
+			select {
+			case <-handlerFinished:
+			case <-time.After(time.Second):
+				t.Fatal("client timeout did not cancel the server stream")
 			}
 		})
 	}
@@ -1543,8 +2038,8 @@ func TestGRPCServerRegisterDiscovery(t *testing.T) {
 			server := NewServer(WithDiscovery(registrar, discovery.Instance{Service: "service"}))
 			defer server.GRPCServer().Stop()
 			err := server.registerDiscovery(t.Context(), &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 8082})
-			if err == nil || !strings.Contains(err.Error(), tc.want) || server.discoveryLease != nil || server.Ready() {
-				t.Fatalf("err=%v lease=%v ready=%v", err, server.discoveryLease, server.Ready())
+			if err == nil || !strings.Contains(err.Error(), tc.want) || len(server.discoveryLeases) != 0 || server.Ready() {
+				t.Fatalf("err=%v leases=%v ready=%v", err, server.discoveryLeases, server.Ready())
 			}
 			if tc.err != nil && !errors.Is(err, tc.err) {
 				t.Fatalf("registration lost original error: %v", err)
@@ -1583,6 +2078,76 @@ func TestGRPCServerRegisterDiscovery(t *testing.T) {
 		}
 		if err := server.Shutdown(context.Background()); err != nil || closes != 1 {
 			t.Fatalf("repeated shutdown=%v closes=%d", err, closes)
+		}
+	})
+	t.Run("aliases preserve primary and close in reverse order", func(t *testing.T) {
+		var registered []string
+		var registeredIDs []string
+		var closed []string
+		registrar := grpcTestRegistrar{register: func(_ context.Context, instance discovery.Instance, _ ...discovery.RegisterOption) (discovery.Lease, error) {
+			registered = append(registered, instance.Service)
+			registeredIDs = append(registeredIDs, instance.ID)
+			service := instance.Service
+			return grpcTestLease{instance: instance, close: func(context.Context) error {
+				closed = append(closed, service)
+				return nil
+			}}, nil
+		}}
+		server := NewServer(
+			WithDiscovery(registrar, discovery.Instance{ID: "instance-1", Service: "service", Endpoint: "endpoint:8082"}),
+			WithDiscoveryAliases("beta.Service", " service ", "alpha.Service", "beta.Service", " "),
+		)
+		defer server.GRPCServer().Stop()
+		if err := server.registerDiscovery(t.Context(), nil); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := strings.Join(registered, ","), "service,beta.Service,alpha.Service"; got != want {
+			t.Fatalf("registered services = %q, want %q", got, want)
+		}
+		if registeredIDs[0] != "instance-1" || registeredIDs[1] == registeredIDs[0] || registeredIDs[2] == registeredIDs[0] || registeredIDs[1] == registeredIDs[2] {
+			t.Fatalf("registration IDs are not unique while preserving primary: %v", registeredIDs)
+		}
+		if server.discoveryEntry.Service != "service" {
+			t.Fatalf("primary discovery entry = %q, want service", server.discoveryEntry.Service)
+		}
+		if err := server.closeDiscovery(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := strings.Join(closed, ","), "alpha.Service,beta.Service,service"; got != want {
+			t.Fatalf("closed services = %q, want %q", got, want)
+		}
+	})
+	t.Run("alias registration failure rolls back prior leases", func(t *testing.T) {
+		registerFailure := errors.New("register alias failed")
+		closeFailure := errors.New("close primary failed")
+		var closed []string
+		registrar := grpcTestRegistrar{register: func(_ context.Context, instance discovery.Instance, _ ...discovery.RegisterOption) (discovery.Lease, error) {
+			if instance.Service == "second.Service" {
+				return nil, registerFailure
+			}
+			service := instance.Service
+			return grpcTestLease{instance: instance, close: func(context.Context) error {
+				closed = append(closed, service)
+				if service == "service" {
+					return closeFailure
+				}
+				return nil
+			}}, nil
+		}}
+		server := NewServer(
+			WithDiscovery(registrar, discovery.Instance{Service: "service", Endpoint: "endpoint:8082"}),
+			WithDiscoveryAliases("first.Service", "second.Service"),
+		)
+		defer server.GRPCServer().Stop()
+		err := server.registerDiscovery(t.Context(), nil)
+		if !errors.Is(err, registerFailure) || !errors.Is(err, closeFailure) {
+			t.Fatalf("registration error = %v, want register and rollback errors", err)
+		}
+		if got, want := strings.Join(closed, ","), "first.Service,service"; got != want {
+			t.Fatalf("rollback order = %q, want %q", got, want)
+		}
+		if len(server.discoveryLeases) != 0 {
+			t.Fatalf("failed registration retained %d leases", len(server.discoveryLeases))
 		}
 	})
 }

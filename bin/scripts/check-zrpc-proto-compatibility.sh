@@ -19,7 +19,8 @@ run_go_test() {
 
 run_go_test ./cmd/gofly/internal/generator 'TestZRPCProtoCompatibilityMatrix|TestGenerateRPCFromProtoMultipleAndStreamVariants|TestGenerateRPCNewGoZeroCompatibleProducesRunnableGRPCProject'
 run_go_test ./rpc/grpc 'TestGRPCServerDiscoveryAndHealthLifecycle|TestDialKeepsDefaultCredentialsWithResolverOption|TestGoflyGRPCBalancersRegistered'
-printf 'zrpc-proto-compatibility: real bidirectional zRPC runtime matrix\n'
+run_go_test ./core/discovery/etcdv3 'TestZRPCResolver|TestZRPCRegistrar'
+printf 'zrpc-proto-compatibility: real bidirectional zRPC runtime and etcd discovery matrix\n'
 (
 	cd "$root/testdata/zrpc-runtime-interop"
 	GOCACHE="${GOCACHE:-$tmp_root/gocache}" GOTMPDIR="${GOTMPDIR:-$tmp_root/gotmp}" "$go_cmd" test -count=1 -shuffle=on -race -tags=integration ./...
@@ -69,6 +70,8 @@ expected = {
     "grpc-runtime-golden-path": "supported",
     "zrpc-runtime-bidirectional": "supported",
     "zrpc-streaming-runtime-bidirectional": "supported",
+    "zrpc-etcd-discovery": "supported",
+    "zrpc-etcd-registration": "supported",
 }
 require(set(rows) == set(expected), f"matrix ids mismatch: {sorted(rows)!r}")
 for row_id, status in expected.items():
@@ -121,6 +124,30 @@ for marker in (
 ):
     require(marker in streaming, f"zRPC streaming fixture missing {marker!r}")
 require("stdgrpc.NewServer(" not in streaming, "streaming fixture must use real zRPC/gofly server wrappers")
+etcd_discovery = read(root / "testdata/zrpc-runtime-interop/etcd_discovery_test.go")
+for marker in (
+    "TestGoflyServerDiscoveredByZRPCClientThroughEtcd",
+    "TestZRPCServerDiscoveredByGoflyClientThroughEtcd",
+    "etcdv3.NewZRPCRegistrar",
+    "etcdv3.NewZRPCResolver",
+    "zrpc.NewClient(zrpc.RpcClientConf{",
+    "zrpc.NewServer(zrpc.RpcServerConf{",
+    "Etcd:     discov.EtcdConf",
+    "client.Conn().Invoke",
+    "flygrpc.WithDiscoveryResolver",
+    "serviceKey + \"/\"",
+):
+    require(marker in etcd_discovery, f"zRPC etcd runtime interoperability fixture missing {marker!r}")
+require(
+    "zrpc.NewClientWithTarget" not in etcd_discovery,
+    "zRPC etcd runtime interoperability fixture must not bypass discovery with a direct target",
+)
+zrpc_resolver = read(root / "core/discovery/etcdv3/zrpc_resolver.go")
+for marker in ("NewZRPCResolver", "service + \"/\"", "clientv3.WithPrefix()", "discovery.DiffInstances"):
+    require(marker in zrpc_resolver, f"zRPC etcd resolver missing {marker!r}")
+zrpc_registrar = read(root / "core/discovery/etcdv3/zrpc_registrar.go")
+for marker in ("NewZRPCRegistrar", "zrpcRegistrationKey", "clientv3.WithLease", "context.WithoutCancel"):
+    require(marker in zrpc_registrar, f"zRPC etcd registrar missing {marker!r}")
 
 rules = manifest.get("releaseRules") or {}
 for field in ("supportedRegression", "degradedClaim", "unsupportedPromotion"):

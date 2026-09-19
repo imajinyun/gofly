@@ -377,7 +377,7 @@ func TestBuildServiceScaffoldIRProfilesDeclareStableManifest(t *testing.T) {
 		wantKind    string
 	}{
 		{name: "default ai api", kind: "api", wantProfile: ProfileGoflyAI, wantFeature: "ai-governance", wantKind: "api-contract"},
-		{name: "gozero api", profile: string(ProfileGoZeroCompatible), kind: "api", wantProfile: ProfileGoZeroCompatible, wantFeature: "goctl-layout", wantKind: "api-contract"},
+		{name: "gozero api", profile: string(ProfileGoZeroCompatible), kind: "api", wantProfile: ProfileGoZeroCompatible, wantFeature: "gozero-semantics", wantKind: "api-contract"},
 		{name: "kitex rpc", profile: string(ProfileKitexCompatible), kind: "rpc", wantProfile: ProfileKitexCompatible, wantFeature: "idl-runtime-contract", wantKind: "proto-contract"},
 	}
 	for _, tt := range tests {
@@ -426,21 +426,21 @@ func TestBuildServiceScaffoldIRGoZeroProfileUsesLayeredArtifacts(t *testing.T) {
 		t.Fatalf("buildServiceScaffoldIR: %v", err)
 	}
 	for _, rel := range []string{
-		filepath.Join("internal", "api", "http", "routes.go"),
-		filepath.Join("internal", "api", "http", "pinghandler.go"),
-		filepath.Join("internal", "app", "pinglogic.go"),
-		filepath.Join("internal", "svc", "servicecontext.go"),
-		filepath.Join("internal", "types", "types.go"),
+		filepath.Join("internal", "routes", "routes.go"),
+		filepath.Join("internal", "api", "http", "v1", "ping", "ping.go"),
+		filepath.Join("internal", "app", "ping.go"),
+		filepath.Join("internal", "svc", "service_context.go"),
+		filepath.Join("internal", "compat", "gozero", "adapter.go"),
 	} {
 		if _, ok := ir.Files[rel]; !ok {
 			t.Fatalf("gozero profile missing layered file %s in %#v", rel, ir.Files)
 		}
 	}
 	for _, legacy := range []string{
-		filepath.Join("internal", "routes", "routes.go"),
-		filepath.Join("internal", "api", "v1", "ping", "ping.go"),
-		filepath.Join("internal", "service", "ping.go"),
-		filepath.Join("internal", "service", "ping_test.go"),
+		filepath.Join("internal", "api", "http", "routes.go"),
+		filepath.Join("internal", "logic"),
+		filepath.Join("internal", "types"),
+		filepath.Join("internal", "svc", "servicecontext.go"),
 	} {
 		if _, ok := ir.Files[legacy]; ok {
 			t.Fatalf("gozero profile should not include legacy file %s", legacy)

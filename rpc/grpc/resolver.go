@@ -40,6 +40,10 @@ type watchResolver struct {
 	closed bool
 }
 
+type staticWatchResolver struct {
+	endpoints []string
+}
+
 func Target(service string) string {
 	return ResolverScheme + ":///" + strings.Trim(strings.TrimSpace(service), "/")
 }
@@ -118,6 +122,53 @@ func WithDiscoveryResolver(source discovery.Resolver, service string, resolveOpt
 // gRPC resolver options such as a generated load-balancing policy.
 func WithDiscoveryResolverOptions(source discovery.Resolver, service string, resolverOpts []ResolverOption, resolveOpts ...discovery.ResolveOption) ClientOption {
 	return WithServiceResolver(service, rpc.NewDiscoveryResolver(source, service, resolveOpts...), resolverOpts...)
+}
+
+// WithStaticResolver configures a fixed endpoint set behind gofly's native
+// gRPC resolver. It is useful for zRPC-style Endpoints configuration because
+// every configured address remains available to the selected load balancer.
+func WithStaticResolver(service string, endpoints []string, resolverOpts ...ResolverOption) ClientOption {
+	return WithServiceResolver(service, staticWatchResolver{endpoints: append([]string(nil), endpoints...)}, resolverOpts...)
+}
+
+func (r staticWatchResolver) Resolve(ctx context.Context) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	endpoints := normalizeGRPCEndpoints(r.endpoints)
+	if len(endpoints) == 0 {
+		return nil, errors.New("grpc static resolver endpoints are required")
+	}
+	return endpoints, nil
+}
+
+func (r staticWatchResolver) Watch(ctx context.Context) (<-chan []string, error) {
+	if _, err := r.Resolve(ctx); err != nil {
+		return nil, err
+	}
+	updates := make(chan []string)
+	go func() {
+		<-ctx.Done()
+		close(updates)
+	}()
+	return updates, nil
+}
+
+func normalizeGRPCEndpoints(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.TrimRight(strings.TrimSpace(value), "/")
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
 }
 
 func (b *ResolverBuilder) Scheme() string {

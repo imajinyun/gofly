@@ -206,6 +206,25 @@ func TestWithDiscoveryResolverOptions(t *testing.T) {
 	}
 }
 
+func TestWithStaticResolverPreservesAllEndpoints(t *testing.T) {
+	source := staticWatchResolver{endpoints: []string{"127.0.0.1:9201/", "127.0.0.1:9202", "127.0.0.1:9201"}}
+	builder := NewResolverBuilder(map[string]rpc.WatchResolver{"greeter": source}, WithP2CEWMAResolver())
+	cc := &fakeResolverClientConn{}
+	built, err := builder.Build(resolver.Target{URL: url.URL{Scheme: ResolverScheme, Path: "/greeter"}}, cc, resolver.BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer built.Close()
+
+	state := waitResolverState(t, cc, 1)
+	if got := addressesOf(state); len(got) != 2 || got[0] != "127.0.0.1:9201" || got[1] != "127.0.0.1:9202" {
+		t.Fatalf("static resolver addresses = %v, want deduplicated configured endpoints", got)
+	}
+	if want := serviceConfigForBalancer(P2CEWMABalancerName); cc.serviceConfig != want {
+		t.Fatalf("static resolver service config = %q, want %q", cc.serviceConfig, want)
+	}
+}
+
 func waitResolverState(t *testing.T, cc *fakeResolverClientConn, count int) resolver.State {
 	t.Helper()
 	deadline := time.After(time.Second)

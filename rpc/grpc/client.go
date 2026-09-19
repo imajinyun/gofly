@@ -35,6 +35,7 @@ type ClientOption func(*clientOptions)
 type clientOptions struct {
 	dialOptions         []stdgrpc.DialOption
 	timeout             time.Duration
+	callTimeout         time.Duration
 	tls                 *security.TLSConfig
 	waitForReady        bool
 	credentialsProvided bool
@@ -53,6 +54,12 @@ func Dial(ctx context.Context, target string, opts ...ClientOption) (*ClientConn
 		if opt != nil {
 			opt(&o)
 		}
+	}
+	if o.callTimeout > 0 {
+		o.dialOptions = append([]stdgrpc.DialOption{
+			stdgrpc.WithChainUnaryInterceptor(TimeoutUnaryClientInterceptor(o.callTimeout)),
+			stdgrpc.WithChainStreamInterceptor(TimeoutStreamClientInterceptor(o.callTimeout)),
+		}, o.dialOptions...)
 	}
 	if o.tls != nil {
 		tlsCfg, err := o.tls.ClientTLSConfig()
@@ -175,6 +182,13 @@ func WithClientTLS(cfg security.TLSConfig) ClientOption {
 
 func WithDialTimeout(timeout time.Duration) ClientOption {
 	return func(o *clientOptions) { o.timeout = timeout }
+}
+
+// WithClientCallTimeout bounds the complete lifetime of unary and streaming
+// RPCs. For streams, the timeout remains active after CloseSend until the final
+// response or terminal receive error.
+func WithClientCallTimeout(timeout time.Duration) ClientOption {
+	return func(o *clientOptions) { o.callTimeout = timeout }
 }
 
 // WithWaitForReady makes Dial wait until the channel reaches READY. It is

@@ -1,6 +1,9 @@
 #!/usr/bin/env sh
 set -eu
 
+go_cmd="${GO:-go}"
+"$go_cmd" test -shuffle=on ./cmd/gofly/internal/generator -run '^TestGoZeroCompatibleNative(API|RPC)UpgradeReplay$'
+
 python3 - <<'PY'
 import json
 import pathlib
@@ -812,7 +815,7 @@ p10_rows = {
     if isinstance(item, dict) and item.get("id")
 }
 expected_p10_rows = {
-    "gozero-compatible-profile": {"ProfileGoZeroCompatible", "goctl-layout", "route-layout-boundary"},
+    "gozero-compatible-profile": {"ProfileGoZeroCompatible", "gozero-semantics", "route-layout-boundary"},
     "goctl-compatible-flags": {"name-from-filename", "go_opt", "go-grpc_opt", "go_grpc_opt"},
     "api-import-diff-route": {"api import", "api route", "api diff", "api-import-compatibility"},
     "proto-import-compatibility": {"proto-import-compatibility", "protoc plugin", "generated service descriptors"},
@@ -833,7 +836,7 @@ for row_id, expected_evidence in expected_p10_rows.items():
         require(re.search(rf"^{re.escape(target)}:", makefile, re.M), f"p10GoctlGeneratorFidelity {row_id}: gate target {target!r} missing")
     require(len(str(row.get("rollbackOrEscalation") or "").split()) >= 10, f"p10GoctlGeneratorFidelity {row_id}: rollbackOrEscalation must be actionable")
 promotion_policy = str(p10_fidelity.get("promotionPolicy") or "")
-for needle in ("goctl-compatible profile", "goctl-style flags", "API import", "proto import", "alias-collision", "rollback notes"):
+for needle in ("go-zero-compatible behavior", "gofly-native layout", "goctl-style flags", "API import", "proto import", "alias-collision", "rollback notes"):
     require(needle in promotion_policy, f"p10GoctlGeneratorFidelity promotionPolicy missing {needle!r}")
 runtime_policy = str(p10_fidelity.get("runtimeArtifactPolicy") or "")
 for needle in (".tmp-test", "temporary directories", "must not be committed"):

@@ -589,6 +589,7 @@ type proxyResult struct {
 	Body       []byte
 	BodyStream io.ReadCloser
 	Hijacked   bool
+	doNotRetry bool
 	Retries    int
 	Err        error
 }

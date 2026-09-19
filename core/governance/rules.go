@@ -825,7 +825,7 @@ func ValidateRules(rules ...Rule) error {
 		if err := validateTransport(rule.Transport); err != nil {
 			return fmt.Errorf("%s: %w", label, err)
 		}
-		if err := validatePolicy(rule.Policy); err != nil {
+		if err := validatePolicy(rule.Transport, rule.Policy); err != nil {
 			return fmt.Errorf("%s: %w", label, err)
 		}
 	}
@@ -841,7 +841,7 @@ func validateTransport(transport string) error {
 	}
 }
 
-func validatePolicy(policy Policy) error {
+func validatePolicy(transport string, policy Policy) error {
 	if policy.Timeout < 0 {
 		return errors.New("timeout must be non-negative")
 	}
@@ -855,6 +855,12 @@ func validatePolicy(policy Policy) error {
 		return errors.New("retry backoff must be non-negative")
 	}
 	for _, status := range policy.Retry.Statuses {
+		if transport == TransportRPC {
+			if status < 1 || status > 16 {
+				return fmt.Errorf("retry status %d is outside gRPC code range", status)
+			}
+			continue
+		}
 		if status < 100 || status > 599 {
 			return fmt.Errorf("retry status %d is outside HTTP status range", status)
 		}

@@ -200,7 +200,7 @@ require(release_gates == expected_release_gates, f"releaseGates drifted: missing
 for needle in (
     "goctl-surface-drift",
     "goctl surface",
-    "goctl-compatible migration path",
+    "go-zero-compatible behavior and configuration migration path",
     "goctl-real-project-replay-check",
 ):
     require(needle in goctl_compat_text or needle in long_term_text or needle in from_gozero_text or needle in json.dumps(manifest), f"documentation missing {needle!r}")

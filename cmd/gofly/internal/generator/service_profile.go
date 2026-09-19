@@ -26,10 +26,6 @@ func serviceFiles(style, name string) map[string]string {
 }
 
 func serviceFilesForProfile(style, name string, profile GenerationProfile) map[string]string {
-	if profile == ProfileGoZeroCompatible {
-		return goZeroServiceFiles(style, name)
-	}
-
 	files := map[string]string{
 		"README.md":                           readmeTemplate,
 		"go.mod":                              goModTemplate,
@@ -55,6 +51,7 @@ func serviceFilesForProfile(style, name string, profile GenerationProfile) map[s
 			files["Makefile"] = makefileTemplate
 		}
 		addKitexProfileFiles(files, profile)
+		addGoZeroCompatibilityFiles(files, profile)
 		return files
 	}
 	files[filepath.Join("etc", "governance.json")] = governanceTemplate
@@ -82,7 +79,18 @@ func serviceFilesForProfile(style, name string, profile GenerationProfile) map[s
 	files["Makefile"] = makefileTemplate
 	files[filepath.Join(".github", "workflows", "ci.yml")] = ciWorkflowTemplate
 	addKitexProfileFiles(files, profile)
+	addGoZeroCompatibilityFiles(files, profile)
 	return files
+}
+
+func addGoZeroCompatibilityFiles(files map[string]string, profile GenerationProfile) {
+	if profile != ProfileGoZeroCompatible {
+		return
+	}
+	files[filepath.Join("internal", "compat", "gozero", "adapter.go")] = goZeroCompatibilityTemplate
+	files[filepath.Join("internal", "config", "api_runtime.gen.go")] = goZeroAPIRuntimeConfigTemplate
+	files[filepath.Join("internal", "config", "api_validation.go")] = goZeroAPIValidationTemplate
+	files[filepath.Join("internal", "svc", "service_context.go")] = goZeroSvcTemplate
 }
 
 func addKitexProfileFiles(files map[string]string, profile GenerationProfile) {
@@ -92,28 +100,6 @@ func addKitexProfileFiles(files map[string]string, profile GenerationProfile) {
 	files[filepath.Join("internal", "compat", "kitex", "adapter.go")] = kitexCompatibilityTemplate
 }
 
-func goZeroServiceFiles(style, name string) map[string]string {
-	files := map[string]string{
-		"go.mod":                                                   goModTemplate,
-		filepath.Join("cmd", name, "main.go"):                      goZeroMainTemplate,
-		filepath.Join("etc", name+".json"):                         minimalConfigTemplate,
-		filepath.Join("internal", "config", "config.go"):           minimalConfigGoTemplate,
-		filepath.Join("internal", "config", "config_test.go"):      configTestTemplate,
-		filepath.Join("internal", "svc", "servicecontext.go"):      goZeroSvcTemplate,
-		filepath.Join("internal", "types", "types.go"):             goZeroTypesTemplate,
-		filepath.Join("internal", "app", "pinglogic.go"):           goZeroPingLogicTemplate,
-		filepath.Join("internal", "api", "http", "pinghandler.go"): goZeroPingHandlerTemplate,
-		filepath.Join("internal", "api", "http", "routes.go"):      goZeroRoutesTemplate,
-		filepath.Join("internal", "middleware", "trim.go"):         trimMiddlewareTemplate,
-		filepath.Join("internal", "middleware", "trim_test.go"):    trimMiddlewareTestTemplate,
-	}
-	if style == ServiceStyleBasic {
-		files["Dockerfile"] = dockerfileTemplate
-		files["Makefile"] = makefileTemplate
-	}
-	return files
-}
-
 func goZeroRPCServiceFiles(style, name string) map[string]string {
 	files := map[string]string{
 		"go.mod":                                                           goModTemplate,
@@ -121,14 +107,15 @@ func goZeroRPCServiceFiles(style, name string) map[string]string {
 		filepath.Join("etc", name+".json"):                                 goZeroRPCConfigTemplate,
 		filepath.Join("etc", "governance.json"):                            governanceTemplate,
 		filepath.Join("internal", "config", "config.go"):                   goZeroRPCConfigGoTemplate,
+		filepath.Join("internal", "config", "rpc_methods.gen.go"):          goZeroRPCMethodDefaultsTemplate,
 		filepath.Join("internal", "config", "production_check.go"):         goZeroRPCProductionCheckGoTemplate,
 		filepath.Join("internal", "config", "governance_recovery_test.go"): goZeroRPCGovernanceRecoveryTestTemplate,
 		filepath.Join("internal", "discovery", "registry.go"):              goZeroRPCDiscoveryTemplate,
-		filepath.Join("internal", "svc", "servicecontext.go"):              goZeroRPCSvcTemplate,
-		filepath.Join("internal", "logic", "sayhellologic.go"):             goZeroRPCLogicTemplate,
-		filepath.Join("internal", "server", "greeterserver.go"):            goZeroRPCServerTemplate,
-		filepath.Join("internal", "server", "greeterserver_test.go"):       goZeroRPCServerTestTemplate,
-		filepath.Join("pkg", "client", "greeter.go"):                       goZeroRPCClientTemplate,
+		filepath.Join("internal", "svc", "service_context.go"):             goZeroRPCSvcTemplate,
+		filepath.Join("internal", "app", "greeter", "sayhello.go"):         goZeroRPCLogicTemplate,
+		filepath.Join("internal", "api", "rpc", "greeter.go"):              goZeroRPCServerTemplate,
+		filepath.Join("internal", "api", "rpc", "greeter_test.go"):         goZeroRPCServerTestTemplate,
+		filepath.Join("internal", "api", "rpc", "greeter_client.go"):       goZeroRPCClientTemplate,
 	}
 	if style == ServiceStyleBasic || style == ServiceStyleProduction {
 		files["Dockerfile"] = dockerfileTemplate
@@ -148,9 +135,7 @@ func cleanupLegacyServiceFilesForProfile(dir string, profile GenerationProfile) 
 		filepath.Join("internal", "handler", "ping.go"),
 		filepath.Join("internal", "handler", "ping_handler.go"),
 	}
-	if profile == ProfileGoZeroCompatible {
-		legacyFiles = append(legacyFiles, filepath.Join("internal", "svc", "service_context.go"))
-	} else {
+	if profile != ProfileGoZeroCompatible {
 		legacyFiles = append(legacyFiles,
 			filepath.Join("internal", "api", "http", "routes.go"),
 			filepath.Join("internal", "api", "http", "pinghandler.go"),
@@ -187,11 +172,9 @@ func cleanupLegacyServiceFilesForProfile(dir string, profile GenerationProfile) 
 func legacyServiceDirs(profile GenerationProfile) []string {
 	switch profile {
 	case ProfileGoZeroCompatible:
-		return []string{
-			filepath.Join("internal", "routes"),
-			filepath.Join("internal", "api", "v1"),
-			filepath.Join("internal", "service"),
-		}
+		// The compatibility profile used to emit goctl-style directories. Leave
+		// them untouched during regeneration because they may contain user code.
+		return nil
 	default:
 		return []string{
 			filepath.Join("internal", "logic"),

@@ -48,6 +48,8 @@ assert {"TestConfiguredLoadBalancing", "configured load balancing"} <= set(balan
 assert "real discovery-backed clients" in balancers.get("runtimeVerification", ""), balancers
 scaffold = next(item for item in manifest["capabilities"] if item.get("id") == "runnable-gozero-compatible-scaffold")
 assert "TestGovernanceRuleRestartRecovery" in (scaffold.get("productionEvidence") or []), scaffold
+assert "read-only resolvers for native zRPC etcd keys" in scaffold.get("defaultWiring", ""), scaffold
+assert "top-level Etcd block" in scaffold.get("defaultWiring", ""), scaffold
 adaptive = next(item for item in manifest["capabilities"] if item.get("id") == "adaptive-shedding-default-policy")
 assert adaptive.get("generatedDefault", {}).get("enabled") is True, adaptive
 assert adaptive.get("generatedDefault", {}).get("cpuThresholdPermille") == 800, adaptive
@@ -70,7 +72,7 @@ for marker in ("client stream incrementally consumes NDJSON", "client stream ups
     assert marker in gateway_test, marker
 grpc_scaffold = (root / "cmd" / "gofly" / "internal" / "generator" / "grpc_scaffold_templates.go").read_text(encoding="utf-8")
 grpc_codegen_test = (root / "cmd" / "gofly" / "internal" / "generator" / "grpc_codegen_test.go").read_text(encoding="utf-8")
-for marker in ("NewConfiguredGreeter", "configured load balancing ", "WithHashKey", "unsupported configured load-balancing policy was accepted"):
+for marker in ("NewConfiguredGreeter", "configured load balancing ", "WithHashKey", "unsupported configured load-balancing policy was accepted", "appdiscovery.NewZRPCResolver", "appdiscovery.NewZRPCRegistrar"):
     assert marker in grpc_scaffold, marker
 for marker in ("TestConfiguredLoadBalancing", "NewConfiguredChat", "WithWaitForReady", "least_request"):
     assert marker in grpc_codegen_test, marker

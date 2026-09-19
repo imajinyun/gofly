@@ -1,7 +1,10 @@
 # go-zero / goctl alignment
 
-gofly is a goctl-compatible migration path, not a drop-in replacement for
-go-zero. SQL access is `SQLStore` / `NewCluster` rather than go-zero `sqlx`.
+gofly provides a go-zero-compatible behavior and configuration migration path,
+not a goctl layout clone or a drop-in replacement for go-zero. Generated API
+and RPC projects retain gofly's native `cmd`, `internal/api`, `internal/app`,
+`internal/routes`, and `internal/svc/service_context.go` structure. SQL access
+is `SQLStore` / `NewCluster` rather than go-zero `sqlx`.
 Caching uses the typed `cache` package and generated Redis cache-aside
 repositories instead of go-zero `cache`.
 
@@ -34,14 +37,32 @@ goctl scaffold. gofly keeps two explicit RPC transports:
   unsupported policies fail before dialing. The compatibility gate also runs real bidirectional calls between
   go-zero zRPC and gofly servers and clients, including server-streaming,
   client-streaming, and bidirectional streaming data-plane lifecycles.
+  Generated zRPC-style client entries can read go-zero's native etcd
+  `<Key>/<id> -> endpoint` records directly, including live updates; identical
+  etcd client settings share one owned resolver that closes with the service
+  context.
+  Generated servers can explicitly publish the same raw endpoint layout
+  through a top-level `Etcd` block, with the lease revoked during shutdown;
+  the compatibility fixture verifies that a real `zrpc.NewClient` resolves
+  that record through Etcd and invokes the gofly service, rather than dialing
+  a direct endpoint. The reverse fixture starts a real zRPC server with its
+  native Publisher and verifies that a gofly client resolves and invokes it.
+  The default native gofly registry format remains unchanged.
   Generated production services also share one adaptive admission limiter across
   unary and streaming calls; direct library users opt in explicitly.
 
 The streaming matrix proves standard gRPC transport compatibility. The native
 gateway can expose server-streaming methods as SSE with ordered protobuf JSON
 `message` events, filtered initial metadata headers, terminal trailer/error
-events, request cancellation, and the existing route timeout. It exposes
-client-streaming methods through incremental `application/x-ndjson` requests:
+events, request cancellation, and the existing route timeout. The first response
+is mapped before HTTP 200 is committed; later mapping errors remain SSE errors
+and are recorded without poisoning upstream health. Server responses are bounded
+to 1 MiB per message, 16 MiB aggregate payload, and 10,000 messages; limit
+violations retain pre/post-commit HTTP-versus-SSE semantics without poisoning
+upstream health. Established streams are not
+replayed even when they fail after initial metadata but before the first
+message. It exposes client-streaming methods through incremental
+`application/x-ndjson` requests:
 one protobuf JSON message per non-empty line, HTTP EOF as gRPC `CloseSend`,
 then one JSON response. Consumed request streams are never retried and have
 bounded frame, aggregate-payload, and message counts. Bidirectional methods use

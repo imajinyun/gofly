@@ -20,6 +20,9 @@ func GenerateServiceScaffold(opts ServiceScaffoldOptions) error {
 			return err
 		}
 	}
+	if err := migrateLegacyGRPCAdapterDirectory(ir.Dir, ir.Module); err != nil {
+		return err
+	}
 	if err := cleanupLegacyServiceFilesForProfile(ir.Dir, ir.Profile); err != nil {
 		return err
 	}

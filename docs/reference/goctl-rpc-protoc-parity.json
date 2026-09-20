@@ -22,7 +22,7 @@
   ],
   "compatibilityPolicy": {
     "standardProtoc": "Standard protoc mode forwards include paths, go output paths, go options, and go-grpc options as argv entries without shell expansion.",
-    "zrpcScaffold": "The --zrpc_out mode generates a runnable gofly-native gRPC project with zRPC-compatible behavior, preserves existing business logic files, assembles multiple primary proto files in one deterministic pass, registers every descriptor service name as a discovery alias, and intentionally does not claim goctl layout or full zRPC equivalence.",
+    "zrpcScaffold": "The --zrpc_out mode generates a runnable gofly-native gRPC project with zRPC-compatible behavior, places transport adapters under internal/api/grpc/v1/<domain>, reuses matching internal/app/<domain> application logic across HTTP and unary gRPC, preserves existing business logic files, assembles multiple primary proto files in one deterministic pass, registers every descriptor service name as a discovery alias, and intentionally does not claim goctl layout or full zRPC equivalence.",
     "zrpcClientMigration": "Generated RPCClientConfig maps migration-critical zRPC endpoints, target, etcd service key and cluster credentials, app/token, non-blocking mode, timeout, keepalive, and balancer settings onto gofly runtime options; generated ServiceContext initializes Config.Clients into shared named connections, creates and reuses read-only resolvers for the native zRPC etcd key layout, and closes all owned resources during shutdown; timeout covers unary and the complete server-streaming, client-streaming, and bidirectional lifecycle without treating CloseSend as completion; direct constructors may inject a resolver and app/token credentials require TLS unless insecure development mode is explicitly enabled. An explicit top-level Etcd block publishes the generated server in the same raw-endpoint layout for go-zero client discovery, with lease ownership tied to server shutdown.",
     "goflyPlugin": "The built-in gofly protoc plugin maps --multiple, --client=false, --module, and --name-from-filename into explicit gofly plugin options.",
     "standardModeWrapperFlags": "When neither --zrpc_out nor --plugin gofly is selected, --multiple, --client, and --name-from-filename are accepted with warnings and must not alter standard protoc argv or output.",
@@ -79,7 +79,7 @@
       "goctlSurface": "goctl rpc protoc --multiple / -m",
       "goflySurface": "gofly rpc protoc --zrpc_out <dir> --multiple / -m",
       "status": "implemented-scaffold",
-      "behavior": "aggregates multiple primary proto files, registers every service full name against the shared endpoint, and splits generated server, logic, and client code by service for --zrpc_out scaffolds while still mapping multiple=true to the lower-level gofly plugin path",
+      "behavior": "aggregates multiple primary proto files, registers every service full name against the shared endpoint, and splits generated server and client adapters by domain under internal/api/grpc/v1 while sharing internal/app/<domain> application logic for --zrpc_out scaffolds; multiple=true still maps to the lower-level gofly plugin path",
       "evidence": [
         "TestExecuteRPCProtocZRPCScaffoldOptionsAndBoundaries",
         "TestGenerateGRPCScaffoldGoctlOptions",

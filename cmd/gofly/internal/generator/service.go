@@ -66,6 +66,9 @@ func GenerateService(opts ServiceOptions) error {
 		"RestPreset":       restPresetForStyle(style),
 		"Autoscale":        kubeAutoscale(opts.Name, "default", "2", "6"),
 	}), opts.Name)
+	if err := migrateLegacyGRPCAdapterDirectory(opts.Dir, opts.Module); err != nil {
+		return err
+	}
 	if err := cleanupLegacyServiceFiles(opts.Dir); err != nil {
 		return err
 	}

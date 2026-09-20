@@ -291,7 +291,7 @@ func assertInventoryGoctlReplayArtifacts(t *testing.T, outDir string, fixture go
 		"composite-unique-key",
 		"cache-template",
 	})
-	typesData := readReplayFile(t, outDir, filepath.Join("internal", "app", "model", "types.go"))
+	typesData := readReplayFile(t, outDir, filepath.Join("internal", "model", "types.go"))
 	for _, want := range []string{
 		"type AuditMeta struct",
 		"type PageRequest struct",
@@ -448,7 +448,7 @@ func assertBillingGoctlReplayArtifacts(t *testing.T, outDir string, fixture goct
 		"composite-unique-key",
 		"cache-template",
 	})
-	typesData := readReplayFile(t, outDir, filepath.Join("internal", "app", "model", "types.go"))
+	typesData := readReplayFile(t, outDir, filepath.Join("internal", "model", "types.go"))
 	for _, want := range []string{
 		"type RequestMeta struct",
 		"type MoneyAmount struct",
@@ -632,7 +632,7 @@ func assertUserGoctlReplayArtifacts(t *testing.T, outDir string, fixture goctlRe
 		"optimistic-lock",
 		"cache-template",
 	})
-	typesData := readReplayFile(t, outDir, filepath.Join("internal", "app", "model", "types.go"))
+	typesData := readReplayFile(t, outDir, filepath.Join("internal", "model", "types.go"))
 	for _, want := range []string{
 		"type CreateUserRequest struct",
 		"type SearchUsersRequest struct",
@@ -711,7 +711,7 @@ func assertTaskGoctlReplayArtifacts(t *testing.T, outDir string, fixture goctlRe
 		"optimistic-lock",
 		"cache-template",
 	})
-	typesData := readReplayFile(t, outDir, filepath.Join("internal", "app", "model", "types.go"))
+	typesData := readReplayFile(t, outDir, filepath.Join("internal", "model", "types.go"))
 	for _, want := range []string{
 		"type CreateTaskRequest struct",
 		"type ListTasksRequest struct",

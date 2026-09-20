@@ -164,7 +164,7 @@ import (
 	appconfig "{{.Module}}/internal/config"
 	appdiscovery "{{.Module}}/internal/discovery"
 	appmq "{{.Module}}/internal/mq"
-	apprpc "{{.Module}}/internal/api/rpc"
+	apprpc "{{.Module}}/internal/api/grpc"
 	"{{.Module}}/internal/routes"
 	"{{.Module}}/internal/svc"
 )
@@ -688,7 +688,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	oteltrace "go.opentelemetry.io/otel/trace"
 	appconfig "{{.Module}}/internal/config"
-	apprpc "{{.Module}}/internal/api/rpc"
+	apprpc "{{.Module}}/internal/api/grpc"
 	"{{.Module}}/internal/svc"
 )
 

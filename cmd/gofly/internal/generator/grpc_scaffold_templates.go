@@ -1108,7 +1108,7 @@ import (
 	appconfig "{{.Module}}/internal/config"
 	appdiscovery "{{.Module}}/internal/discovery"
 	"{{.Module}}/internal/pb"
-	apprpc "{{.Module}}/internal/api/rpc"
+	apprpc "{{.Module}}/internal/api/grpc"
 	"{{.Module}}/internal/svc"
 )
 

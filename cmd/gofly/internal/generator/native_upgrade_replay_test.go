@@ -54,7 +54,7 @@ func TestGoZeroCompatibleNativeAPIUpgradeReplay(t *testing.T) {
 	for _, rel := range []string{
 		"internal/app/orders/getorder.go",
 		"internal/api/http/v1/orders/getorder.go",
-		"internal/app/model/types.go",
+		"internal/model/types.go",
 		"internal/routes/routes.go",
 		"internal/svc/service_context.go",
 	} {
@@ -76,7 +76,7 @@ func TestGoZeroCompatibleNativeAPIUpgradeReplay(t *testing.T) {
 	if string(preservedConfig) != adopterConfig {
 		t.Fatalf("API upgrade changed adopter config:\n%s", preservedConfig)
 	}
-	for _, rel := range []string{"internal/logic", "internal/server", "internal/types", "pkg/client"} {
+	for _, rel := range []string{"internal/logic", "internal/server", "internal/types", "internal/app/model", "pkg/client"} {
 		if _, err := os.Stat(filepath.Join(project, filepath.FromSlash(rel))); !os.IsNotExist(err) {
 			t.Fatalf("API upgrade created forbidden goctl layout path %s: %v", rel, err)
 		}

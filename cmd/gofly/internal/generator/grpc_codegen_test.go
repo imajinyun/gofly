@@ -143,12 +143,19 @@ service Admin { rpc Ping(common.Request) returns (google.protobuf.Empty); }
 			t.Fatalf("generated method defaults missing %q: %s", want, methodDefaults)
 		}
 	}
-	clientData, err := os.ReadFile(filepath.Join(outputDir, "internal", "api", "rpc", "chat_client.gen.go"))
+	clientData, err := os.ReadFile(filepath.Join(outputDir, "internal", "api", "grpc", "v1", "chat", "chat_client.gen.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(clientData), "NewConfiguredChat") || !strings.Contains(string(clientData), "NewConfiguredAdmin") {
+	if !strings.Contains(string(clientData), "NewConfiguredChat") {
 		t.Fatalf("descriptor scaffold client missing configured constructors: %s", clientData)
+	}
+	adminClientData, err := os.ReadFile(filepath.Join(outputDir, "internal", "api", "grpc", "v1", "admin", "admin_client.gen.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(adminClientData), "NewConfiguredAdmin") {
+		t.Fatalf("descriptor scaffold admin client missing configured constructor: %s", adminClientData)
 	}
 	snapshot := func(dir string) map[string]string {
 		t.Helper()
@@ -194,7 +201,7 @@ service Admin { rpc Ping(common.Request) returns (google.protobuf.Empty); }
 			t.Fatal("inferred options changed existing output")
 		}
 	})
-	configuredClientTest := `package rpc
+	configuredClientTest := `package chatrpc
 
 import (
  "context"
@@ -269,7 +276,7 @@ func TestConfiguredLoadBalancing(t *testing.T) {
  }
 }
 `
-	if err := os.WriteFile(filepath.Join(outputDir, "internal", "api", "rpc", "configured_balancing_test.go"), []byte(configuredClientTest), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(outputDir, "internal", "api", "grpc", "v1", "chat", "configured_balancing_test.go"), []byte(configuredClientTest), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	assertGeneratedProjectCompiles(t, outputDir)
@@ -297,7 +304,7 @@ func TestConfiguredLoadBalancing(t *testing.T) {
 				ctx, cancel = context.WithCancel(ctx)
 				cancel()
 			case "another application":
-				if err := writeGeneratedFileUnder(current.Dir, "internal/api/rpc/other_grpc.gen.go", []byte("package rpc\n")); err != nil {
+				if err := writeGeneratedFileUnder(current.Dir, "internal/api/grpc/v1/register.gen.go", []byte("package rpcv1\n")); err != nil {
 					t.Fatal(err)
 				}
 			case "no service", "root go package", "logic collision":
@@ -391,10 +398,11 @@ service Catalog { rpc Get(Request) returns (Response); }
 			want: []string{
 				"cmd/catalogv1/main.go",
 				"etc/catalogv1.json",
-				"internal/api/rpc/catalogv1_grpc.gen.go",
+				"internal/api/grpc/v1/register.gen.go",
+				"internal/api/grpc/v1/catalog/catalog_grpc.gen.go",
 				"internal/app/catalog/get.go",
 			},
-			wantAbsent: []string{"internal/api/rpc/catalogv1_client.gen.go"},
+			wantAbsent: []string{"internal/api/grpc/v1/catalog/catalog_client.gen.go"},
 		},
 		{
 			name: "multiple groups server logic and clients by service",
@@ -408,13 +416,13 @@ service Inventory { rpc Check(Request) returns (Response); }
 `,
 			opts: GRPCScaffoldOptions{Module: "example.com/platform", NameFromPackage: true, Multiple: true, RequireMultiple: true},
 			want: []string{
-				"internal/api/rpc/register.gen.go",
-				"internal/api/rpc/catalog/catalog_grpc.gen.go",
-				"internal/api/rpc/inventory/inventory_grpc.gen.go",
+				"internal/api/grpc/v1/register.gen.go",
+				"internal/api/grpc/v1/catalog/catalog_grpc.gen.go",
+				"internal/api/grpc/v1/inventory/inventory_grpc.gen.go",
 				"internal/app/catalog/get.go",
 				"internal/app/inventory/check.go",
-				"internal/api/rpc/catalog/catalog_client.gen.go",
-				"internal/api/rpc/inventory/inventory_client.gen.go",
+				"internal/api/grpc/v1/catalog/catalog_client.gen.go",
+				"internal/api/grpc/v1/inventory/inventory_client.gen.go",
 			},
 		},
 		{
@@ -464,6 +472,247 @@ service Inventory { rpc Check(Request) returns (Request); }
 	}
 }
 
+func TestGenerateGRPCScaffoldReusesExistingDomainApplication(t *testing.T) {
+	if err := validateNativeGRPCToolchain(); err != nil {
+		t.Skip(err)
+	}
+	inputDir, outputDir := t.TempDir(), t.TempDir()
+	protoPath := filepath.Join(inputDir, "user.proto")
+	proto := "syntax = \"proto3\";\npackage user.v1;\noption go_package = \"example.com/world/internal/pb;pb\";\nmessage GetUserRequest { int64 id = 1; }\nmessage User { int64 id = 1; string name = 2; }\nservice UserService { rpc GetUser(GetUserRequest) returns (User); }\n"
+	if err := os.WriteFile(protoPath, []byte(proto), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeGeneratedFileUnder(outputDir, "go.mod", []byte("module example.com/world\n\ngo 1.25\n")); err != nil {
+		t.Fatal(err)
+	}
+	logic := "package usersapp\n\nimport (\n\t\"context\"\n\tappmodel \"example.com/world/internal/model\"\n\t\"example.com/world/internal/svc\"\n)\n\ntype GetUserLogic struct { ctx context.Context; stx *svc.ServiceContext }\nfunc NewGetUserLogic(ctx context.Context, stx *svc.ServiceContext) *GetUserLogic { return &GetUserLogic{ctx: ctx, stx: stx} }\nfunc (l *GetUserLogic) GetUser(req *appmodel.UserIDRequest) (*appmodel.User, error) { return &appmodel.User{ID: req.ID}, nil }\n"
+	if err := writeGeneratedFileUnder(outputDir, "internal/app/users/getuser.go", []byte(logic)); err != nil {
+		t.Fatal(err)
+	}
+	models := "package model\n\ntype UserIDRequest struct { ID int64 }\ntype User struct { ID int64; Name string }\n"
+	if err := writeGeneratedFileUnder(outputDir, "internal/model/types.go", []byte(models)); err != nil {
+		t.Fatal(err)
+	}
+	if err := GenerateGRPCScaffold(t.Context(), GRPCScaffoldOptions{ProtoFile: protoPath, Dir: outputDir, Module: "example.com/world", Name: "world"}); err != nil {
+		t.Fatal(err)
+	}
+	serverPath := filepath.Join(outputDir, "internal/api/grpc/v1/users/userservice_grpc.gen.go")
+	server, err := os.ReadFile(serverPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`users "example.com/world/internal/app/users"`,
+		`model "example.com/world/internal/model"`,
+		"transcodeUserService[model.UserIDRequest](req, nil)",
+		"users.NewGetUserLogic(ctx, s.stx).GetUser(appReq)",
+		"transcodeUserService[pb.User](appResp, nil)",
+	} {
+		if !strings.Contains(string(server), want) {
+			t.Fatalf("shared application RPC adapter missing %q:\n%s", want, server)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "internal/app/userservice/getuser.go")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("RPC generation created duplicate service application logic: %v", err)
+	}
+	preserved, err := os.ReadFile(filepath.Join(outputDir, "internal/app/users/getuser.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(preserved) != logic {
+		t.Fatal("RPC generation overwrote shared application logic")
+	}
+}
+
+func TestGenerateGRPCScaffoldMergesAPISharedAssembly(t *testing.T) {
+	if err := validateNativeGRPCToolchain(); err != nil {
+		t.Skip(err)
+	}
+	inputDir, outputDir := t.TempDir(), t.TempDir()
+	protoPath := filepath.Join(inputDir, "user.proto")
+	proto := "syntax = \"proto3\";\npackage user.v1;\noption go_package = \"example.com/world/internal/pb;pb\";\nmessage Request {}\nservice UserService { rpc GetUser(Request) returns (Request); }\n"
+	if err := os.WriteFile(protoPath, []byte(proto), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	apiSource := "syntax = \"v1\"\n\ntype Request {\n  ID int64\n}\n\n@server(group: users)\nservice world-api {\n  @handler getUser\n  get /users returns (Request)\n}\n"
+	apiPath := filepath.Join(inputDir, "world.api")
+	if err := os.WriteFile(apiPath, []byte(apiSource), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeGeneratedFileUnder(outputDir, "go.mod", []byte("module example.com/world\n\ngo 1.25\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := GenerateRESTFromAPI(APIOptions{APIFile: apiPath, Dir: outputDir, Profile: string(ProfileGoZeroCompatible)}); err != nil {
+		t.Fatal(err)
+	}
+	apiConfig := "package config\n\nimport (\n  \"github.com/imajinyun/gofly/app\"\n  \"github.com/imajinyun/gofly/rest\"\n)\n\ntype Config struct { Environment string; Service app.ServiceConf; Rest rest.Config }\ntype OpenAPIConfig struct{}\nfunc Validate(Config) error { return nil }\n"
+	if err := writeGeneratedFileUnder(outputDir, "internal/config/config.go", []byte(apiConfig)); err != nil {
+		t.Fatal(err)
+	}
+	apiContext := "package svc\n\nimport (\n  \"sync\"\n  \"example.com/world/internal/config\"\n  \"github.com/imajinyun/gofly/core/auth\"\n  \"github.com/imajinyun/gofly/rest\"\n  \"github.com/imajinyun/gofly/rpc\"\n)\n\ntype RPCMuxDiagnosisClient interface { UpdateMuxDiagnosisEventExporter(rpc.RPCMuxDiagnosisEventExporter, rpc.RPCMuxDiagnosisFilter) }\ntype ServiceContext struct { mu sync.RWMutex; Config config.Config; Middlewares map[string]rest.Middleware; JWTValidators map[string]auth.Validator }\nfunc NewServiceContext(c config.Config) *ServiceContext { return &ServiceContext{Config:c, Middlewares:map[string]rest.Middleware{}, JWTValidators:map[string]auth.Validator{}} }\n"
+	if err := writeGeneratedFileUnder(outputDir, "internal/svc/service_context.go", []byte(apiContext)); err != nil {
+		t.Fatal(err)
+	}
+	if err := GenerateGRPCScaffold(t.Context(), GRPCScaffoldOptions{ProtoFile: protoPath, Dir: outputDir, Module: "example.com/world", Name: "world"}); err != nil {
+		t.Fatal(err)
+	}
+	configData, err := os.ReadFile(filepath.Join(outputDir, "internal/config/config.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"type OpenAPIConfig struct", "type RPCClientConfig struct", "func Validate(Config) error", "func ValidateRPC(c Config) error"} {
+		if !strings.Contains(string(configData), want) {
+			t.Fatalf("merged config missing %q", want)
+		}
+	}
+	contextData, err := os.ReadFile(filepath.Join(outputDir, "internal/svc/service_context.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"JWTValidators", "Rules *governance.RuleSet", "func (s *ServiceContext) InitRPCClients", "func (s *ServiceContext) Close() error"} {
+		if !strings.Contains(string(contextData), want) {
+			t.Fatalf("merged service context missing %q", want)
+		}
+	}
+	mainData, err := os.ReadFile(filepath.Join(outputDir, "cmd/world/main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(mainData), "errors.Join(appconfig.Validate(c), appconfig.ValidateRPC(c))") {
+		t.Fatalf("RPC main does not validate both shared config surfaces:\n%s", mainData)
+	}
+	if err := GenerateGRPCScaffold(t.Context(), GRPCScaffoldOptions{ProtoFile: protoPath, Dir: outputDir, Module: "example.com/world", Name: "world"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMergeGRPCScaffoldSharedFilesPreservesSplitRPCConfig(t *testing.T) {
+	root := t.TempDir()
+	existing := []byte("package config\n\nimport \"time\"\n\ntype Config struct{}\ntype OpenAPIConfig struct{}\ntype RPCClientConfig struct{}\nfunc ValidateRPC(Config) error { return nil }\nfunc (RPCClientConfig) Timeout() time.Duration { return 0 }\n")
+	if err := writeGeneratedFileUnder(root, "internal/config/config.go", existing); err != nil {
+		t.Fatal(err)
+	}
+	split := []byte("package config\n\nimport \"time\"\n\ntype RPCClientConfig struct{}\nfunc ValidateRPC(Config) error { return nil }\nfunc (RPCClientConfig) Timeout() time.Duration { return 0 }\n")
+	if err := writeGeneratedFileUnder(root, "internal/config/rpc.go", split); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string][]byte{
+		"internal/config/config.go": []byte("package config\n\ntype Config struct { Clients map[string]RPCClientConfig }\ntype RPCClientConfig struct{}\nfunc Validate(Config) error { return nil }\n"),
+	}
+	owned := map[string]bool{"internal/config/config.go": true}
+	if err := mergeGRPCScaffoldSharedFiles(root, files, owned); err != nil {
+		t.Fatal(err)
+	}
+	merged := string(files["internal/config/config.go"])
+	if !strings.Contains(merged, "Clients map[string]RPCClientConfig") {
+		t.Fatalf("split RPC config did not receive shared Config fields:\n%s", merged)
+	}
+	if strings.Contains(merged, "type RPCClientConfig struct") || strings.Contains(merged, "func ValidateRPC") || strings.Contains(merged, "\"time\"") {
+		t.Fatalf("split RPC declarations were duplicated into shared config:\n%s", merged)
+	}
+	if owned["internal/config/config.go"] {
+		t.Fatal("split RPC config did not preserve shared config ownership")
+	}
+}
+
+func TestMergeGRPCScaffoldSharedFilesPreservesExistingRPCLifecycle(t *testing.T) {
+	root := t.TempDir()
+	existing := []byte("package svc\n\ntype ServiceContext struct { clientConns map[string]any }\nfunc NewServiceContext() *ServiceContext { return &ServiceContext{clientConns: map[string]any{}} }\nfunc (s *ServiceContext) InitRPCClients() error { return nil }\n")
+	if err := writeGeneratedFileUnder(root, "internal/svc/service_context.go", existing); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string][]byte{
+		"internal/svc/service_context.go": []byte("package svc\n\ntype rpcClientResource struct{}\ntype ServiceContext struct { rpcClients map[string]rpcClientResource }\nfunc NewServiceContext() *ServiceContext { return &ServiceContext{rpcClients: map[string]rpcClientResource{}} }\n"),
+	}
+	owned := map[string]bool{"internal/svc/service_context.go": true}
+	if err := mergeGRPCScaffoldSharedFiles(root, files, owned); err != nil {
+		t.Fatal(err)
+	}
+	if string(files["internal/svc/service_context.go"]) != string(existing) {
+		t.Fatalf("existing RPC lifecycle changed:\n%s", files["internal/svc/service_context.go"])
+	}
+	if owned["internal/svc/service_context.go"] {
+		t.Fatal("existing RPC lifecycle did not preserve shared context ownership")
+	}
+}
+
+func TestMigrateLegacyGRPCAdapterDirectory(t *testing.T) {
+	t.Run("allows a new project root that does not exist yet", func(t *testing.T) {
+		root := filepath.Join(t.TempDir(), "new-service")
+		if err := migrateLegacyGRPCAdapterDirectory(root, "example.com/world"); err != nil {
+			t.Fatalf("migrateLegacyGRPCAdapterDirectory() error = %v", err)
+		}
+		if _, err := os.Lstat(root); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("migration created project root unexpectedly: %v", err)
+		}
+	})
+
+	t.Run("moves the complete legacy adapter tree", func(t *testing.T) {
+		root := t.TempDir()
+		legacyFile := filepath.Join("internal", "api", "rpc", "v1", "users", "user_test.go")
+		content := []byte("package usersrpc\n")
+		if err := writeGeneratedFileUnder(root, legacyFile, content); err != nil {
+			t.Fatal(err)
+		}
+		if err := writeGeneratedFileUnder(root, filepath.Join("cmd", "world", "main.go"), []byte("package main\n\nimport _ \"example.com/world/internal/api/rpc/v1\"\n")); err != nil {
+			t.Fatal(err)
+		}
+		if err := migrateLegacyGRPCAdapterDirectory(root, "example.com/world"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(filepath.Join(root, "internal", "api", "rpc")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("legacy directory still exists: %v", err)
+		}
+		migrated, err := os.ReadFile(filepath.Join(root, "internal", "api", "grpc", "v1", "users", "user_test.go"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(migrated, content) {
+			t.Fatalf("migrated content = %q, want %q", migrated, content)
+		}
+		mainData, err := os.ReadFile(filepath.Join(root, "cmd", "world", "main.go"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Contains(mainData, []byte("example.com/world/internal/api/grpc/v1")) {
+			t.Fatalf("migrated main import was not rewritten: %s", mainData)
+		}
+	})
+
+	t.Run("rejects ambiguous dual directories", func(t *testing.T) {
+		root := t.TempDir()
+		for _, dir := range []string{filepath.Join("internal", "api", "rpc"), filepath.Join("internal", "api", "grpc")} {
+			if err := EnsureDirectoryUnderRoot(root, dir, generatedDirMode, "grpc migration test"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		err := migrateLegacyGRPCAdapterDirectory(root, "example.com/world")
+		if err == nil || !strings.Contains(err.Error(), "both internal/api/rpc and internal/api/grpc exist") {
+			t.Fatalf("migrateLegacyGRPCAdapterDirectory error = %v, want dual-directory failure", err)
+		}
+	})
+}
+
+func TestGRPCApplicationDomainRejectsAmbiguousExistingApplications(t *testing.T) {
+	if err := validateNativeGRPCToolchain(); err != nil {
+		t.Skip(err)
+	}
+	root := t.TempDir()
+	for _, domain := range []string{"accounts", "users"} {
+		if err := writeGeneratedFileUnder(root, filepath.Join("internal/app", domain, "get.go"), []byte("package "+domain+"\n")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	protoPath := filepath.Join(t.TempDir(), "profile.proto")
+	proto := "syntax = \"proto3\"; package identity.v1; option go_package = \"example.com/identity/internal/pb;pb\"; message Request {} service ProfileService { rpc Get(Request) returns (Request); }"
+	if err := os.WriteFile(protoPath, []byte(proto), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := GenerateGRPCScaffold(t.Context(), GRPCScaffoldOptions{ProtoFile: protoPath, Dir: root, Module: "example.com/identity", Name: "identity"}); err == nil || !strings.Contains(err.Error(), "cannot infer one application domain") {
+		t.Fatalf("GenerateGRPCScaffold error = %v, want ambiguity", err)
+	}
+}
+
 func TestGenerateGRPCScaffoldMultipleProtoProject(t *testing.T) {
 	if err := validateNativeGRPCToolchain(); err != nil {
 		t.Skip(err)
@@ -504,18 +753,18 @@ service Inventory { rpc Check(CheckRequest) returns (CheckResponse); }
 	for _, rel := range []string{
 		"internal/catalogpb/catalog.pb.go",
 		"internal/inventorypb/inventory.pb.go",
-		"internal/api/rpc/catalog/catalog_grpc.gen.go",
-		"internal/api/rpc/inventory/inventory_grpc.gen.go",
+		"internal/api/grpc/v1/catalog/catalog_grpc.gen.go",
+		"internal/api/grpc/v1/inventory/inventory_grpc.gen.go",
 		"internal/app/catalog/get.go",
 		"internal/app/inventory/check.go",
-		"internal/api/rpc/catalog/catalog_client.gen.go",
-		"internal/api/rpc/inventory/inventory_client.gen.go",
+		"internal/api/grpc/v1/catalog/catalog_client.gen.go",
+		"internal/api/grpc/v1/inventory/inventory_client.gen.go",
 	} {
 		if _, err := os.Stat(filepath.Join(outputDir, filepath.FromSlash(rel))); err != nil {
 			t.Fatalf("expected multi-proto scaffold file %s: %v", rel, err)
 		}
 	}
-	register, err := os.ReadFile(filepath.Join(outputDir, "internal/api/rpc/register.gen.go"))
+	register, err := os.ReadFile(filepath.Join(outputDir, "internal/api/grpc/v1/register.gen.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -570,7 +819,7 @@ import (
 
  "github.com/imajinyun/gofly/core/discovery"
  flygrpc "github.com/imajinyun/gofly/rpc/grpc"
- apprpc "example.com/platform/internal/api/rpc"
+ apprpc "example.com/platform/internal/api/grpc/v1"
 )
 
 func TestAllDescriptorServicesAreDiscoverable(t *testing.T) {
@@ -645,8 +894,8 @@ func TestGenerateRPCNewGoZeroCompatibleProducesRunnableGoflyProject(t *testing.T
 		filepath.Join("internal", "config", "governance_recovery_test.go"),
 		filepath.Join("internal", "discovery", "registry.go"),
 		filepath.Join("internal", "app", "greeter", "sayhello.go"),
-		filepath.Join("internal", "api", "rpc", "greeter.go"),
-		filepath.Join("internal", "api", "rpc", "greeter_client.go"),
+		filepath.Join("internal", "api", "grpc", "greeter.go"),
+		filepath.Join("internal", "api", "grpc", "greeter_client.go"),
 		filepath.Join("internal", "svc", "service_context.go"),
 		filepath.Join("internal", "pb", "Greeter.pb.go"),
 		filepath.Join("internal", "pb", "Greeter_grpc.pb.go"),
@@ -695,7 +944,7 @@ func TestGenerateRPCNewGoZeroCompatibleProducesRunnableGoflyProject(t *testing.T
 			t.Fatalf("generated config missing %q: %s", want, configData)
 		}
 	}
-	clientData, err := os.ReadFile(filepath.Join(dir, "internal", "api", "rpc", "greeter_client.go"))
+	clientData, err := os.ReadFile(filepath.Join(dir, "internal", "api", "grpc", "greeter_client.go"))
 	if err != nil {
 		t.Fatal(err)
 	}

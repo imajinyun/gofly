@@ -48,7 +48,7 @@ func TestGenerateService(t *testing.T) {
 		filepath.Join("internal", "app", "ping_test.go"),
 		filepath.Join("internal", "mq", "broker.go"),
 		filepath.Join("internal", "discovery", "registry.go"),
-		filepath.Join("internal", "api", "rpc", "greeter.go"),
+		filepath.Join("internal", "api", "grpc", "greeter.go"),
 		filepath.Join("etc", "governance.json"),
 		filepath.Join("deploy", "k8s", "hello.yaml"),
 		filepath.Join("deploy", "helm", "Chart.yaml"),
@@ -77,7 +77,7 @@ func TestGenerateService(t *testing.T) {
 	if strings.Contains(string(readmeData), "{{.DebugReplayCooldown") {
 		t.Fatalf("README left unrendered cooldown placeholder:\n%s", readmeData)
 	}
-	greeterData, err := os.ReadFile(filepath.Join(dir, "internal", "api", "rpc", "greeter.go"))
+	greeterData, err := os.ReadFile(filepath.Join(dir, "internal", "api", "grpc", "greeter.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -462,7 +462,7 @@ func TestGenerateService(t *testing.T) {
 			t.Fatalf("main.go missing ServiceConf runtime wiring %q:\n%s", want, mainData)
 		}
 	}
-	greeterClientTestData, err := os.ReadFile(filepath.Join(dir, "internal", "api", "rpc", "greeter_client_test.go"))
+	greeterClientTestData, err := os.ReadFile(filepath.Join(dir, "internal", "api", "grpc", "greeter_client_test.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1491,7 +1491,7 @@ func TestGoldenPathProductionServiceLayoutContract(t *testing.T) {
 		filepath.Join("internal", "routes", "routes.go"),
 		filepath.Join("internal", "api", "http", "v1", "ping", "ping.go"),
 		filepath.Join("internal", "app", "ping.go"),
-		filepath.Join("internal", "api", "rpc", "greeter.go"),
+		filepath.Join("internal", "api", "grpc", "greeter.go"),
 		filepath.Join("internal", "admin", "admin.go"),
 		filepath.Join("internal", "discovery", "registry.go"),
 		filepath.Join("internal", "smoke", "service_smoke_test.go"),
@@ -2034,7 +2034,7 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 			t.Fatalf("generated service context missing mux client activation %q:\n%s", want, svcData)
 		}
 	}
-	rpcTestData, err := os.ReadFile(filepath.Join(rpcDir, "internal", "api", "rpc", "greeter_client_test.go"))
+	rpcTestData, err := os.ReadFile(filepath.Join(rpcDir, "internal", "api", "grpc", "greeter_client_test.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2515,7 +2515,7 @@ func TestGenerateServiceMinimalStyle(t *testing.T) {
 		filepath.Join(".github", "workflows", "ci.yml"),
 		filepath.Join("etc", "governance.json"),
 		filepath.Join("internal", "discovery", "registry.go"),
-		filepath.Join("internal", "api", "rpc", "greeter.go"),
+		filepath.Join("internal", "api", "grpc", "greeter.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err == nil {
 			t.Fatalf("unexpected production file in minimal scaffold %s", rel)
@@ -2632,7 +2632,7 @@ func TestGenerateServiceBasicStyle(t *testing.T) {
 		filepath.Join(".github", "workflows", "ci.yml"),
 		filepath.Join("etc", "governance.json"),
 		filepath.Join("internal", "discovery", "registry.go"),
-		filepath.Join("internal", "api", "rpc", "greeter.go"),
+		filepath.Join("internal", "api", "grpc", "greeter.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err == nil {
 			t.Fatalf("unexpected production file in basic scaffold %s", rel)
@@ -2760,7 +2760,7 @@ func TestGenerateAPINewSupportsProductionStyle(t *testing.T) {
 		"hello.api",
 		"Dockerfile",
 		filepath.Join("etc", "governance.json"),
-		filepath.Join("internal", "api", "rpc", "greeter.go"),
+		filepath.Join("internal", "api", "grpc", "greeter.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
 			t.Fatalf("expected api production generated file %s: %v", rel, err)

@@ -62,9 +62,9 @@ func serviceFilesForProfile(style, name string, profile GenerationProfile) map[s
 	files[filepath.Join("internal", "config", "discovery_test.go")] = configDiscoveryTestTemplate
 	files[filepath.Join("internal", "discovery", "registry.go")] = discoveryRegistryTemplate
 	files[filepath.Join("internal", "mq", "broker.go")] = mqBrokerTemplate
-	files[filepath.Join("internal", "api", "rpc", "greeter.go")] = greeterTemplate
-	files[filepath.Join("internal", "api", "rpc", "greeter_client_test.go")] = greeterClientTestTemplate
-	files[filepath.Join("internal", "api", "rpc", "greeter_test.go")] = greeterTestTemplate
+	files[filepath.Join("internal", "api", "grpc", "greeter.go")] = greeterTemplate
+	files[filepath.Join("internal", "api", "grpc", "greeter_client_test.go")] = greeterClientTestTemplate
+	files[filepath.Join("internal", "api", "grpc", "greeter_test.go")] = greeterTestTemplate
 	files[filepath.Join("internal", "smoke", "service_smoke_test.go")] = smokeTestTemplate
 	files["Dockerfile"] = dockerfileTemplate
 	files[filepath.Join("deploy", "k8s", name+".yaml")] = kubeTemplate
@@ -113,9 +113,9 @@ func goZeroRPCServiceFiles(style, name string) map[string]string {
 		filepath.Join("internal", "discovery", "registry.go"):              goZeroRPCDiscoveryTemplate,
 		filepath.Join("internal", "svc", "service_context.go"):             goZeroRPCSvcTemplate,
 		filepath.Join("internal", "app", "greeter", "sayhello.go"):         goZeroRPCLogicTemplate,
-		filepath.Join("internal", "api", "rpc", "greeter.go"):              goZeroRPCServerTemplate,
-		filepath.Join("internal", "api", "rpc", "greeter_test.go"):         goZeroRPCServerTestTemplate,
-		filepath.Join("internal", "api", "rpc", "greeter_client.go"):       goZeroRPCClientTemplate,
+		filepath.Join("internal", "api", "grpc", "greeter.go"):             goZeroRPCServerTemplate,
+		filepath.Join("internal", "api", "grpc", "greeter_test.go"):        goZeroRPCServerTestTemplate,
+		filepath.Join("internal", "api", "grpc", "greeter_client.go"):      goZeroRPCClientTemplate,
 	}
 	if style == ServiceStyleBasic || style == ServiceStyleProduction {
 		files["Dockerfile"] = dockerfileTemplate

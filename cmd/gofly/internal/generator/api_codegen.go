@@ -3112,7 +3112,7 @@ func writeGoZeroAPITypesFiles(root string, doc IDLDocument, typeGroup bool) erro
 	if !typeGroup {
 		return writeGoZeroAPITypesFile(root, doc)
 	}
-	typesPath := filepath.Join("internal", "app", "model", "types.go")
+	typesPath := filepath.Join("internal", "model", "types.go")
 	if existing, err := ReadFileUnderRoot(root, typesPath, "gozero-compatible api types"); err == nil && !bytes.Contains(existing, []byte(goZeroAPIGeneratedTypesMarker)) {
 		return fmt.Errorf("cannot apply --type-group while %s is user-owned", typesPath)
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -3160,7 +3160,7 @@ func writeGoZeroAPIGroupedTypesFiles(root string, doc IDLDocument) error {
 	desired := make(map[string]struct{}, len(groups))
 	for _, group := range groups {
 		desired[group+".go"] = struct{}{}
-		rel := filepath.Join("internal", "app", "model", group+".go")
+		rel := filepath.Join("internal", "model", group+".go")
 		if existing, err := ReadFileUnderRoot(root, rel, "gozero-compatible grouped api types"); err == nil && !bytes.Contains(existing, []byte(goZeroAPIGeneratedTypesMarker)) {
 			return fmt.Errorf("gozero-compatible grouped types target %s is user-owned", rel)
 		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -3186,7 +3186,7 @@ func writeGoZeroAPIGroupedTypesFiles(root string, doc IDLDocument) error {
 		if err != nil {
 			return fmt.Errorf("format gozero-compatible grouped types %s: %w", group, err)
 		}
-		rel := filepath.Join("internal", "app", "model", group+".go")
+		rel := filepath.Join("internal", "model", group+".go")
 		if err := writeGeneratedFileUnder(root, rel, formatted); err != nil {
 			return err
 		}
@@ -3195,7 +3195,7 @@ func writeGoZeroAPIGroupedTypesFiles(root string, doc IDLDocument) error {
 }
 
 func cleanupGoZeroAPIGeneratedTypeFiles(root string, desired map[string]struct{}) error {
-	dir, err := SafeTarget(root, filepath.Join("internal", "app", "model"), "gozero-compatible api types")
+	dir, err := SafeTarget(root, filepath.Join("internal", "model"), "gozero-compatible api types")
 	if err != nil {
 		return err
 	}
@@ -3213,7 +3213,7 @@ func cleanupGoZeroAPIGeneratedTypeFiles(root string, desired map[string]struct{}
 		if _, ok := desired[entry.Name()]; ok {
 			continue
 		}
-		rel := filepath.Join("internal", "app", "model", entry.Name())
+		rel := filepath.Join("internal", "model", entry.Name())
 		data, err := ReadFileUnderRoot(root, rel, "gozero-compatible api types")
 		if err != nil {
 			return err
@@ -3242,7 +3242,7 @@ func goZeroAPITypeGroupName(group string) string {
 
 func writeGoZeroAPITypesFile(root string, doc IDLDocument) error {
 	var b bytes.Buffer
-	existing, err := ReadFileUnderRoot(root, filepath.Join("internal", "app", "model", "types.go"), "gozero-compatible api types")
+	existing, err := ReadFileUnderRoot(root, filepath.Join("internal", "model", "types.go"), "gozero-compatible api types")
 	if err == nil && !bytes.Contains(existing, []byte(goZeroAPIGeneratedTypesMarker)) {
 		return appendGoZeroAPITypesFile(root, existing, doc)
 	}
@@ -3261,7 +3261,7 @@ func writeGoZeroAPITypesFile(root string, doc IDLDocument) error {
 	if err != nil {
 		return fmt.Errorf("format gozero-compatible api types: %w", err)
 	}
-	return writeGeneratedFileUnder(root, filepath.Join("internal", "app", "model", "types.go"), formatted)
+	return writeGeneratedFileUnder(root, filepath.Join("internal", "model", "types.go"), formatted)
 }
 
 func goZeroAPIJWTNames(services []IDLService) []string {
@@ -3436,7 +3436,7 @@ func appendGoZeroAPITypesFile(root string, existing []byte, doc IDLDocument) err
 	if err != nil {
 		return fmt.Errorf("format gozero-compatible api types: %w", err)
 	}
-	return writeGeneratedFileUnder(root, filepath.Join("internal", "app", "model", "types.go"), formatted)
+	return writeGeneratedFileUnder(root, filepath.Join("internal", "model", "types.go"), formatted)
 }
 
 func writeGoZeroAPIServiceContextFile(root string, module string, middlewares []string) error {
@@ -3561,7 +3561,7 @@ func writeGoZeroAPILogicFile(root, module string, group string, method IDLMethod
 	fprintf(&b, "import (\n")
 	fprintf(&b, "\t\"context\"\n\n")
 	fprintf(&b, "\t%q\n", strings.TrimRight(module, "/")+"/internal/svc")
-	fprintf(&b, "\tappmodel %q\n", strings.TrimRight(module, "/")+"/internal/app/model")
+	fprintf(&b, "\tappmodel %q\n", strings.TrimRight(module, "/")+"/internal/model")
 	fprintf(&b, ")\n\n")
 	fprintf(&b, "type %s struct {\n", logicName)
 	fprintf(&b, "\tctx context.Context\n")
@@ -3599,7 +3599,7 @@ func writeGoZeroAPIHandlerFile(root, module string, group string, method IDLMeth
 	fprintf(&b, "\t%s %q\n", goZeroAPILogicAlias(group), strings.TrimRight(module, "/")+"/internal/app"+goZeroAPIGroupImportSuffix(group))
 	fprintf(&b, "\t%q\n", strings.TrimRight(module, "/")+"/internal/svc")
 	if strings.TrimSpace(method.Request) != "" {
-		fprintf(&b, "\tappmodel %q\n", strings.TrimRight(module, "/")+"/internal/app/model")
+		fprintf(&b, "\tappmodel %q\n", strings.TrimRight(module, "/")+"/internal/model")
 	}
 	fprintf(&b, ")\n\n")
 	fprintf(&b, "func %s(stx *svc.ServiceContext) rest.HandlerFunc {\n", handlerName)
@@ -3759,7 +3759,7 @@ func staleGoZeroAPIFiles(root string, dir string, expected map[string]struct{}) 
 			return err
 		}
 		rel = filepath.ToSlash(rel)
-		if strings.HasPrefix(rel, "internal/app/model/") {
+		if strings.HasPrefix(rel, "internal/model/") {
 			return nil
 		}
 		if _, ok := expected[rel]; !ok {
@@ -3803,7 +3803,7 @@ func writeGoZeroAPIRoutesFile(root, module string, services []IDLService) error 
 	}
 	fprintf(&b, "\t%q\n", strings.TrimRight(module, "/")+"/internal/svc")
 	if goZeroAPIHasMethods(services) {
-		fprintf(&b, "\tappmodel %q\n", strings.TrimRight(module, "/")+"/internal/app/model")
+		fprintf(&b, "\tappmodel %q\n", strings.TrimRight(module, "/")+"/internal/model")
 	}
 	if goZeroAPIPingHandlerExists(root) {
 		fprintf(&b, "\tping %q\n", strings.TrimRight(module, "/")+"/internal/api/http/v1/ping")

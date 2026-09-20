@@ -30,7 +30,7 @@
     "internal/routes/routes.go",
     "internal/app/ping.go",
     "internal/svc/service_context.go",
-    "internal/app/model/types.go",
+    "internal/model/types.go",
     "internal/api/http/v1/users/createuser.go",
     "internal/api/http/v1/users/getuser.go",
     "internal/api/http/v1/users/searchusers.go",

@@ -28,7 +28,7 @@
     "go.mod",
     "etc/nativeorders-api.yaml",
     "internal/routes/routes.go",
-    "internal/app/model/types.go",
+    "internal/model/types.go",
     "internal/app/native/createnativeorder.go",
     "internal/app/native/getnativeorder.go",
     "model/native_order_model.go",

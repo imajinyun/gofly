@@ -57,7 +57,7 @@
   "requiredContracts": [
     "go.mod module",
     "internal/routes/routes.go",
-    "internal/app/model/types.go",
+    "internal/model/types.go",
     "internal/svc/service_context.go",
     "model output",
     "route registration",

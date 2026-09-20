@@ -1022,7 +1022,7 @@ func TestGenerateRPCClientServerAndMiddleware(t *testing.T) {
 	if err := GenerateRPCMiddleware(RPCMiddlewareOptions{Name: "auth", Dir: outDir}); err != nil {
 		t.Fatal(err)
 	}
-	mwData, err := os.ReadFile(filepath.Join(outDir, "internal", "api", "rpc", "middleware", "auth.go"))
+	mwData, err := os.ReadFile(filepath.Join(outDir, "internal", "api", "grpc", "middleware", "auth.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2772,7 +2772,7 @@ service user-api {
 		APIFile:    apiPath,
 		Dir:        dir,
 		Package:    "handler",
-		RPCPackage: "example.com/hello/internal/api/rpc",
+		RPCPackage: "example.com/hello/internal/api/grpc",
 		Test:       true,
 		TypeGroup:  true,
 	}); err != nil {
@@ -2837,11 +2837,11 @@ func TestGenerateRESTFromAPIGoZeroCompatibleServiceContext(t *testing.T) {
 		path string
 		want []string
 	}{
-		{path: filepath.Join(dir, "internal", "app", "model", "types.go"), want: []string{"package model", "type LoginRequest struct", "type LoginResponse struct"}},
+		{path: filepath.Join(dir, "internal", "model", "types.go"), want: []string{"package model", "type LoginRequest struct", "type LoginResponse struct"}},
 		{path: filepath.Join(dir, "internal", "config", "api_runtime.gen.go"), want: []string{"func LoadAPIRuntime", `generatedRequiredJWT = []string{"Auth"}`, `validators["Auth"] = auth.JWTValidator`, `JWT validator %q requires %s.AccessSecret`}},
 		{path: filepath.Join(dir, "internal", "svc", "service_context.go"), want: []string{"package svc", `"github.com/imajinyun/gofly/core/auth"`, `"github.com/imajinyun/gofly/rest"`, "Config        config.Config", "Middlewares   map[string]rest.Middleware", "JWTValidators map[string]auth.Validator", "func NewServiceContext(c config.Config) *ServiceContext"}},
-		{path: filepath.Join(dir, "internal", "app", "admin", "login.go"), want: []string{"package adminapp", `"example.com/shop/internal/svc"`, `appmodel "example.com/shop/internal/app/model"`, "func NewLoginLogic(ctx context.Context, stx *svc.ServiceContext) *LoginLogic", "func (l *LoginLogic) Login(req *appmodel.LoginRequest) (*appmodel.LoginResponse, error)"}},
-		{path: filepath.Join(dir, "internal", "api", "http", "v1", "admin", "login.go"), want: []string{"package admin", `adminapp "example.com/shop/internal/app/admin"`, `"example.com/shop/internal/svc"`, `appmodel "example.com/shop/internal/app/model"`, "func LoginHandler(stx *svc.ServiceContext) rest.HandlerFunc", "ctx.BindGoZeroRequest(&req)", "adminapp.NewLoginLogic(ctx.Request.Context(), stx).Login(&req)"}},
+		{path: filepath.Join(dir, "internal", "app", "admin", "login.go"), want: []string{"package adminapp", `"example.com/shop/internal/svc"`, `appmodel "example.com/shop/internal/model"`, "func NewLoginLogic(ctx context.Context, stx *svc.ServiceContext) *LoginLogic", "func (l *LoginLogic) Login(req *appmodel.LoginRequest) (*appmodel.LoginResponse, error)"}},
+		{path: filepath.Join(dir, "internal", "api", "http", "v1", "admin", "login.go"), want: []string{"package admin", `adminapp "example.com/shop/internal/app/admin"`, `"example.com/shop/internal/svc"`, `appmodel "example.com/shop/internal/model"`, "func LoginHandler(stx *svc.ServiceContext) rest.HandlerFunc", "ctx.BindGoZeroRequest(&req)", "adminapp.NewLoginLogic(ctx.Request.Context(), stx).Login(&req)"}},
 		{path: filepath.Join(dir, "internal", "routes", "routes.go"), want: []string{"package routes", `admin "example.com/shop/internal/api/http/v1/admin"`, "func RegisterRoutes(server *rest.Server, stx *svc.ServiceContext)", `Path: "/login"`, `rest.WithPrefix("/api/v1")`, `rest.WithAuth(requiredJWTValidator(stx, "Auth"))`, `stx.Middlewares["audit"]`, `stx.Middlewares["trace"]`, "rest.WithMiddlewares(middlewares...)", "admin.LoginHandler(stx)"}},
 	}
 	for _, check := range checks {
@@ -2855,7 +2855,7 @@ func TestGenerateRESTFromAPIGoZeroCompatibleServiceContext(t *testing.T) {
 			}
 		}
 	}
-	for _, rel := range []string{"internal/types", "internal/logic", "internal/handler", "internal/svc/servicecontext.go"} {
+	for _, rel := range []string{"internal/types", "internal/logic", "internal/handler", "internal/app/model", "internal/svc/servicecontext.go"} {
 		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err == nil {
 			t.Fatalf("generated API unexpectedly uses goctl layout path %s", rel)
 		} else if !errors.Is(err, os.ErrNotExist) {
@@ -3155,9 +3155,9 @@ service user-api {
 		path string
 		want []string
 	}{
-		{path: filepath.Join(dir, "internal", "app", "model", "admin.go"), want: []string{"type AdminRequest struct"}},
-		{path: filepath.Join(dir, "internal", "app", "model", "users.go"), want: []string{"type UserRequest struct"}},
-		{path: filepath.Join(dir, "internal", "app", "model", "types.go"), want: []string{"type SharedResponse struct"}},
+		{path: filepath.Join(dir, "internal", "model", "admin.go"), want: []string{"type AdminRequest struct"}},
+		{path: filepath.Join(dir, "internal", "model", "users.go"), want: []string{"type UserRequest struct"}},
+		{path: filepath.Join(dir, "internal", "model", "types.go"), want: []string{"type SharedResponse struct"}},
 		{path: filepath.Join(dir, "internal", "api", "http", "v1", "admin", "getadmin_test.go"), want: []string{"func TestGetAdminHandlerGenerated", "GetAdminHandler(&svc.ServiceContext{})"}},
 		{path: filepath.Join(dir, "internal", "api", "http", "v1", "users", "getuser_test.go"), want: []string{"func TestGetUserHandlerGenerated", "GetUserHandler(&svc.ServiceContext{})"}},
 	}
@@ -3202,17 +3202,17 @@ service admin-api {
 	if err := GenerateRESTFromAPI(opts); err != nil {
 		t.Fatalf("generate grouped types: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "internal", "app", "model", "admin.go")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, "internal", "model", "admin.go")); err != nil {
 		t.Fatalf("grouped types missing: %v", err)
 	}
 	opts.TypeGroup = false
 	if err := GenerateRESTFromAPI(opts); err != nil {
 		t.Fatalf("regenerate monolithic types: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "internal", "app", "model", "admin.go")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(dir, "internal", "model", "admin.go")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("obsolete generated group file should be removed: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "internal", "app", "model", "types.go")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, "internal", "model", "types.go")); err != nil {
 		t.Fatalf("monolithic types missing after transition: %v", err)
 	}
 
@@ -3220,11 +3220,11 @@ service admin-api {
 	if err := os.WriteFile(filepath.Join(userDir, "go.mod"), []byte("module example.com/userowned\n\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(userDir, "internal", "app", "model"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(userDir, "internal", "model"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	const userTypes = "package model\n\ntype Custom struct{}\n"
-	userTypesPath := filepath.Join(userDir, "internal", "app", "model", "types.go")
+	userTypesPath := filepath.Join(userDir, "internal", "model", "types.go")
 	if err := os.WriteFile(userTypesPath, []byte(userTypes), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -3582,7 +3582,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	if err := os.WriteFile(filepath.Join(dir, "internal", "svc", "service_context.go"), []byte(existingSvc), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(dir, "internal", "app", "model"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "internal", "model"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	existingTypes := `package model
@@ -3591,7 +3591,7 @@ type PingRequest struct {
 	Name string ` + "`json:\"name,optional\" form:\"name,optional\"`" + `
 }
 `
-	if err := os.WriteFile(filepath.Join(dir, "internal", "app", "model", "types.go"), []byte(existingTypes), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "internal", "model", "types.go"), []byte(existingTypes), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(dir, "internal", "api", "http", "v1", "user"), 0o755); err != nil {
@@ -3656,7 +3656,7 @@ service user-api {
 	if string(handlerData) != existingHandler {
 		t.Fatalf("existing handler was overwritten:\n%s", handlerData)
 	}
-	typesData, err := os.ReadFile(filepath.Join(dir, "internal", "app", "model", "types.go"))
+	typesData, err := os.ReadFile(filepath.Join(dir, "internal", "model", "types.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3745,7 +3745,7 @@ service user-api {
 			t.Fatalf("refreshed routes.go kept stale %q:\n%s", stale, routesData)
 		}
 	}
-	typesData, err := os.ReadFile(filepath.Join(dir, "internal", "app", "model", "types.go"))
+	typesData, err := os.ReadFile(filepath.Join(dir, "internal", "model", "types.go"))
 	if err != nil {
 		t.Fatal(err)
 	}

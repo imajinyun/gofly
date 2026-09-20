@@ -113,7 +113,7 @@ gofly preserves that dependency-injection mental model in the
 - `internal/svc/service_context.go` is the generated dependency entrypoint.
 - `internal/routes/routes.go` receives `svcCtx`.
 - `internal/app/<group>/<method>.go` is constructed with `svcCtx`.
-- `internal/app/model/types.go` and grouped files keep request and response DTOs.
+- `internal/model/types.go` and grouped files keep request and response DTOs.
 - `internal/api/http/v1/<group>/<method>.go` contains HTTP transport handlers.
 
 The default gofly production scaffold uses the same concept with additional
@@ -133,7 +133,7 @@ behavior without claiming a full formatter clone.
 For API generation, an explicitly provided `--style go_zero` selects the same
 behavior as `--profile gozero-compatible`. It does not switch the generated
 project to a goctl layout. Do not combine it with a different explicit profile.
-`--type-group` writes DTO files under `internal/app/model` by `@server` group
+`--type-group` writes DTO files under `internal/model` by `@server` group
 (shared DTOs remain in `types.go`), and `--test` writes handler smoke tests
 next to the generated handlers under `internal/api/http/v1`.
 
@@ -327,8 +327,21 @@ required unless the client explicitly enables development-only insecure mode.
 `docs/reference/goctl-rpc-protoc-parity.json` separately tracks goctl-style
 `rpc protoc` flags. With `--zrpc_out`, gofly generates a runnable native gRPC
 project with `cmd`, `etc`, `internal/config`, `internal/svc/service_context.go`,
-`internal/app/<service>` business logic, `internal/api/rpc` transport and typed
-clients, and protobuf stubs. The
+`internal/app/<domain>` application logic, versioned
+`internal/api/grpc/v1/<domain>` transport adapters and typed clients, and
+protobuf stubs. HTTP adapters use the parallel
+`internal/api/http/v1/<domain>` layout. When matching application methods
+already exist, regenerated unary RPC adapters translate protobuf messages at
+the transport boundary and call the same domain logic instead of creating a
+second business implementation. The
+generated directory is named `grpc` because these adapters implement the gRPC
+transport. On regeneration, a project that only has the former
+`internal/api/rpc` directory is migrated as a complete tree to
+`internal/api/grpc`, preserving project-owned tests and extensions. If both
+directories already exist, generation stops and requires an explicit manual
+reconciliation instead of merging or overwriting files.
+
+The
 `--multiple`, `--client`, `--module`, and `--name-from-filename` flags control
 that scaffold; regeneration preserves existing business logic files. This mode
 accepts multiple primary proto files in one generation pass when `--multiple`

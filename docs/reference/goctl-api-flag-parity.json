@@ -19,7 +19,7 @@
   "compatibilityPolicy": {
     "apiGoStyle": "An explicitly provided --style go_zero must select the same go-zero-compatible behavior as --profile gozero-compatible while retaining the gofly-native project layout; conflicting explicit values must fail.",
     "apiGoTest": "The --test flag must generate handler smoke tests beside handlers in internal/api/http/v1 within the gofly-native layout.",
-    "apiGoTypeGroup": "The --type-group flag must group DTO files by @server group in internal/app/model and keep shared DTOs in types.go.",
+    "apiGoTypeGroup": "The --type-group flag must group DTO files by @server group in internal/model and keep shared DTOs in types.go.",
     "apiFormatStdin": "The --stdin flag must read API content from standard input and emit formatted content to stdout or the requested output file.",
     "apiFormatDeclare": "The --declare flag skips missing type declaration checks during API formatting, matching goctl's migration-critical formatter behavior."
   },
@@ -53,7 +53,7 @@
       "goctlSurface": "goctl api go --type-group",
       "goflySurface": "gofly api go --type-group / gofly api gen --type-group",
       "status": "implemented",
-      "behavior": "writes per-group DTO files in internal/app/model and keeps cross-group DTOs in types.go",
+      "behavior": "writes per-group DTO files in internal/model and keeps cross-group DTOs in types.go",
       "evidence": [
         "TestExecuteAPIGenAcceptsGoctlTemplateFlags",
         "TestGenerateRESTFromAPIGoZeroCompatibleHonorsTypeGroupAndTest"

@@ -240,7 +240,7 @@ for needle in (
     "RequireMultiple bool",
     "inferGRPCScaffoldModule",
     "proto inputs define multiple services; rerun with --multiple",
-    "internal/api/rpc/register.gen.go",
+    "internal/api/grpc/v1/register.gen.go",
     "func DiscoveryAliases() []string",
     "flygrpc.WithDiscoveryAliases(apprpc.DiscoveryAliases()...)",
     "TestGenerateGRPCScaffoldMultipleProtoProject",

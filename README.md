@@ -41,7 +41,7 @@ It is designed for platform, backend, and AI-agent-assisted engineering teams wh
 ┌──────────────────────────┐      ┌─────────────────┐        ┌────────────────────────┐
 │ generated layout         │      │ governance      │        │ compatibility gates    │
 │ internal/api/http        │◀────▶│ retry / limit   │◀──────▶│ api/rpc/model replay   │
-│ internal/api/rpc         │      │ breaker / auth  │        │ release / docs checks  │
+│ internal/api/grpc         │      │ breaker / auth  │        │ release / docs checks  │
 │ internal/app             │      │ policy / trace  │        │ upgrade dry-run        │
 │ internal/model + repo    │      └─────────────────┘        └────────────────────────┘
 └────────────┬─────────────┘
@@ -60,7 +60,7 @@ It is designed for platform, backend, and AI-agent-assisted engineering teams wh
 | 🚀 Service scaffolding | Minimal, basic, production, REST-only, RPC-only, quickstart, AI-selected templates, and generated smoke checks | `gofly quickstart`, `gofly new service`, `gofly new api`, `gofly new rpc`, `gofly ai new` |
 | 🛠️ REST/API generation | `.api` parsing, imports, formatting, REST route generation, OpenAPI import/export, generated request/response types, route tests, go-zero-compatible API layout | `gofly api gen`, `gofly api go`, `gofly api format`, `gofly api import`, `gofly api doc`, `gofly handler gen` |
 | 📡 RPC generation | Protobuf parsing, local import resolution, multiple services, streaming descriptors, WKT mappings, gRPC adapter generation, generic handler binding, client/server stubs | `gofly rpc gen`, `gofly rpc protoc`, `gofly rpc client`, `gofly rpc server`, `gofly rpc middleware` |
-| 🧱 Generated layout | HTTP entrypoints in `internal/api/http`, RPC code in `internal/api/rpc`, application orchestration in `internal/app`, go-zero model structs in `model` and repositories in `repo` | `gofly new service`, `gofly api gen --profile gozero-compatible`, `gofly model mysql ddl --style go_zero` |
+| 🧱 Generated layout | HTTP entrypoints in `internal/api/http`, RPC code in `internal/api/grpc`, application orchestration in `internal/app`, go-zero model structs in `model` and repositories in `repo` | `gofly new service`, `gofly api gen --profile gozero-compatible`, `gofly model mysql ddl --style go_zero` |
 | 🗄️ Model and storage generation | SQL DDL and datasource introspection, table filters, prefix/ignore-column handling, MySQL/PostgreSQL dialects, cache helpers, GORM style, go-zero-style `model` + `repo` split | `gofly model gen`, `gofly model mysql ddl`, `gofly model pg ddl`, `gofly model mysql datasource`, `gofly model pg datasource` |
 | 🌐 Service runtime | REST server/client, RPC server/client, gRPC adapters, gateway runtime, lifecycle bootstrap, config loading, discovery, cache, MQ, KV, storage, scheduler, event bus, saga, outbox | `rest/`, `rpc/`, `rpc/grpc/`, `gateway/`, `app/`, `cache/`, `core/*` |
 | 🛡️ Runtime governance | Retries, circuit breakers, token/sliding/adaptive limits, concurrency guards, RPC method policies, auth helpers, request metadata, defensive security helpers | `core/retry`, `core/breaker`, `core/limit`, `core/governance`, `core/auth`, `core/security`, `rpc/policy.go` |

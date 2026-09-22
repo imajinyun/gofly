@@ -69,12 +69,14 @@ func TestRedisObservabilityHookAvoidsCommandArguments(t *testing.T) {
 
 func TestRedisObservabilityHookRecordsSafeSlowSignal(t *testing.T) {
 	var logs bytes.Buffer
-	previous := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
-	t.Cleanup(func() { slog.SetDefault(previous) })
-
-	hook := redisObservabilityHook{slowThreshold: time.Nanosecond}
-	process := hook.ProcessHook(func(context.Context, redisv9.Cmder) error { return nil })
+	hook := redisObservabilityHook{
+		slowThreshold: time.Nanosecond,
+		logger:        slog.New(slog.NewTextHandler(&logs, nil)),
+	}
+	process := hook.ProcessHook(func(context.Context, redisv9.Cmder) error {
+		time.Sleep(time.Microsecond)
+		return nil
+	})
 	ctx := context.Background()
 	if err := process(ctx, redisv9.NewCmd(ctx, "set", "secret-key", "secret-value")); err != nil {
 		t.Fatalf("ProcessHook: %v", err)

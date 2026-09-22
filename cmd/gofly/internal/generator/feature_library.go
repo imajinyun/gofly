@@ -654,7 +654,7 @@ func DefaultRedisConfig() RedisConfig {
 const dockerFeatureTemplate = `FROM golang:1.26 AS build
 WORKDIR /src
 COPY . .
-RUN go build -o /out/{{.Name}} ./cmd/{{.Name}}
+RUN go build -o /out/{{.Name}} {{.GoFile}}
 
 FROM gcr.io/distroless/static-debian12
 COPY --from=build /out/{{.Name}} /{{.Name}}

@@ -61,6 +61,18 @@ func (r errorReadCloser) Read([]byte) (int, error) { return 0, r.err }
 
 func (r errorReadCloser) Close() error { return nil }
 
+type callbackReadCloser struct {
+	io.Reader
+	close func()
+}
+
+func (r callbackReadCloser) Close() error {
+	if r.close != nil {
+		r.close()
+	}
+	return nil
+}
+
 type fakeBalancer struct{}
 
 func (fakeBalancer) Pick(context.Context, []string) (string, error) { return "picked", nil }
@@ -3310,16 +3322,20 @@ func TestFetchOpenAPIDocumentDecodeAndContextValidation(t *testing.T) {
 
 func TestGatewayProxyRetryBackoffCancellation(t *testing.T) {
 	var cancel context.CancelFunc
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Retry-After", "60")
-		http.Error(w, "retry later", http.StatusServiceUnavailable)
-		time.AfterFunc(time.Millisecond, cancel)
-	}))
-	t.Cleanup(upstream.Close)
+	client := &http.Client{Transport: gatewayRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusServiceUnavailable,
+			Header:     http.Header{"Retry-After": []string{"60"}},
+			Body: callbackReadCloser{
+				Reader: strings.NewReader("retry later"),
+				close:  func() { cancel() },
+			},
+		}, nil
+	})}
 
 	g, err := New([]Route{{
 		PathPrefix: "/api",
-		Targets:    []string{upstream.URL},
+		Targets:    []string{"http://upstream.local"},
 		Retry: RetryPolicy{
 			Attempts:          2,
 			Backoff:           time.Hour,
@@ -3327,7 +3343,7 @@ func TestGatewayProxyRetryBackoffCancellation(t *testing.T) {
 			Methods:           []string{http.MethodPost},
 			RespectRetryAfter: true,
 		},
-	}})
+	}}, WithHTTPClient(client))
 	if err != nil {
 		t.Fatalf("New gateway: %v", err)
 	}

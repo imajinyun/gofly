@@ -2,6 +2,7 @@ package generator
 
 type IDLDocument struct {
 	Kind           string
+	Syntax         string
 	Package        string
 	GoPackage      string
 	Imports        []string

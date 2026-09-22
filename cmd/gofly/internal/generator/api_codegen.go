@@ -134,7 +134,7 @@ func GenerateRESTFromAPI(opts APIOptions) error {
 	if opts.Dir == "" {
 		opts.Dir = "."
 	}
-	doc, err := readAPIFileWithImports(opts.APIFile)
+	doc, err := LoadAPI(opts.APIFile)
 	if err != nil {
 		return err
 	}
@@ -174,8 +174,13 @@ func FormatAPIFromFile(opts APIFormatOptions) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	doc.Imports = apiImportPaths(string(content))
 	if !opts.Declare {
-		if err := validateAPITypeDeclarations(doc); err != nil {
+		loaded, err := LoadAPI(opts.APIFile)
+		if err != nil {
+			return nil, err
+		}
+		if err := validateAPITypeDeclarations(loaded); err != nil {
 			return nil, err
 		}
 	}
@@ -229,6 +234,8 @@ func formatAPIDir(opts APIFormatOptions) ([]byte, error) {
 	return last, nil
 }
 
+// FormatAPIContent formats API source held in memory. Unless declare is true,
+// referenced message types must be declared in the supplied source.
 func FormatAPIContent(content string, declare bool) ([]byte, error) {
 	doc, err := ParseAPI(content)
 	if err != nil {
@@ -284,6 +291,15 @@ func isBuiltinAPIType(apiType string) bool {
 
 func FormatAPI(doc IDLDocument) []byte {
 	var b bytes.Buffer
+	if doc.Syntax != "" {
+		fprintf(&b, "syntax = %q\n", doc.Syntax)
+	}
+	for _, imported := range doc.Imports {
+		fprintf(&b, "import %q\n", imported)
+	}
+	if doc.Syntax != "" || len(doc.Imports) > 0 {
+		b.WriteByte('\n')
+	}
 	for i, msg := range doc.Messages {
 		if i > 0 {
 			b.WriteByte('\n')
@@ -291,7 +307,15 @@ func FormatAPI(doc IDLDocument) []byte {
 		fprintf(&b, "type %s {\n", exportName(msg.Name))
 		for _, field := range msg.Fields {
 			if field.Inline {
-				fprintf(&b, "  %s\n", field.Type)
+				if strings.TrimSpace(field.Tag) != "" {
+					fprintf(&b, "  %s %c%s%c\n", field.Type, byte(96), field.Tag, byte(96))
+				} else {
+					fprintf(&b, "  %s\n", field.Type)
+				}
+				continue
+			}
+			if strings.TrimSpace(field.Tag) != "" {
+				fprintf(&b, "  %s %s %c%s%c\n", exportName(field.Name), field.Type, byte(96), field.Tag, byte(96))
 				continue
 			}
 			fprintf(&b, "  %s %s\n", exportName(field.Name), field.Type)
@@ -305,8 +329,10 @@ func FormatAPI(doc IDLDocument) []byte {
 		if i > 0 {
 			b.WriteByte('\n')
 		}
+		writeAPIServiceAnnotation(&b, svc.Server)
 		fprintf(&b, "service %s {\n", svc.Name)
 		for _, method := range svc.Methods {
+			writeAPIDocAnnotation(&b, method.Doc)
 			if method.Handler != "" {
 				fprintf(&b, "  @handler %s\n", exportName(method.Handler))
 			}
@@ -319,6 +345,57 @@ func FormatAPI(doc IDLDocument) []byte {
 		fprintf(&b, "}\n")
 	}
 	return b.Bytes()
+}
+
+func writeAPIServiceAnnotation(b *bytes.Buffer, annotation IDLServerAnnotation) {
+	values := cloneStringMap(annotation.Values)
+	if values == nil {
+		values = map[string]string{}
+	}
+	for _, key := range []string{"group", "prefix", "jwt", "middleware", "middlewares"} {
+		delete(values, key)
+	}
+	if annotation.Group != "" {
+		values["group"] = annotation.Group
+	}
+	if annotation.Prefix != "" {
+		values["prefix"] = annotation.Prefix
+	}
+	if annotation.JWT != "" {
+		values["jwt"] = annotation.JWT
+	}
+	if len(annotation.Middleware) > 0 {
+		values["middleware"] = strings.Join(annotation.Middleware, ",")
+	}
+	if len(values) == 0 {
+		return
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, key+": "+values[key])
+	}
+	fprintf(b, "@server(%s)\n", strings.Join(parts, " "))
+}
+
+func writeAPIDocAnnotation(b *bytes.Buffer, values map[string]string) {
+	if len(values) == 0 {
+		return
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, fmt.Sprintf("%s: %q", key, values[key]))
+	}
+	fprintf(b, "  @doc(%s)\n", strings.Join(parts, " "))
 }
 
 func GenerateAPIFromOpenAPI(opts APIImportOptions) error {
@@ -411,6 +488,15 @@ func GenerateAPIDiff(opts APIDiffOptions) error {
 }
 
 func readAPIFile(path string) (IDLDocument, error) {
+	return LoadAPI(path)
+}
+
+// LoadAPI reads an API contract and resolves its relative imports. File-based
+// API consumers should use this entry point so generation, documentation,
+// clients, and compatibility checks share the same contract graph. Consumers
+// remain responsible for applying the validation policy appropriate to their
+// operation.
+func LoadAPI(path string) (IDLDocument, error) {
 	return readAPIFileWithImports(path)
 }
 
@@ -487,23 +573,14 @@ func resolveAPIImport(owner string, importPath string) (string, error) {
 		return "", fmt.Errorf("api import must reference .api file: %s", importPath)
 	}
 	baseDir := filepath.Dir(owner)
-	candidate := filepath.Join(baseDir, importPath)
-	absBase, err := filepath.Abs(baseDir)
+	target, err := SafeTarget(baseDir, importPath, "api import")
 	if err != nil {
-		return "", fmt.Errorf("resolve api import base: %w", err)
+		return "", err
 	}
-	absCandidate, err := filepath.Abs(candidate)
-	if err != nil {
-		return "", fmt.Errorf("resolve api import: %w", err)
+	if err := rejectExistingSymlinkTarget(target, "api import"); err != nil {
+		return "", err
 	}
-	rel, err := filepath.Rel(absBase, absCandidate)
-	if err != nil {
-		return "", fmt.Errorf("resolve api import relation: %w", err)
-	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("api import escapes api directory: %s", importPath)
-	}
-	return absCandidate, nil
+	return target, nil
 }
 
 func mergeAPIMessages(imported []IDLMessage, local []IDLMessage) []IDLMessage {
@@ -802,11 +879,7 @@ func GenerateAPIDoc(opts APIDocOptions) error {
 	if opts.APIFile == "" {
 		return errors.New("api file is required")
 	}
-	content, err := os.ReadFile(opts.APIFile)
-	if err != nil {
-		return fmt.Errorf("read api file: %w", err)
-	}
-	doc, err := ParseAPI(string(content))
+	doc, err := LoadAPI(opts.APIFile)
 	if err != nil {
 		return err
 	}
@@ -928,11 +1001,7 @@ func GenerateAPIClient(opts APIClientOptions) error {
 	if opts.APIFile == "" {
 		return errors.New("api file is required")
 	}
-	content, err := os.ReadFile(opts.APIFile)
-	if err != nil {
-		return fmt.Errorf("read api file: %w", err)
-	}
-	doc, err := ParseAPI(string(content))
+	doc, err := LoadAPI(opts.APIFile)
 	if err != nil {
 		return err
 	}
@@ -986,11 +1055,7 @@ func GenerateAPITypes(opts APITypesOptions) error {
 	if opts.APIFile == "" {
 		return errors.New("api file is required")
 	}
-	content, err := os.ReadFile(opts.APIFile)
-	if err != nil {
-		return fmt.Errorf("read api file: %w", err)
-	}
-	doc, err := ParseAPI(string(content))
+	doc, err := LoadAPI(opts.APIFile)
 	if err != nil {
 		return err
 	}
@@ -1027,11 +1092,7 @@ func GenerateAPIRoutes(opts APIRouteOptions) error {
 	if opts.APIFile == "" {
 		return errors.New("api file is required")
 	}
-	content, err := os.ReadFile(opts.APIFile)
-	if err != nil {
-		return fmt.Errorf("read api file: %w", err)
-	}
-	doc, err := ParseAPI(string(content))
+	doc, err := LoadAPI(opts.APIFile)
 	if err != nil {
 		return err
 	}
@@ -1663,7 +1724,7 @@ func generateTypeScriptClient(doc IDLDocument, baseURL string) []byte {
 	for _, msg := range doc.Messages {
 		fprintf(&b, "export interface %s {\n", exportName(msg.Name))
 		for _, field := range msg.Fields {
-			fprintf(&b, "  %s?: %s;\n", lowerCamel(field.Name), typeScriptType(field.Type))
+			fprintf(&b, "  %s?: %s;\n", apiClientPropertyName(field), typeScriptType(field.Type))
 		}
 		fprintf(&b, "}\n\n")
 	}
@@ -1671,6 +1732,7 @@ func generateTypeScriptClient(doc IDLDocument, baseURL string) []byte {
 	fprintf(&b, "  constructor(private readonly baseURL: string = %s) {}\n\n", baseURL)
 	for _, svc := range doc.Services {
 		for _, method := range svc.Methods {
+			method.HTTPPath = openAPIServicePath(svc, method.HTTPPath)
 			writeTypeScriptMethod(&b, method, messageByName(doc, method.Request))
 		}
 	}
@@ -1688,9 +1750,18 @@ func writeTypeScriptMethod(b *bytes.Buffer, method IDLMethod, request IDLMessage
 		fprintf(b, "  async %s(req: %s): Promise<%s> {\n", methodName, requestType, responseType)
 	}
 	writeTypeScriptURL(b, method, request)
-	fprintf(b, "    const init: RequestInit = { method: %q, headers: { 'Content-Type': 'application/json' } };\n", method.HTTPMethod)
-	if method.Request != "" && method.HTTPMethod != "GET" {
-		fprintf(b, "    init.body = JSON.stringify(req);\n")
+	fields := apiClientFields(method, request)
+	fprintf(b, "    const headers: Record<string, string> = { 'Content-Type': 'application/json' };\n")
+	for _, field := range apiClientFieldsAt(fields, apiClientFieldHeader) {
+		fprintf(b, "    if (req.%s !== undefined && req.%s !== null) headers[%q] = String(req.%s);\n", field.Property, field.Property, field.WireName, field.Property)
+	}
+	fprintf(b, "    const init: RequestInit = { method: %q, headers };\n", method.HTTPMethod)
+	if bodyFields := apiClientFieldsAt(fields, apiClientFieldBody); method.Request != "" && apiClientMethodAllowsBody(method.HTTPMethod) && len(bodyFields) > 0 {
+		body := "req"
+		if apiClientBodyNeedsProjection(fields, bodyFields) {
+			body = typeScriptBodyExpression(bodyFields)
+		}
+		fprintf(b, "    init.body = JSON.stringify(%s);\n", body)
 	}
 	fprintf(b, "    const resp = await fetch(url, init);\n")
 	fprintf(b, "    if (!resp.ok) throw new Error(await resp.text());\n")
@@ -1699,20 +1770,23 @@ func writeTypeScriptMethod(b *bytes.Buffer, method IDLMethod, request IDLMessage
 }
 
 func writeTypeScriptURL(b *bytes.Buffer, method IDLMethod, request IDLMessage) {
-	pathParams := openAPIPathParamNames(method.HTTPPath)
-	if len(pathParams) == 0 && (strings.ToUpper(method.HTTPMethod) != "GET" || len(request.Fields) == 0) {
-		fprintf(b, "    const url = this.baseURL + %q;\n", method.HTTPPath)
+	path := normalizeAPIRoutePath(method.HTTPPath)
+	fields := apiClientFields(method, request)
+	pathParams := openAPIPathParamNames(path)
+	queryFields := apiClientFieldsAt(fields, apiClientFieldQuery)
+	if len(pathParams) == 0 && len(queryFields) == 0 {
+		fprintf(b, "    const url = this.baseURL + %q;\n", path)
 		return
 	}
-	fprintf(b, "    let path = %q;\n", method.HTTPPath)
+	fprintf(b, "    let path = %q;\n", path)
 	if len(request.Fields) > 0 {
 		for _, name := range pathParams {
-			field := clientFieldNameForParam(request, name)
-			fprintf(b, "    path = path.replace(%q, encodeURIComponent(String(req.%s ?? '')));\n", "{"+name+"}", field)
+			field := apiClientFieldForPath(fields, name)
+			fprintf(b, "    path = path.replace(%q, encodeURIComponent(String(req.%s ?? '')));\n", "{"+name+"}", field.Property)
 		}
 	}
-	if strings.ToUpper(method.HTTPMethod) == "GET" && len(request.Fields) > 0 {
-		writeTypeScriptQueryParams(b, request, pathParams)
+	if len(queryFields) > 0 {
+		writeTypeScriptQueryParams(b, queryFields)
 		fprintf(b, "    const qs = query.toString();\n")
 		fprintf(b, "    const url = this.baseURL + path + (qs ? '?' + qs : '');\n")
 		return
@@ -1720,26 +1794,29 @@ func writeTypeScriptURL(b *bytes.Buffer, method IDLMethod, request IDLMessage) {
 	fprintf(b, "    const url = this.baseURL + path;\n")
 }
 
-func writeTypeScriptQueryParams(b *bytes.Buffer, request IDLMessage, pathParams []string) {
+func writeTypeScriptQueryParams(b *bytes.Buffer, fields []apiClientField) {
 	fprintf(b, "    const query = new URLSearchParams();\n")
-	pathParamSet := clientParamSet(pathParams)
-	for _, field := range request.Fields {
-		name := lowerCamel(field.Name)
-		if _, ok := pathParamSet[name]; ok {
-			continue
-		}
-		writeTypeScriptQueryParam(b, name)
+	for _, field := range fields {
+		writeTypeScriptQueryParam(b, field.WireName, field.Property)
 	}
 }
 
-func writeTypeScriptQueryParam(b *bytes.Buffer, name string) {
-	fprintf(b, "    if (req.%s !== undefined && req.%s !== null) {\n", name, name)
-	fprintf(b, "      if (Array.isArray(req.%s)) {\n", name)
-	fprintf(b, "        for (const item of req.%s) query.append(%q, String(item));\n", name, name)
+func writeTypeScriptQueryParam(b *bytes.Buffer, wireName, property string) {
+	fprintf(b, "    if (req.%s !== undefined && req.%s !== null) {\n", property, property)
+	fprintf(b, "      if (Array.isArray(req.%s)) {\n", property)
+	fprintf(b, "        for (const item of req.%s) query.append(%q, String(item));\n", property, wireName)
 	fprintf(b, "      } else {\n")
-	fprintf(b, "        query.append(%q, String(req.%s));\n", name, name)
+	fprintf(b, "        query.append(%q, String(req.%s));\n", wireName, property)
 	fprintf(b, "      }\n")
 	fprintf(b, "    }\n")
+}
+
+func typeScriptBodyExpression(fields []apiClientField) string {
+	parts := make([]string, 0, len(fields))
+	for _, field := range fields {
+		parts = append(parts, fmt.Sprintf("%q: req.%s", field.WireName, field.Property))
+	}
+	return "{ " + strings.Join(parts, ", ") + " }"
 }
 
 func generateJavaScriptClient(doc IDLDocument, baseURL string) []byte {
@@ -1754,6 +1831,7 @@ func generateJavaScriptClient(doc IDLDocument, baseURL string) []byte {
 	fprintf(&b, "  constructor(baseURL = %s) { this.baseURL = baseURL; }\n\n", baseURL)
 	for _, svc := range doc.Services {
 		for _, method := range svc.Methods {
+			method.HTTPPath = openAPIServicePath(svc, method.HTTPPath)
 			writeJavaScriptMethod(&b, method, messageByName(doc, method.Request))
 		}
 	}
@@ -1769,9 +1847,18 @@ func writeJavaScriptMethod(b *bytes.Buffer, method IDLMethod, request IDLMessage
 		fprintf(b, "  async %s(req) {\n", methodName)
 	}
 	writeJavaScriptURL(b, method, request)
-	fprintf(b, "    const init = { method: %q, headers: { 'Content-Type': 'application/json' } };\n", method.HTTPMethod)
-	if method.Request != "" && method.HTTPMethod != "GET" {
-		fprintf(b, "    init.body = JSON.stringify(req);\n")
+	fields := apiClientFields(method, request)
+	fprintf(b, "    const headers = { 'Content-Type': 'application/json' };\n")
+	for _, field := range apiClientFieldsAt(fields, apiClientFieldHeader) {
+		fprintf(b, "    if (req.%s !== undefined && req.%s !== null) headers[%q] = String(req.%s);\n", field.Property, field.Property, field.WireName, field.Property)
+	}
+	fprintf(b, "    const init = { method: %q, headers };\n", method.HTTPMethod)
+	if bodyFields := apiClientFieldsAt(fields, apiClientFieldBody); method.Request != "" && apiClientMethodAllowsBody(method.HTTPMethod) && len(bodyFields) > 0 {
+		body := "req"
+		if apiClientBodyNeedsProjection(fields, bodyFields) {
+			body = typeScriptBodyExpression(bodyFields)
+		}
+		fprintf(b, "    init.body = JSON.stringify(%s);\n", body)
 	}
 	fprintf(b, "    const resp = await fetch(url, init);\n")
 	fprintf(b, "    if (!resp.ok) throw new Error(await resp.text());\n")
@@ -1780,20 +1867,23 @@ func writeJavaScriptMethod(b *bytes.Buffer, method IDLMethod, request IDLMessage
 }
 
 func writeJavaScriptURL(b *bytes.Buffer, method IDLMethod, request IDLMessage) {
-	pathParams := openAPIPathParamNames(method.HTTPPath)
-	if len(pathParams) == 0 && (strings.ToUpper(method.HTTPMethod) != "GET" || len(request.Fields) == 0) {
-		fprintf(b, "    const url = this.baseURL + %q;\n", method.HTTPPath)
+	path := normalizeAPIRoutePath(method.HTTPPath)
+	fields := apiClientFields(method, request)
+	pathParams := openAPIPathParamNames(path)
+	queryFields := apiClientFieldsAt(fields, apiClientFieldQuery)
+	if len(pathParams) == 0 && len(queryFields) == 0 {
+		fprintf(b, "    const url = this.baseURL + %q;\n", path)
 		return
 	}
-	fprintf(b, "    let path = %q;\n", method.HTTPPath)
+	fprintf(b, "    let path = %q;\n", path)
 	if len(request.Fields) > 0 {
 		for _, name := range pathParams {
-			field := clientFieldNameForParam(request, name)
-			fprintf(b, "    path = path.replace(%q, encodeURIComponent(String(req.%s ?? '')));\n", "{"+name+"}", field)
+			field := apiClientFieldForPath(fields, name)
+			fprintf(b, "    path = path.replace(%q, encodeURIComponent(String(req.%s ?? '')));\n", "{"+name+"}", field.Property)
 		}
 	}
-	if strings.ToUpper(method.HTTPMethod) == "GET" && len(request.Fields) > 0 {
-		writeJavaScriptQueryParams(b, request, pathParams)
+	if len(queryFields) > 0 {
+		writeJavaScriptQueryParams(b, queryFields)
 		fprintf(b, "    const qs = query.toString();\n")
 		fprintf(b, "    const url = this.baseURL + path + (qs ? '?' + qs : '');\n")
 		return
@@ -1801,45 +1891,21 @@ func writeJavaScriptURL(b *bytes.Buffer, method IDLMethod, request IDLMessage) {
 	fprintf(b, "    const url = this.baseURL + path;\n")
 }
 
-func writeJavaScriptQueryParams(b *bytes.Buffer, request IDLMessage, pathParams []string) {
+func writeJavaScriptQueryParams(b *bytes.Buffer, fields []apiClientField) {
 	fprintf(b, "    const query = new URLSearchParams();\n")
-	pathParamSet := clientParamSet(pathParams)
-	for _, field := range request.Fields {
-		name := lowerCamel(field.Name)
-		if _, ok := pathParamSet[name]; ok {
-			continue
-		}
-		writeJavaScriptQueryParam(b, name)
+	for _, field := range fields {
+		writeJavaScriptQueryParam(b, field.WireName, field.Property)
 	}
 }
 
-func writeJavaScriptQueryParam(b *bytes.Buffer, name string) {
-	fprintf(b, "    if (req.%s !== undefined && req.%s !== null) {\n", name, name)
-	fprintf(b, "      if (Array.isArray(req.%s)) {\n", name)
-	fprintf(b, "        for (const item of req.%s) query.append(%q, String(item));\n", name, name)
+func writeJavaScriptQueryParam(b *bytes.Buffer, wireName, property string) {
+	fprintf(b, "    if (req.%s !== undefined && req.%s !== null) {\n", property, property)
+	fprintf(b, "      if (Array.isArray(req.%s)) {\n", property)
+	fprintf(b, "        for (const item of req.%s) query.append(%q, String(item));\n", property, wireName)
 	fprintf(b, "      } else {\n")
-	fprintf(b, "        query.append(%q, String(req.%s));\n", name, name)
+	fprintf(b, "        query.append(%q, String(req.%s));\n", wireName, property)
 	fprintf(b, "      }\n")
 	fprintf(b, "    }\n")
-}
-
-func clientFieldNameForParam(request IDLMessage, param string) string {
-	target := lowerCamel(param)
-	for _, field := range request.Fields {
-		name := lowerCamel(field.Name)
-		if name == target || strings.EqualFold(field.Name, param) {
-			return name
-		}
-	}
-	return target
-}
-
-func clientParamSet(params []string) map[string]struct{} {
-	out := make(map[string]struct{}, len(params))
-	for _, param := range params {
-		out[lowerCamel(param)] = struct{}{}
-	}
-	return out
 }
 
 func generateDartClient(doc IDLDocument, baseURL string) []byte {
@@ -1858,6 +1924,7 @@ func generateDartClient(doc IDLDocument, baseURL string) []byte {
 	fprintf(&b, "  void close() => _client.close();\n\n")
 	for _, svc := range doc.Services {
 		for _, method := range svc.Methods {
+			method.HTTPPath = openAPIServicePath(svc, method.HTTPPath)
 			writeDartMethod(&b, method, messageByName(doc, method.Request))
 		}
 	}
@@ -1873,22 +1940,23 @@ func writeDartModel(b *bytes.Buffer, msg IDLMessage) {
 		if i > 0 {
 			fprintf(b, ", ")
 		}
-		fprintf(b, "this.%s", lowerCamel(field.Name))
+		fprintf(b, "this.%s", apiClientPropertyName(field))
 	}
 	fprintf(b, "});\n\n")
 	for _, field := range msg.Fields {
-		fprintf(b, "  final %s? %s;\n", dartType(field.Type), lowerCamel(field.Name))
+		fprintf(b, "  final %s? %s;\n", dartType(field.Type), apiClientPropertyName(field))
 	}
 	fprintf(b, "\n  factory %s.fromJson(Map<String, dynamic> json) => %s(\n", typeName, typeName)
 	for _, field := range msg.Fields {
-		name := lowerCamel(field.Name)
-		fprintf(b, "        %s: %s,\n", name, dartFromJSON(field.Type, "json[\""+name+"\"]"))
+		name := apiClientPropertyName(field)
+		wireName := apiClientJSONWireName(field)
+		fprintf(b, "        %s: %s,\n", name, dartFromJSON(field.Type, "json[\""+wireName+"\"]"))
 	}
 	fprintf(b, "      );\n\n")
 	fprintf(b, "  Map<String, dynamic> toJson() => {\n")
 	for _, field := range msg.Fields {
-		name := lowerCamel(field.Name)
-		fprintf(b, "        %q: %s,\n", name, name)
+		name := apiClientPropertyName(field)
+		fprintf(b, "        %q: %s,\n", apiClientJSONWireName(field), name)
 	}
 	fprintf(b, "      };\n")
 	fprintf(b, "}\n\n")
@@ -1903,11 +1971,20 @@ func writeDartMethod(b *bytes.Buffer, method IDLMethod, request IDLMessage) {
 		fprintf(b, "  Future<%s> %s(%s req) async {\n", responseType, methodName, exportName(method.Request))
 	}
 	writeDartURL(b, method, request)
+	fields := apiClientFields(method, request)
+	fprintf(b, "    final headers = <String, String>{'Content-Type': 'application/json'};\n")
+	for _, field := range apiClientFieldsAt(fields, apiClientFieldHeader) {
+		fprintf(b, "    if (req.%s != null) headers[%q] = req.%s.toString();\n", field.Property, field.WireName, field.Property)
+	}
 	verb := strings.ToUpper(method.HTTPMethod)
-	if method.Request != "" && verb != "GET" {
-		fprintf(b, "    final resp = await _client.%s(uri, headers: {'Content-Type': 'application/json'}, body: jsonEncode(req.toJson()));\n", strings.ToLower(verb))
+	if bodyFields := apiClientFieldsAt(fields, apiClientFieldBody); method.Request != "" && verb != http.MethodGet && verb != http.MethodDelete && len(bodyFields) > 0 {
+		body := "req.toJson()"
+		if apiClientBodyNeedsProjection(fields, bodyFields) {
+			body = dartBodyExpression(bodyFields)
+		}
+		fprintf(b, "    final resp = await _client.%s(uri, headers: headers, body: jsonEncode(%s));\n", strings.ToLower(verb), body)
 	} else {
-		fprintf(b, "    final resp = await _client.%s(uri, headers: {'Content-Type': 'application/json'});\n", strings.ToLower(verb))
+		fprintf(b, "    final resp = await _client.%s(uri, headers: headers);\n", strings.ToLower(verb))
 	}
 	fprintf(b, "    if (resp.statusCode < 200 || resp.statusCode >= 300) {\n")
 	fprintf(b, "      throw Exception(resp.body);\n")
@@ -1917,20 +1994,23 @@ func writeDartMethod(b *bytes.Buffer, method IDLMethod, request IDLMessage) {
 }
 
 func writeDartURL(b *bytes.Buffer, method IDLMethod, request IDLMessage) {
-	pathParams := openAPIPathParamNames(method.HTTPPath)
-	if len(pathParams) == 0 && (strings.ToUpper(method.HTTPMethod) != "GET" || len(request.Fields) == 0) {
-		fprintf(b, "    final uri = Uri.parse('$baseURL%s');\n", method.HTTPPath)
+	path := normalizeAPIRoutePath(method.HTTPPath)
+	fields := apiClientFields(method, request)
+	pathParams := openAPIPathParamNames(path)
+	queryFields := apiClientFieldsAt(fields, apiClientFieldQuery)
+	if len(pathParams) == 0 && len(queryFields) == 0 {
+		fprintf(b, "    final uri = Uri.parse('$baseURL%s');\n", path)
 		return
 	}
-	fprintf(b, "    var path = %q;\n", method.HTTPPath)
+	fprintf(b, "    var path = %q;\n", path)
 	if len(request.Fields) > 0 {
 		for _, name := range pathParams {
-			field := clientFieldNameForParam(request, name)
-			fprintf(b, "    path = path.replaceAll(%q, Uri.encodeComponent((req.%s ?? '').toString()));\n", "{"+name+"}", field)
+			field := apiClientFieldForPath(fields, name)
+			fprintf(b, "    path = path.replaceAll(%q, Uri.encodeComponent((req.%s ?? '').toString()));\n", "{"+name+"}", field.Property)
 		}
 	}
-	if strings.ToUpper(method.HTTPMethod) == "GET" && len(request.Fields) > 0 {
-		writeDartQueryParams(b, request, pathParams)
+	if len(queryFields) > 0 {
+		writeDartQueryParams(b, queryFields)
 		fprintf(b, "    final qs = query.entries.expand((entry) => entry.value.map((value) => '${Uri.encodeQueryComponent(entry.key)}=${Uri.encodeQueryComponent(value)}')).join('&');\n")
 		fprintf(b, "    final uri = Uri.parse('$baseURL$path${qs.isNotEmpty ? '?$qs' : ''}');\n")
 		return
@@ -1938,7 +2018,7 @@ func writeDartURL(b *bytes.Buffer, method IDLMethod, request IDLMessage) {
 	fprintf(b, "    final uri = Uri.parse('$baseURL$path');\n")
 }
 
-func writeDartQueryParams(b *bytes.Buffer, request IDLMessage, pathParams []string) {
+func writeDartQueryParams(b *bytes.Buffer, fields []apiClientField) {
 	fprintf(b, "    final query = <String, List<String>>{};\n")
 	fprintf(b, "    void addQuery(String name, Object? value) {\n")
 	fprintf(b, "      if (value == null) return;\n")
@@ -1948,14 +2028,17 @@ func writeDartQueryParams(b *bytes.Buffer, request IDLMessage, pathParams []stri
 	fprintf(b, "      }\n")
 	fprintf(b, "      query.putIfAbsent(name, () => <String>[]).add(value.toString());\n")
 	fprintf(b, "    }\n")
-	pathParamSet := clientParamSet(pathParams)
-	for _, field := range request.Fields {
-		name := lowerCamel(field.Name)
-		if _, ok := pathParamSet[name]; ok {
-			continue
-		}
-		fprintf(b, "    addQuery(%q, req.%s);\n", name, name)
+	for _, field := range fields {
+		fprintf(b, "    addQuery(%q, req.%s);\n", field.WireName, field.Property)
 	}
+}
+
+func dartBodyExpression(fields []apiClientField) string {
+	parts := make([]string, 0, len(fields))
+	for _, field := range fields {
+		parts = append(parts, fmt.Sprintf("%q: req.%s", field.WireName, field.Property))
+	}
+	return "{" + strings.Join(parts, ", ") + "}"
 }
 
 func dartType(name string) string {
@@ -2020,6 +2103,7 @@ func generateJavaClient(doc IDLDocument, baseURL string) []byte {
 	}
 	for _, svc := range doc.Services {
 		for _, method := range svc.Methods {
+			method.HTTPPath = openAPIServicePath(svc, method.HTTPPath)
 			writeJavaMethod(&b, method, messageByName(doc, method.Request))
 		}
 	}
@@ -2031,7 +2115,7 @@ func generateJavaClient(doc IDLDocument, baseURL string) []byte {
 func writeJavaModel(b *bytes.Buffer, msg IDLMessage) {
 	fprintf(b, "  public static class %s {\n", exportName(msg.Name))
 	for _, field := range msg.Fields {
-		fprintf(b, "    public %s %s;\n", javaType(field.Type), lowerCamel(field.Name))
+		fprintf(b, "    public %s %s;\n", javaType(field.Type), apiClientPropertyName(field))
 	}
 	fprintf(b, "  }\n\n")
 }
@@ -2045,10 +2129,26 @@ func writeJavaMethod(b *bytes.Buffer, method IDLMethod, request IDLMessage) {
 		fprintf(b, "  public %s %s(%s req) throws Exception {\n", responseType, methodName, exportName(method.Request))
 	}
 	writeJavaURL(b, method, request)
+	fields := apiClientFields(method, request)
+	bodyFields := apiClientFieldsAt(fields, apiClientFieldBody)
+	projectBody := apiClientBodyNeedsProjection(fields, bodyFields)
+	if len(bodyFields) > 0 && projectBody {
+		fprintf(b, "    java.util.Map<String, Object> body = new java.util.LinkedHashMap<>();\n")
+		for _, field := range bodyFields {
+			fprintf(b, "    body.put(%q, req.%s);\n", field.WireName, field.Property)
+		}
+	}
 	fprintf(b, "    HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(url));\n")
+	for _, field := range apiClientFieldsAt(fields, apiClientFieldHeader) {
+		fprintf(b, "    if (req.%s != null) builder.header(%q, String.valueOf(req.%s));\n", field.Property, field.WireName, field.Property)
+	}
 	verb := strings.ToUpper(method.HTTPMethod)
-	if method.Request != "" && verb != "GET" {
-		fprintf(b, "    builder.method(%q, HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(req)));\n", verb)
+	if method.Request != "" && apiClientMethodAllowsBody(method.HTTPMethod) && len(bodyFields) > 0 {
+		body := "req"
+		if projectBody {
+			body = "body"
+		}
+		fprintf(b, "    builder.method(%q, HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(%s)));\n", verb, body)
 	} else {
 		fprintf(b, "    builder.method(%q, HttpRequest.BodyPublishers.noBody());\n", verb)
 	}
@@ -2060,35 +2160,33 @@ func writeJavaMethod(b *bytes.Buffer, method IDLMethod, request IDLMessage) {
 }
 
 func writeJavaURL(b *bytes.Buffer, method IDLMethod, request IDLMessage) {
-	pathParams := openAPIPathParamNames(method.HTTPPath)
-	if len(pathParams) == 0 && (strings.ToUpper(method.HTTPMethod) != "GET" || len(request.Fields) == 0) {
-		fprintf(b, "    String url = baseURL + %q;\n", method.HTTPPath)
+	path := normalizeAPIRoutePath(method.HTTPPath)
+	fields := apiClientFields(method, request)
+	pathParams := openAPIPathParamNames(path)
+	queryFields := apiClientFieldsAt(fields, apiClientFieldQuery)
+	if len(pathParams) == 0 && len(queryFields) == 0 {
+		fprintf(b, "    String url = baseURL + %q;\n", path)
 		return
 	}
-	fprintf(b, "    String path = %q;\n", method.HTTPPath)
+	fprintf(b, "    String path = %q;\n", path)
 	if len(request.Fields) > 0 {
 		for _, name := range pathParams {
-			field := clientFieldNameForParam(request, name)
-			fprintf(b, "    path = path.replace(%q, URLEncoder.encode(String.valueOf(req.%s == null ? \"\" : req.%s), StandardCharsets.UTF_8));\n", "{"+name+"}", field, field)
+			field := apiClientFieldForPath(fields, name)
+			fprintf(b, "    path = path.replace(%q, URLEncoder.encode(String.valueOf(req.%s == null ? \"\" : req.%s), StandardCharsets.UTF_8));\n", "{"+name+"}", field.Property, field.Property)
 		}
 	}
-	if strings.ToUpper(method.HTTPMethod) == "GET" && len(request.Fields) > 0 {
-		writeJavaQueryParams(b, request, pathParams)
+	if len(queryFields) > 0 {
+		writeJavaQueryParams(b, queryFields)
 		fprintf(b, "    String url = baseURL + path + (query.length() > 0 ? \"?\" + query : \"\");\n")
 		return
 	}
 	fprintf(b, "    String url = baseURL + path;\n")
 }
 
-func writeJavaQueryParams(b *bytes.Buffer, request IDLMessage, pathParams []string) {
+func writeJavaQueryParams(b *bytes.Buffer, fields []apiClientField) {
 	fprintf(b, "    StringBuilder query = new StringBuilder();\n")
-	pathParamSet := clientParamSet(pathParams)
-	for _, field := range request.Fields {
-		name := lowerCamel(field.Name)
-		if _, ok := pathParamSet[name]; ok {
-			continue
-		}
-		fprintf(b, "    appendQuery(query, %q, req.%s);\n", name, name)
+	for _, field := range fields {
+		fprintf(b, "    appendQuery(query, %q, req.%s);\n", field.WireName, field.Property)
 	}
 }
 
@@ -2153,6 +2251,7 @@ func generateKotlinClient(doc IDLDocument, baseURL string) []byte {
 	fprintf(&b, "  private val json = Json { ignoreUnknownKeys = true }\n\n")
 	for _, svc := range doc.Services {
 		for _, method := range svc.Methods {
+			method.HTTPPath = openAPIServicePath(svc, method.HTTPPath)
 			writeKotlinMethod(&b, method, messageByName(doc, method.Request))
 		}
 	}
@@ -2169,7 +2268,7 @@ func writeKotlinModel(b *bytes.Buffer, msg IDLMessage) {
 		if i == len(msg.Fields)-1 {
 			comma = ""
 		}
-		fprintf(b, "  val %s: %s? = null%s\n", lowerCamel(field.Name), kotlinType(field.Type), comma)
+		fprintf(b, "  val %s: %s? = null%s\n", apiClientPropertyName(field), kotlinType(field.Type), comma)
 	}
 	fprintf(b, ")\n\n")
 }
@@ -2183,10 +2282,18 @@ func writeKotlinMethod(b *bytes.Buffer, method IDLMethod, request IDLMessage) {
 		fprintf(b, "  fun %s(req: %s): %s {\n", methodName, exportName(method.Request), responseType)
 	}
 	writeKotlinURL(b, method, request)
+	fields := apiClientFields(method, request)
 	fprintf(b, "    val builder = HttpRequest.newBuilder(URI.create(url))\n")
+	for _, field := range apiClientFieldsAt(fields, apiClientFieldHeader) {
+		fprintf(b, "      .header(%q, req.%s?.toString() ?: \"\")\n", field.WireName, field.Property)
+	}
 	verb := strings.ToUpper(method.HTTPMethod)
-	if method.Request != "" && verb != "GET" {
-		fprintf(b, "      .method(%q, HttpRequest.BodyPublishers.ofString(json.encodeToString(req)))\n", verb)
+	if bodyFields := apiClientFieldsAt(fields, apiClientFieldBody); method.Request != "" && apiClientMethodAllowsBody(method.HTTPMethod) && len(bodyFields) > 0 {
+		body := "req"
+		if apiClientBodyNeedsProjection(fields, bodyFields) {
+			body = kotlinBodyExpression(bodyFields)
+		}
+		fprintf(b, "      .method(%q, HttpRequest.BodyPublishers.ofString(json.encodeToString(%s)))\n", verb, body)
 	} else {
 		fprintf(b, "      .method(%q, HttpRequest.BodyPublishers.noBody())\n", verb)
 	}
@@ -2198,36 +2305,42 @@ func writeKotlinMethod(b *bytes.Buffer, method IDLMethod, request IDLMessage) {
 }
 
 func writeKotlinURL(b *bytes.Buffer, method IDLMethod, request IDLMessage) {
-	pathParams := openAPIPathParamNames(method.HTTPPath)
-	if len(pathParams) == 0 && (strings.ToUpper(method.HTTPMethod) != "GET" || len(request.Fields) == 0) {
-		fprintf(b, "    val url = baseURL.trimEnd('/') + %q\n", method.HTTPPath)
+	path := normalizeAPIRoutePath(method.HTTPPath)
+	fields := apiClientFields(method, request)
+	pathParams := openAPIPathParamNames(path)
+	queryFields := apiClientFieldsAt(fields, apiClientFieldQuery)
+	if len(pathParams) == 0 && len(queryFields) == 0 {
+		fprintf(b, "    val url = baseURL.trimEnd('/') + %q\n", path)
 		return
 	}
-	fprintf(b, "    var path = %q\n", method.HTTPPath)
+	fprintf(b, "    var path = %q\n", path)
 	if len(request.Fields) > 0 {
 		for _, name := range pathParams {
-			field := clientFieldNameForParam(request, name)
-			fprintf(b, "    path = path.replace(%q, URLEncoder.encode((req.%s ?: \"\").toString(), StandardCharsets.UTF_8))\n", "{"+name+"}", field)
+			field := apiClientFieldForPath(fields, name)
+			fprintf(b, "    path = path.replace(%q, URLEncoder.encode((req.%s ?: \"\").toString(), StandardCharsets.UTF_8))\n", "{"+name+"}", field.Property)
 		}
 	}
-	if strings.ToUpper(method.HTTPMethod) == "GET" && len(request.Fields) > 0 {
-		writeKotlinQueryParams(b, request, pathParams)
+	if len(queryFields) > 0 {
+		writeKotlinQueryParams(b, queryFields)
 		fprintf(b, "    val url = baseURL.trimEnd('/') + path + if (query.isNotEmpty()) \"?$query\" else \"\"\n")
 		return
 	}
 	fprintf(b, "    val url = baseURL.trimEnd('/') + path\n")
 }
 
-func writeKotlinQueryParams(b *bytes.Buffer, request IDLMessage, pathParams []string) {
+func writeKotlinQueryParams(b *bytes.Buffer, fields []apiClientField) {
 	fprintf(b, "    val query = StringBuilder()\n")
-	pathParamSet := clientParamSet(pathParams)
-	for _, field := range request.Fields {
-		name := lowerCamel(field.Name)
-		if _, ok := pathParamSet[name]; ok {
-			continue
-		}
-		fprintf(b, "    appendQuery(query, %q, req.%s)\n", name, name)
+	for _, field := range fields {
+		fprintf(b, "    appendQuery(query, %q, req.%s)\n", field.WireName, field.Property)
 	}
+}
+
+func kotlinBodyExpression(fields []apiClientField) string {
+	parts := make([]string, 0, len(fields))
+	for _, field := range fields {
+		parts = append(parts, fmt.Sprintf("%q to req.%s", field.WireName, field.Property))
+	}
+	return "mapOf(" + strings.Join(parts, ", ") + ")"
 }
 
 func writeKotlinQueryHelper(b *bytes.Buffer) {
@@ -2381,21 +2494,14 @@ func buildAPIOpenAPISpec(doc IDLDocument) map[string]any {
 			if security := openAPIOperationSecurity(svc); len(security) > 0 {
 				operation["security"] = security
 			}
-			if parameters := openAPIPathParameters(path, messageByName(doc, method.Request), messageNames); len(parameters) > 0 {
+			request := messageByName(doc, method.Request)
+			if parameters := openAPIRequestParameters(method, request, messageNames); len(parameters) > 0 {
 				operation["parameters"] = parameters
 			}
-			if method.Request != "" && method.HTTPMethod == "GET" {
-				operation["parameters"] = appendOpenAPIQueryParameters(
-					operation["parameters"],
-					messageByName(doc, method.Request),
-					messageNames,
-					openAPIPathParamNames(path),
-				)
-			}
-			if method.Request != "" && method.HTTPMethod != "GET" {
+			if bodyFields := apiClientFieldsAt(apiClientFields(method, request), apiClientFieldBody); method.Request != "" && apiClientMethodAllowsBody(method.HTTPMethod) && len(bodyFields) > 0 {
 				operation["requestBody"] = map[string]any{
 					"required": true,
-					"content":  jsonContentRef(method.Request, messageByName(doc, method.Request), messageNames),
+					"content":  apiRequestJSONContent(method.Request, request, bodyFields, messageNames),
 				}
 			}
 			pathItem[strings.ToLower(method.HTTPMethod)] = operation
@@ -2500,6 +2606,7 @@ func openAPIOperationSecurity(svc IDLService) []map[string][]string {
 }
 
 func openAPIServicePath(svc IDLService, path string) string {
+	path = normalizeAPIRoutePath(path)
 	prefix := strings.TrimRight(strings.TrimSpace(svc.Server.Prefix), "/")
 	if prefix == "" || prefix == "/" || strings.HasPrefix(path, prefix+"/") || path == prefix {
 		return path
@@ -2545,26 +2652,53 @@ func messageByName(doc IDLDocument, name string) IDLMessage {
 	return IDLMessage{}
 }
 
-func openAPIPathParameters(path string, msg IDLMessage, messageNames map[string]struct{}) []map[string]any {
-	names := openAPIPathParamNames(path)
-	out := make([]map[string]any, 0, len(names))
-	for _, name := range names {
-		field, ok := openAPIMessageField(msg, name)
-		schema := map[string]any{"type": "string"}
-		if ok {
-			schema = openAPISchema(field.Type, messageNames)
+func openAPIRequestParameters(method IDLMethod, msg IDLMessage, messageNames map[string]struct{}) []map[string]any {
+	fields := apiClientFields(method, msg)
+	out := make([]map[string]any, 0, len(fields))
+	for _, location := range []apiClientFieldLocation{apiClientFieldPath, apiClientFieldQuery, apiClientFieldHeader} {
+		for _, field := range apiClientFieldsAt(fields, location) {
+			parameter := map[string]any{
+				"name":     field.WireName,
+				"in":       string(location),
+				"required": location == apiClientFieldPath || openAPIFieldRequired(field.Field),
+				"schema":   openAPISchema(field.Field.Type, messageNames),
+			}
+			if example, ok := openAPIFieldExample(field.Field, messageNames); ok {
+				parameter["example"] = example
+			}
+			out = append(out, parameter)
 		}
-		out = append(out, map[string]any{
-			"name":     name,
-			"in":       "path",
-			"required": true,
-			"schema":   schema,
-		})
 	}
 	return out
 }
 
+func apiRequestJSONContent(name string, msg IDLMessage, fields []apiClientField, messageNames map[string]struct{}) map[string]any {
+	if len(fields) == len(msg.Fields) {
+		return jsonContentRef(name, msg, messageNames)
+	}
+	properties := make(map[string]any, len(fields))
+	required := make([]string, 0, len(fields))
+	example := make(map[string]any, len(fields))
+	for _, clientField := range fields {
+		properties[clientField.WireName] = openAPISchema(clientField.Field.Type, messageNames)
+		if openAPIFieldRequired(clientField.Field) {
+			required = append(required, clientField.WireName)
+		}
+		if value, ok := openAPIFieldExample(clientField.Field, messageNames); ok {
+			example[clientField.WireName] = value
+		} else {
+			example[clientField.WireName] = openAPIDefaultExample(clientField.Field.Type, messageNames)
+		}
+	}
+	schema := map[string]any{"type": "object", "properties": properties}
+	if len(required) > 0 {
+		schema["required"] = required
+	}
+	return map[string]any{"application/json": map[string]any{"schema": schema, "example": example}}
+}
+
 func openAPIPathParamNames(path string) []string {
+	path = normalizeAPIRoutePath(path)
 	var names []string
 	for {
 		start := strings.Index(path, "{")
@@ -2584,6 +2718,19 @@ func openAPIPathParamNames(path string) []string {
 	}
 }
 
+// normalizeAPIRoutePath translates go-zero's :name path parameters to the
+// Go 1.22+ ServeMux {name} syntax used by the gofly REST runtime. Existing
+// ServeMux patterns are preserved.
+func normalizeAPIRoutePath(path string) string {
+	parts := strings.Split(path, "/")
+	for index, part := range parts {
+		if strings.HasPrefix(part, ":") && len(part) > 1 {
+			parts[index] = "{" + strings.TrimPrefix(part, ":") + "}"
+		}
+	}
+	return strings.Join(parts, "/")
+}
+
 func normalizeAPIPathParamName(name string) string {
 	name = strings.TrimSpace(name)
 	name = strings.TrimSuffix(name, "...")
@@ -2591,37 +2738,6 @@ func normalizeAPIPathParamName(name string) string {
 		return ""
 	}
 	return name
-}
-
-func appendOpenAPIQueryParameters(existing any, msg IDLMessage, messageNames map[string]struct{}, pathParamNames []string) []map[string]any {
-	var out []map[string]any
-	if values, ok := existing.([]map[string]any); ok {
-		out = append(out, values...)
-	}
-	pathParams := make(map[string]struct{}, len(pathParamNames))
-	for _, name := range pathParamNames {
-		name = lowerCamel(name)
-		if name != "" {
-			pathParams[name] = struct{}{}
-		}
-	}
-	for _, field := range msg.Fields {
-		fieldName := openAPIFieldName(field)
-		if _, ok := pathParams[fieldName]; ok {
-			continue
-		}
-		param := map[string]any{
-			"name":     fieldName,
-			"in":       "query",
-			"required": false,
-			"schema":   openAPISchema(field.Type, messageNames),
-		}
-		if example, ok := openAPIFieldExample(field, messageNames); ok {
-			param["example"] = example
-		}
-		out = append(out, param)
-	}
-	return out
 }
 
 func openAPIMessageSchema(msg IDLMessage, messageNames map[string]struct{}) map[string]any {
@@ -2670,15 +2786,6 @@ func openAPIMessageExample(msg IDLMessage, messageNames map[string]struct{}) map
 	return out
 }
 
-func openAPIMessageField(msg IDLMessage, name string) (IDLField, bool) {
-	for _, field := range msg.Fields {
-		if openAPIFieldName(field) == lowerCamel(name) || strings.EqualFold(field.Name, name) {
-			return field, true
-		}
-	}
-	return IDLField{}, false
-}
-
 func openAPIFieldName(field IDLField) string {
 	if field.Tag != "" {
 		if name := strings.Split(reflect.StructTag(field.Tag).Get("json"), ",")[0]; name != "" {
@@ -2698,11 +2805,19 @@ func openAPIFieldRequired(field IDLField) bool {
 	if field.Tag == "" {
 		return true
 	}
-	jsonTag := reflect.StructTag(field.Tag).Get("json")
-	if strings.Contains(jsonTag, "omitempty") || strings.Contains(field.Tag, `optional:"true"`) {
-		return false
+	for _, key := range []string{apiTagJSON, apiTagForm, apiTagQuery, apiTagPath, apiTagHeader} {
+		if raw, ok := lookupAPIStructTag(field.Tag, key); ok {
+			parts, err := splitGoZeroAPITagParts(raw)
+			if err == nil {
+				for _, option := range parts[1:] {
+					if option = strings.TrimSpace(option); option == "omitempty" || option == "optional" {
+						return false
+					}
+				}
+			}
+		}
 	}
-	return true
+	return !strings.Contains(field.Tag, `optional:"true"`)
 }
 
 func openAPIFieldExample(field IDLField, messageNames map[string]struct{}) (any, bool) {
@@ -2946,9 +3061,14 @@ func writeMethodFile(dir string, method IDLMethod, svc IDLService, pkg, rpcAlias
 	fprintf(&b, "\t\"github.com/imajinyun/gofly/rest\"\n")
 	fprintf(&b, ")\n\n")
 	fprintf(&b, "func Register%sRoute(s *rest.Server, impl %s) {\n", methodName, serviceName)
+	statusCode := apiSuccessStatus(method)
+	description := http.StatusText(statusCode)
+	if description == "" {
+		description = "OK"
+	}
 	fprintf(&b, "\tresponses := rest.DefaultErrorResponses()\n")
-	fprintf(&b, "\tresponses[\"200\"] = rest.JSONResponse(\"OK\", rest.StructSchema(%s{}))\n", responseName)
-	fprintf(&b, "\troute := rest.Route{Method: http.Method%s, Path: %q, Responses: responses", exportName(strings.ToLower(method.HTTPMethod)), method.HTTPPath)
+	fprintf(&b, "\tresponses[%q] = rest.JSONResponse(%q, rest.StructSchema(%s{}))\n", strconv.Itoa(statusCode), description, responseName)
+	fprintf(&b, "\troute := rest.Route{Method: http.Method%s, Path: %q, Responses: responses", exportName(strings.ToLower(method.HTTPMethod)), normalizeAPIRoutePath(method.HTTPPath))
 	if method.Request != "" {
 		fprintf(&b, ", Parameters: rest.ParametersFromStruct(%s{})", requestName)
 		if strings.ToUpper(method.HTTPMethod) != http.MethodGet && strings.ToUpper(method.HTTPMethod) != http.MethodDelete {
@@ -2967,10 +3087,10 @@ func writeMethodFile(dir string, method IDLMethod, svc IDLService, pkg, rpcAlias
 		fprintf(&b, "\t\tresp, err := impl.%s(ctx.Request.Context())\n", methodName)
 	}
 	fprintf(&b, "\t\tif err != nil {\n")
-	fprintf(&b, "\t\t\tctx.JSON(http.StatusInternalServerError, map[string]string{\"error\": err.Error()})\n")
+	fprintf(&b, "\t\t\tctx.Error(err)\n")
 	fprintf(&b, "\t\t\treturn\n")
 	fprintf(&b, "\t\t}\n")
-	fprintf(&b, "\t\tctx.JSON(http.StatusOK, resp)\n")
+	fprintf(&b, "\t\tctx.JSON(%s, resp)\n", apiHTTPStatusExpression(statusCode))
 	fprintf(&b, "\t}}\n")
 	fprintf(&b, "\ts.AddRoute(route)\n")
 	fprintf(&b, "}\n")
@@ -3517,6 +3637,9 @@ func writeGoZeroAPIMiddlewareFiles(root string, names []string) error {
 func writeGoZeroAPIMainFile(root string, module string, serviceName string, jwtNames []string) error {
 	var b bytes.Buffer
 	fileName := goZeroAPIMainFileName(serviceName)
+	if existing := existingCommandMainFile(root, "-api"); existing != "" {
+		fileName = existing
+	}
 	fprintf(&b, "package main\n\n")
 	fprintf(&b, "import (\n")
 	fprintf(&b, "\t\"context\"\n")
@@ -3621,7 +3744,7 @@ func writeGoZeroAPIHandlerFile(root, module string, group string, method IDLMeth
 	if sse {
 		fprintf(&b, "\t\tif err := ctx.SSEJSON(rest.SSEEvent{}, resp); err != nil { ctx.Error(err) }\n")
 	} else {
-		fprintf(&b, "\t\tctx.JSON(http.StatusOK, resp)\n")
+		fprintf(&b, "\t\tctx.JSON(%s, resp)\n", apiHTTPStatusExpression(apiSuccessStatus(method)))
 	}
 	fprintf(&b, "\t}\n")
 	fprintf(&b, "}\n")
@@ -3853,10 +3976,7 @@ func goZeroAPIUsesTimeout(services []IDLService) bool {
 
 func writeGoZeroAPIRouteResponses(b *bytes.Buffer, method IDLMethod) string {
 	variable := "responses" + exportName(method.Name)
-	statusCode := http.StatusOK
-	if parsed, ok := apiResponseStatusCode(method.Doc["respcode"]); ok {
-		statusCode = parsed
-	}
+	statusCode := apiSuccessStatus(method)
 	descriptions := apiResponseDescriptions(method)
 	description := http.StatusText(statusCode)
 	if documented := strings.TrimSpace(descriptions[statusCode]); documented != "" {
@@ -3901,11 +4021,11 @@ func writeGoZeroAPIRouteRegistration(b *bytes.Buffer, svc IDLService, method IDL
 		fprintf(b, "\t{\n")
 		fprintf(b, "\t\topts := []rest.RouteOption{%s}\n", strings.Join(optionVars, ", "))
 		writeGoZeroAPIRouteDynamicOptions(b, svc)
-		fprintf(b, "\t\tserver.AddRoute(rest.Route{Method: http.Method%s, Path: %q, Responses: %s, Handler: %s(stx)}, opts...)\n", methodName, method.HTTPPath, responses, handlerCall)
+		fprintf(b, "\t\tserver.AddRoute(rest.Route{Method: http.Method%s, Path: %q, Responses: %s, Handler: %s(stx)}, opts...)\n", methodName, normalizeAPIRoutePath(method.HTTPPath), responses, handlerCall)
 		fprintf(b, "\t}\n")
 		return
 	}
-	fprintf(b, "\tserver.AddRoute(rest.Route{Method: http.Method%s, Path: %q, Responses: %s, Handler: %s(stx)})\n", methodName, method.HTTPPath, responses, handlerCall)
+	fprintf(b, "\tserver.AddRoute(rest.Route{Method: http.Method%s, Path: %q, Responses: %s, Handler: %s(stx)})\n", methodName, normalizeAPIRoutePath(method.HTTPPath), responses, handlerCall)
 }
 
 func writeGoZeroAPIRouteDynamicOptions(b *bytes.Buffer, svc IDLService) {
@@ -4096,26 +4216,6 @@ func goZeroAPIHasGroup(group string) bool {
 	return name != "" && name != "api" && name != "http" && name != "handler"
 }
 
-func goZeroAPIHandlerGroups(services []IDLService) []string {
-	seen := map[string]struct{}{}
-	groups := make([]string, 0, len(services))
-	for _, svc := range services {
-		if !goZeroAPIHasGroup(svc.Server.Group) {
-			continue
-		}
-		name := lowerName(svc.Server.Group)
-		if _, ok := seen[name]; ok {
-			continue
-		}
-		seen[name] = struct{}{}
-		groups = append(groups, svc.Server.Group)
-	}
-	sort.Slice(groups, func(i, j int) bool {
-		return lowerName(groups[i]) < lowerName(groups[j])
-	})
-	return groups
-}
-
 func goZeroAPIMiddlewareNames(names []string) []string {
 	out := make([]string, 0, len(names))
 	seen := map[string]struct{}{}
@@ -4152,19 +4252,7 @@ func goZeroAPIMiddlewareFile(name string) string {
 
 func goZeroAPIMainFileName(serviceName string) string {
 	name := strings.ToLower(strings.TrimSpace(serviceName))
-	if name == "" {
-		name = "service"
-	}
-	return filepath.Join("cmd", name, "main.go")
-}
-
-func goZeroAPIBinder(method string) string {
-	switch strings.ToUpper(strings.TrimSpace(method)) {
-	case http.MethodGet, http.MethodDelete:
-		return "BindQuery"
-	default:
-		return "BindRequest"
-	}
+	return filepath.Join("cmd", serviceCommandName(name, "api"), "main.go")
 }
 
 func writeConvertersFile(dir string, doc IDLDocument, pkg, rpcAlias, rpcPkg string) error {

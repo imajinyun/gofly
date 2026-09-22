@@ -310,6 +310,75 @@ func TestBuildServiceScaffoldIRNormalizesInputs(t *testing.T) {
 	}
 }
 
+func TestServiceCommandName(t *testing.T) {
+	tests := []struct {
+		name    string
+		service string
+		kind    string
+		want    string
+	}{
+		{name: "combined service", service: "world", kind: "service", want: "world"},
+		{name: "api entry", service: "world", kind: "api", want: "world-api"},
+		{name: "api suffix is idempotent", service: "world-api", kind: "API", want: "world-api"},
+		{name: "grpc entry", service: "world", kind: "rpc", want: "world-grpc"},
+		{name: "grpc suffix is idempotent", service: "world-grpc", kind: "RPC", want: "world-grpc"},
+		{name: "empty fallback", service: "", kind: "api", want: "service-api"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := serviceCommandName(tt.service, tt.kind); got != tt.want {
+				t.Fatalf("serviceCommandName(%q, %q) = %q, want %q", tt.service, tt.kind, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestModuleCommandBase(t *testing.T) {
+	tests := []struct {
+		name     string
+		module   string
+		fallback string
+		want     string
+	}{
+		{name: "module basename", module: "example.com/teams/world", fallback: "user.v1", want: "world"},
+		{name: "trim trailing slash", module: "example.com/teams/World/", fallback: "user.v1", want: "world"},
+		{name: "fallback", fallback: "UserV1", want: "userv1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := moduleCommandBase(tt.module, tt.fallback); got != tt.want {
+				t.Fatalf("moduleCommandBase(%q, %q) = %q, want %q", tt.module, tt.fallback, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExistingCommandMainFileRequiresUniqueSuffixMatch(t *testing.T) {
+	root := t.TempDir()
+	writeMain := func(rel string) {
+		t.Helper()
+		path := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("package main\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if got := existingCommandMainFile(root, "-api"); got != "" {
+		t.Fatalf("missing command match = %q, want empty", got)
+	}
+	writeMain(filepath.Join("cmd", "world-api", "main.go"))
+	if got := existingCommandMainFile(root, "-api"); got != filepath.Join("cmd", "world-api", "main.go") {
+		t.Fatalf("unique command match = %q, want world-api main", got)
+	}
+	writeMain(filepath.Join("cmd", "admin-api", "main.go"))
+	if got := existingCommandMainFile(root, "-api"); got != "" {
+		t.Fatalf("ambiguous command match = %q, want empty", got)
+	}
+}
+
 func TestGeneratedResilienceTemplateDataFeedsServiceAndGatewayScaffolds(t *testing.T) {
 	data := serviceScaffoldData(ServiceScaffoldOptions{Name: "edge", Module: "example.com/edge"})
 	for _, key := range []string{

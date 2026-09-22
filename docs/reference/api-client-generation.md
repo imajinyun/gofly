@@ -39,5 +39,11 @@ The gate verifies:
 3. Query arrays must continue to serialize as repeated query parameters.
 4. Java and Kotlin default filenames remain `APIClient.java` and
    `APIClient.kt`.
-5. The gate is structural by default; language toolchain compilation can be
+5. Field location tags are transport contracts: `path` fields replace route
+   placeholders, `form`/`query` fields become query parameters, `header` fields
+   become HTTP headers, and only `json`/body fields are serialized in request
+   bodies. A field must not leak into another request location.
+6. Both go-zero `:name` and OpenAPI `{name}` route parameters are normalized to
+   `{name}` in generated clients.
+7. The gate is structural by default; language toolchain compilation can be
    added later without making Node, Java, Dart, or Kotlin mandatory locally.

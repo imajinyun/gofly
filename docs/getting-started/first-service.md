@@ -11,7 +11,7 @@ creates the Tier 0 layout. These paths are the contract:
 | `internal/routes/` | REST route registration |
 | `internal/api/http/v1/ping/` | Default REST handler |
 | `internal/app/` | Business logic |
-| `internal/api/grpc/` | Default RPC service |
+| `internal/api/grpc/v1/greeter/` | Default gRPC adapter |
 | `internal/admin/` | Control-plane contributors |
 | `internal/discovery/` | Discovery wiring |
 | `internal/smoke/` | Generated smoke tests |

@@ -2,6 +2,7 @@ package generator
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -86,6 +87,7 @@ func buildServiceScaffoldIR(opts ServiceScaffoldOptions) (serviceScaffoldIR, err
 	if profile == ProfileGoZeroCompatible && strings.EqualFold(opts.Kind, "rpc") {
 		files = goZeroRPCServiceFiles(style, opts.Name)
 	}
+	applyServiceCommandLayout(files, data, opts.Name, opts.Kind)
 	mergeServiceScaffoldExtras(files, opts, style, profile)
 
 	files, err = applyServiceTemplateSource(files, opts)
@@ -120,6 +122,77 @@ func buildServiceScaffoldIR(opts ServiceScaffoldOptions) (serviceScaffoldIR, err
 		RuntimeFeatures: serviceScaffoldRuntimeFeatures(profile, opts.Kind),
 		Plugins:         normalizedServicePlugins(opts.Plugins),
 	}, nil
+}
+
+func applyServiceCommandLayout(files, data map[string]string, name, kind string) {
+	commandName := serviceCommandName(name, kind)
+	if commandName == name {
+		return
+	}
+	oldPath := filepath.Join("cmd", name, "main.go")
+	if mainTemplate, ok := files[oldPath]; ok {
+		delete(files, oldPath)
+		files[filepath.Join("cmd", commandName, "main.go")] = mainTemplate
+	}
+	data["GoFile"] = "./cmd/" + commandName
+	data["Exe"] = commandName
+}
+
+func serviceCommandName(name, kind string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "service"
+	}
+	switch {
+	case strings.EqualFold(kind, "api"):
+		if strings.HasSuffix(strings.ToLower(name), "-api") {
+			return name
+		}
+		return name + "-api"
+	case strings.EqualFold(kind, "rpc"):
+		if strings.HasSuffix(strings.ToLower(name), "-grpc") {
+			return name
+		}
+		return name + "-grpc"
+	default:
+		return name
+	}
+}
+
+func moduleCommandBase(module, fallback string) string {
+	module = strings.Trim(strings.TrimSpace(module), "/")
+	if module != "" {
+		if base := strings.TrimSpace(filepath.Base(module)); base != "" && base != "." {
+			return lowerName(base)
+		}
+	}
+	return lowerName(fallback)
+}
+
+func existingCommandMainFile(root, suffix string) string {
+	cmdDir, err := safeRelativeTarget(root, "cmd", "generated command lookup")
+	if err != nil {
+		return ""
+	}
+	entries, err := os.ReadDir(cmdDir)
+	if err != nil {
+		return ""
+	}
+	var match string
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), suffix) {
+			continue
+		}
+		rel := filepath.Join("cmd", entry.Name(), "main.go")
+		if _, err := ReadFileUnderRoot(root, rel, "generated command lookup"); err != nil {
+			continue
+		}
+		if match != "" {
+			return ""
+		}
+		match = rel
+	}
+	return match
 }
 
 func normalizeGenerationProfile(profile string) (GenerationProfile, error) {

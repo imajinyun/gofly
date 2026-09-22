@@ -19,11 +19,7 @@ func apiCheckCommand(args []string) error {
 	if apiFile == "" {
 		return fmt.Errorf("%w: api file is required", errUsage)
 	}
-	content, err := readExplicitInputFile(apiFile, "api")
-	if err != nil {
-		return err
-	}
-	doc, err := generator.ParseAPI(string(content))
+	doc, err := generator.LoadAPI(apiFile)
 	if err != nil {
 		return err
 	}

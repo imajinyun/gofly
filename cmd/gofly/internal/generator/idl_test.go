@@ -2910,8 +2910,8 @@ service orders-api {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(handler), "ctx.JSON(http.StatusOK, resp)") {
-		t.Fatalf("@doc(respCode) must not change goctl-compatible handler status:\n%s", handler)
+	if !strings.Contains(string(handler), "ctx.JSON(http.StatusCreated, resp)") {
+		t.Fatalf("@doc(respCode) must drive goctl-compatible handler status:\n%s", handler)
 	}
 }
 

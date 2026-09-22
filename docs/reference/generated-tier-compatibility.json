@@ -110,6 +110,7 @@
         "make goctl-generator-compat-check"
       ],
       "requiredArtifacts": [
+        "cmd/<name>-api/main.go",
         "internal/routes/routes.go",
         "internal/api/http/v1/ping/ping.go",
         "internal/app/ping.go",
@@ -143,7 +144,9 @@
         "make test-generated-matrix"
       ],
       "requiredArtifacts": [
-        "internal/api/grpc/greeter.go",
+        "cmd/<name>-grpc/main.go",
+        "internal/api/grpc/v1/register.gen.go",
+        "internal/api/grpc/v1/greeter/greeter.go",
         "<name>.proto"
       ],
       "rollbackOrEscalation": "Rollback by preserving generated RPC descriptors and compatibility adapter output until smoke passes."

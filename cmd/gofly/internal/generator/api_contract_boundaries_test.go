@@ -245,9 +245,6 @@ func TestGeneratedAPIClientsPreserveRequestContracts(t *testing.T) {
 		})
 	}
 
-	if clientFieldNameForParam(IDLMessage{}, "user_id") != "userId" {
-		t.Fatal("missing client path field should fall back to lower camel case")
-	}
 	if dartType("uint32") != "int" || dartType("float64") != "double" ||
 		javaBoxedType("uint32") != "Integer" || javaBoxedType("uint64") != "Long" ||
 		javaBoxedType("float64") != "Double" || kotlinType("uint32") != "Int" ||

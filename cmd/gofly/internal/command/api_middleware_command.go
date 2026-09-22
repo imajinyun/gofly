@@ -2,8 +2,6 @@ package command
 
 import (
 	"flag"
-	"fmt"
-	"os"
 	"strings"
 
 	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
@@ -44,34 +42,30 @@ func apiMiddlewareCommand(args []string) error {
 }
 
 func apiMiddlewareNames(path string) ([]string, error) {
-	// #nosec G304 -- middleware discovery reads an explicit API file path supplied to the CLI.
-	content, err := os.ReadFile(path)
+	doc, err := generator.LoadAPI(path)
 	if err != nil {
-		return nil, fmt.Errorf("read api file: %w", err)
-	}
-	if _, err := generator.ParseAPI(string(content)); err != nil {
 		return nil, err
 	}
 	var names []string
-	for _, line := range strings.Split(string(content), "\n") {
-		line = strings.TrimSpace(line)
-		line = strings.TrimPrefix(line, "//")
-		line = strings.TrimSpace(line)
-		names = append(names, middlewareNamesFromLine(line)...)
+	for _, service := range doc.Services {
+		names = append(names, service.Server.Middleware...)
 	}
-	return names, nil
+	return uniqueStrings(names), nil
 }
 
-func middlewareNamesFromLine(line string) []string {
-	lower := strings.ToLower(line)
-	for _, marker := range []string{"middleware:", "middlewares:"} {
-		idx := strings.Index(lower, marker)
-		if idx < 0 {
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
 			continue
 		}
-		value := line[idx+len(marker):]
-		value = strings.Trim(value, " `\"[]{}()")
-		return splitCSV(value)
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
 	}
-	return nil
+	return out
 }

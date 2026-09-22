@@ -23,6 +23,10 @@
   "policy": {
     "openapiRuntimeBindingMustMatchSchema": true,
     "invalidRequestsReturnStableRestErrorResponse": true,
+    "fileBasedAPIConsumersMustResolveImports": true,
+    "goZeroPathParametersMustUseRuntimeServeMuxSyntax": true,
+    "generatedClientsMustPreserveFieldLocations": true,
+    "documentedSuccessStatusMustMatchRuntimeResponse": true,
     "rpcTier1PromotionRequiresReleaseTrainEvidence": true,
     "rpcLatencyRemainsReportOnlyUntilBudgetPromotion": true,
     "gatewayAndDescriptorContractsUseAggregateGate": true,

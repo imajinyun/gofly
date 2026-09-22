@@ -8,12 +8,14 @@ import (
 )
 
 var (
-	apiTypeRE        = regexp.MustCompile(`^type\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{`)
-	apiServiceRE     = regexp.MustCompile(`^service\s+([A-Za-z_][A-Za-z0-9_-]*)\s*\{`)
-	apiFieldRE       = regexp.MustCompile("^([A-Za-z_][A-Za-z0-9_]*)\\s+((?:\\[\\])?[A-Za-z_][A-Za-z0-9_]*)(?:\\s+(`[^`]*`))?$")
-	apiInlineFieldRE = regexp.MustCompile("^(\\*?[A-Za-z_][A-Za-z0-9_]*)(?:\\s+(`[^`]*`))?$")
-	apiRouteRE       = regexp.MustCompile(`^(get|post|put|patch|delete)\s+([^\s]+)\s*(?:\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\))?\s*returns\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)$`)
-	apiDocValueRE    = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*[:=]\s*(?:"([^"]*)"|'([^']*)'|([^\s)]+))`)
+	apiTypeRE          = regexp.MustCompile(`^type\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{`)
+	apiSyntaxRE        = regexp.MustCompile(`^syntax\s*=\s*["']([^"']+)["']`)
+	apiServiceRE       = regexp.MustCompile(`^service\s+([A-Za-z_][A-Za-z0-9_-]*)\s*\{`)
+	apiFieldRE         = regexp.MustCompile("^([A-Za-z_][A-Za-z0-9_]*)\\s+((?:\\[\\])?[A-Za-z_][A-Za-z0-9_]*)(?:\\s+(`[^`]*`))?$")
+	apiInlineFieldRE   = regexp.MustCompile("^(\\*?[A-Za-z_][A-Za-z0-9_]*)(?:\\s+(`[^`]*`))?$")
+	apiRouteRE         = regexp.MustCompile(`^(get|post|put|patch|delete)\s+([^\s]+)\s*(?:\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\))?\s*returns\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)$`)
+	apiDocValueRE      = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*[:=]\s*(?:"([^"]*)"|'([^']*)'|([^\s)]+))`)
+	apiAnnotationKeyRE = regexp.MustCompile(`(?:^|\s+)([A-Za-z_][A-Za-z0-9_]*)\s*[:=]\s*`)
 )
 
 func ParseAPI(content string) (IDLDocument, error) {
@@ -121,7 +123,11 @@ func ParseAPI(content string) (IDLDocument, error) {
 			methodDoc = nil
 			continue
 		}
-		if strings.HasPrefix(line, "syntax") || strings.HasPrefix(line, "import") {
+		if match := apiSyntaxRE.FindStringSubmatch(line); match != nil {
+			doc.Syntax = match[1]
+			continue
+		}
+		if strings.HasPrefix(line, "import") {
 			continue
 		}
 		if strings.HasPrefix(line, "@server") {
@@ -198,27 +204,28 @@ func parseAPIDocAnnotation(line string) map[string]string {
 
 func parseAPIAnnotationValues(line string) map[string]string {
 	out := map[string]string{}
-	tokens := strings.Fields(line)
-	for i := 0; i < len(tokens); i++ {
-		token := tokens[i]
-		key, value, ok := strings.Cut(token, ":")
-		if !ok {
-			key, value, ok = strings.Cut(token, "=")
+	line = strings.TrimSpace(strings.Trim(line, "()"))
+	matches := apiAnnotationKeyRE.FindAllStringSubmatchIndex(line, -1)
+	for index, match := range matches {
+		valueEnd := len(line)
+		if index+1 < len(matches) {
+			valueEnd = matches[index+1][0]
 		}
-		if !ok {
-			continue
-		}
-		key = strings.ToLower(strings.TrimSpace(key))
-		value = strings.Trim(strings.TrimSpace(value), `"'`)
-		if value == "" && strings.HasSuffix(token, ":") && i+1 < len(tokens) {
-			i++
-			value = strings.Trim(strings.TrimSpace(tokens[i]), `"'`)
-		}
-		if key != "" {
-			out[key] = value
-		}
+		key := strings.ToLower(line[match[2]:match[3]])
+		value := parseAPIAnnotationValue(line[match[1]:valueEnd])
+		out[key] = value
 	}
 	return out
+}
+
+func parseAPIAnnotationValue(raw string) string {
+	value := strings.TrimSpace(raw)
+	if len(value) > 1 && (value[0] == '"' || value[0] == 39) {
+		if end := strings.IndexByte(value[1:], value[0]); end >= 0 {
+			return value[1 : end+1]
+		}
+	}
+	return strings.Trim(value, `,"'`)
 }
 
 func splitAPIAnnotationList(value string) []string {

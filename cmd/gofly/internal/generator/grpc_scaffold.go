@@ -1027,16 +1027,19 @@ func renderGRPCScaffold(plugin *protogen.Plugin, primaryFiles []*protogen.File, 
 	}
 	files["internal/config/rpc_methods.gen.go"] = defaultRulesContent
 	main := strings.ReplaceAll(goZeroRPCMainTemplate, "\t\"{{.Module}}/internal/pb\"\n", "")
-	main = strings.ReplaceAll(main, "{{.Module}}/internal/api/grpc", "{{.Module}}/internal/api/grpc/v1")
 	if existingConfig, readErr := ReadFileUnderRoot(opts.Dir, "internal/config/config.go", "grpc shared config"); readErr == nil && bytes.Contains(existingConfig, []byte("type OpenAPIConfig struct")) {
 		main = strings.ReplaceAll(main, "config.WithLoadValidator(appconfig.Validate)", "config.WithLoadValidator(func(c appconfig.Config) error { return errors.Join(appconfig.Validate(c), appconfig.ValidateRPC(c)) })")
 		main = strings.Replace(main, "\t\"context\"\n", "\t\"context\"\n\t\"errors\"\n", 1)
 	}
 	main = strings.ReplaceAll(main, "pb.RegisterGreeterServer(grpcServer.GRPCServer(), apprpc.NewGreeterServer(stx))", "apprpc.RegisterServices(grpcServer.GRPCServer(), stx)")
+	mainPath := existingCommandMainFile(opts.Dir, "-grpc")
+	if mainPath == "" {
+		mainPath = filepath.Join("cmd", serviceCommandName(moduleCommandBase(opts.Module, opts.Name), "rpc"), "main.go")
+	}
 	for path, template := range map[string]string{
-		"go.mod":   goModTemplate,
-		"Makefile": makefileTemplate,
-		filepath.Join("cmd", opts.Name, "main.go"):    main,
+		"go.mod":                                      goModTemplate,
+		"Makefile":                                    makefileTemplate,
+		mainPath:                                      main,
 		filepath.Join("etc", opts.Name+".json"):       goZeroRPCConfigTemplate,
 		filepath.Join("etc", "governance.json"):       governanceTemplate,
 		"bin/production-check.sh":                     goZeroRPCProductionCheckScriptTemplate,

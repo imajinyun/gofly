@@ -107,6 +107,10 @@ policy = manifest.get("policy") or {}
 for key in (
     "openapiRuntimeBindingMustMatchSchema",
     "invalidRequestsReturnStableRestErrorResponse",
+    "fileBasedAPIConsumersMustResolveImports",
+    "goZeroPathParametersMustUseRuntimeServeMuxSyntax",
+    "generatedClientsMustPreserveFieldLocations",
+    "documentedSuccessStatusMustMatchRuntimeResponse",
     "rpcTier1PromotionRequiresReleaseTrainEvidence",
     "rpcLatencyRemainsReportOnlyUntilBudgetPromotion",
     "gatewayAndDescriptorContractsUseAggregateGate",

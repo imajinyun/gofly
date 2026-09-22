@@ -25,7 +25,8 @@ The generated service must keep these stable responsibilities:
 | REST routes | `internal/routes/routes.go` | Registers generated REST routes through one stable route package. |
 | REST handler | `internal/api/http/v1/ping/ping.go` | Provides the default generated REST handler surface. |
 | Business service | `internal/app/ping.go` | Holds the default generated service behavior behind REST/RPC entry points. |
-| RPC service | `internal/api/grpc/greeter.go` | Provides the default generated RPC service. |
+| RPC registration | `internal/api/grpc/v1/register.gen.go` | Registers versioned gRPC adapters through one stable entry. |
+| RPC adapter | `internal/api/grpc/v1/greeter/greeter.go` | Adapts the default RPC service to shared application logic. |
 | Admin control-plane | `internal/admin/admin.go` | Registers generated admin and control-plane contributors. |
 | Discovery | `internal/discovery/registry.go` | Provides generated service-discovery wiring. |
 | Smoke test | `internal/smoke/service_smoke_test.go` | Verifies `/healthz`, `/admin/control-plane`, and runtime governance metadata. |
@@ -37,9 +38,15 @@ The layout may add files, but removing or renaming the paths above is a Tier 0
 contract change and must be treated as compatibility-sensitive.
 
 The generated gRPC adapter directory was renamed from `internal/api/rpc` to
-`internal/api/grpc`. Regeneration migrates the former directory only when the
+`internal/api/grpc`. New adapters use `internal/api/grpc/v1/<domain>`, parallel
+to `internal/api/http/v1/<domain>`, and share `internal/app/<domain>`.
+Regeneration migrates the former directory only when the
 new directory does not already exist; a project containing both paths must be
 reconciled manually so project-owned files cannot be overwritten implicitly.
+
+Protocol-specific scaffolds use distinct command entries: `cmd/<name>-api/main.go`
+for API-only projects and `cmd/<name>-grpc/main.go` for gRPC-only projects. The
+combined service keeps `cmd/<name>/main.go`.
 
 ## Runtime Requirements
 

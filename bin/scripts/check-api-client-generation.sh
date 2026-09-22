@@ -17,7 +17,7 @@ run_go_test() {
 	)
 }
 
-run_go_test ./cmd/gofly/internal/generator 'Test(GenerateAPIClientPathAndQueryParams|GeneratedAPIClientsPreserveRequestContracts)'
+run_go_test ./cmd/gofly/internal/generator 'Test(GenerateAPIClientPathAndQueryParams|GeneratedAPIClientsPreserveRequestContracts|GeneratedClientsPreserveFieldLocationsAndWireNames)'
 run_go_test ./cmd/gofly/internal/command 'TestExecuteAPIClientGeneration'
 
 api_file="$root/testdata/api-client-matrix/shop.api"
@@ -70,6 +70,7 @@ for marker in (
     "new URLSearchParams()",
     'for (const item of req.tags) query.append("tags", String(item));',
     'path.replace("{id}"',
+    'headers["X-Tenant-ID"]',
     "https://api.example.com",
 ):
     require(marker in ts, f"typescript client missing {marker!r}")
@@ -81,6 +82,7 @@ for marker in (
     "async listOrders",
     "new URLSearchParams()",
     'for (const item of req.tags) query.append("tags", String(item));',
+    'headers["X-Tenant-ID"]',
 ):
     require(marker in js, f"javascript client missing {marker!r}")
 
@@ -91,6 +93,7 @@ for marker in (
     "Future<ListOrdersResponse> listOrders",
     "final query = <String, List<String>>{};",
     'addQuery("tags", req.tags);',
+    'headers["X-Tenant-ID"]',
 ):
     require(marker in dart, f"dart client missing {marker!r}")
 
@@ -101,6 +104,7 @@ for marker in (
     "public ListOrdersResponse listOrders",
     "StringBuilder query = new StringBuilder();",
     'appendQuery(query, "tags", req.tags);',
+    '.header("X-Tenant-ID"',
 ):
     require(marker in java, f"java client missing {marker!r}")
 
@@ -111,6 +115,7 @@ for marker in (
     "fun listOrders",
     "val query = StringBuilder()",
     'appendQuery(query, "tags", req.tags)',
+    '.header("X-Tenant-ID"',
 ):
     require(marker in kotlin, f"kotlin client missing {marker!r}")
 

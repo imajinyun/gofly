@@ -357,8 +357,9 @@ func validateAPIMethod(
 	if strings.TrimSpace(method.HTTPMethod) == "" || strings.TrimSpace(method.HTTPPath) == "" {
 		issues = append(issues, fmt.Sprintf("route %s is incomplete", methodName))
 	} else {
-		issues = append(issues, validateAPIPathParams(methodName, method.HTTPPath)...)
-		routeKey := strings.ToUpper(method.HTTPMethod) + " " + method.HTTPPath
+		normalizedPath := normalizeAPIRoutePath(method.HTTPPath)
+		issues = append(issues, validateAPIPathParams(methodName, normalizedPath)...)
+		routeKey := strings.ToUpper(method.HTTPMethod) + " " + normalizedPath
 		if _, ok := routes[routeKey]; ok {
 			issues = append(issues, fmt.Sprintf("duplicate route %s", routeKey))
 		} else {
@@ -420,6 +421,28 @@ func apiResponseStatusCode(raw string) (int, bool) {
 		return 0, false
 	}
 	return statusCode, true
+}
+
+func apiSuccessStatus(method IDLMethod) int {
+	if status, ok := apiResponseStatusCode(method.Doc["respcode"]); ok {
+		return status
+	}
+	return http.StatusOK
+}
+
+func apiHTTPStatusExpression(status int) string {
+	switch status {
+	case http.StatusOK:
+		return "http.StatusOK"
+	case http.StatusCreated:
+		return "http.StatusCreated"
+	case http.StatusAccepted:
+		return "http.StatusAccepted"
+	case http.StatusNoContent:
+		return "http.StatusNoContent"
+	default:
+		return fmt.Sprintf("http.StatusContinue + %d", status-http.StatusContinue)
+	}
 }
 
 func validateAPIPathParams(methodName, path string) []string {

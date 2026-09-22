@@ -396,7 +396,7 @@ service Catalog { rpc Get(Request) returns (Response); }
 `,
 			opts: GRPCScaffoldOptions{NameFromPackage: true, NoClient: true},
 			want: []string{
-				"cmd/catalogv1/main.go",
+				"cmd/catalog-grpc/main.go",
 				"etc/catalogv1.json",
 				"internal/api/grpc/v1/register.gen.go",
 				"internal/api/grpc/v1/catalog/catalog_grpc.gen.go",
@@ -574,7 +574,7 @@ func TestGenerateGRPCScaffoldMergesAPISharedAssembly(t *testing.T) {
 			t.Fatalf("merged service context missing %q", want)
 		}
 	}
-	mainData, err := os.ReadFile(filepath.Join(outputDir, "cmd/world/main.go"))
+	mainData, err := os.ReadFile(filepath.Join(outputDir, "cmd/world-grpc/main.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -885,7 +885,7 @@ func TestGenerateRPCNewGoZeroCompatibleProducesRunnableGoflyProject(t *testing.T
 		t.Fatalf("GenerateRPCNew: %v", err)
 	}
 	for _, rel := range []string{
-		filepath.Join("cmd", "Greeter", "main.go"),
+		filepath.Join("cmd", "Greeter-grpc", "main.go"),
 		filepath.Join("etc", "Greeter.json"),
 		filepath.Join("etc", "governance.json"),
 		filepath.Join("bin", "production-check.sh"),
@@ -894,8 +894,9 @@ func TestGenerateRPCNewGoZeroCompatibleProducesRunnableGoflyProject(t *testing.T
 		filepath.Join("internal", "config", "governance_recovery_test.go"),
 		filepath.Join("internal", "discovery", "registry.go"),
 		filepath.Join("internal", "app", "greeter", "sayhello.go"),
-		filepath.Join("internal", "api", "grpc", "greeter.go"),
-		filepath.Join("internal", "api", "grpc", "greeter_client.go"),
+		filepath.Join("internal", "api", "grpc", "v1", "register.gen.go"),
+		filepath.Join("internal", "api", "grpc", "v1", "greeter", "greeter.go"),
+		filepath.Join("internal", "api", "grpc", "v1", "greeter", "greeter_client.go"),
 		filepath.Join("internal", "svc", "service_context.go"),
 		filepath.Join("internal", "pb", "Greeter.pb.go"),
 		filepath.Join("internal", "pb", "Greeter_grpc.pb.go"),
@@ -917,11 +918,11 @@ func TestGenerateRPCNewGoZeroCompatibleProducesRunnableGoflyProject(t *testing.T
 			t.Fatalf("inspect forbidden generated path %s: %v", rel, err)
 		}
 	}
-	mainData, err := os.ReadFile(filepath.Join(dir, "cmd", "Greeter", "main.go"))
+	mainData, err := os.ReadFile(filepath.Join(dir, "cmd", "Greeter-grpc", "main.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"flygrpc.NewDefaultServer", "flygrpc.WithDiscovery", "flygrpc.WithDiscoveryAliases", "appdiscovery.NewZRPCRegistrar", "serverService = c.Etcd.Key", "serverAliases = nil", "flygrpc.WithAdaptiveLimiter", "limit.NewRuntimeCPUReader", "stx.InitRPCClients(ctx, registry)", "stx.Close()", "pb.RegisterGreeterServer", "app.Run"} {
+	for _, want := range []string{"flygrpc.NewDefaultServer", "flygrpc.WithDiscovery", "flygrpc.WithDiscoveryAliases", "appdiscovery.NewZRPCRegistrar", "serverService = c.Etcd.Key", "serverAliases = nil", "flygrpc.WithAdaptiveLimiter", "limit.NewRuntimeCPUReader", "stx.InitRPCClients(ctx, registry)", "stx.Close()", "apprpc.RegisterServices", "app.Run"} {
 		if !strings.Contains(string(mainData), want) {
 			t.Fatalf("generated main missing %q: %s", want, mainData)
 		}
@@ -944,7 +945,7 @@ func TestGenerateRPCNewGoZeroCompatibleProducesRunnableGoflyProject(t *testing.T
 			t.Fatalf("generated config missing %q: %s", want, configData)
 		}
 	}
-	clientData, err := os.ReadFile(filepath.Join(dir, "internal", "api", "grpc", "greeter_client.go"))
+	clientData, err := os.ReadFile(filepath.Join(dir, "internal", "api", "grpc", "v1", "greeter", "greeter_client.go"))
 	if err != nil {
 		t.Fatal(err)
 	}

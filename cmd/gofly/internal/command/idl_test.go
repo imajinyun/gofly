@@ -684,7 +684,7 @@ func TestExecuteRPCGenScaffold(t *testing.T) {
 	if !strings.Contains(output, `"scaffold": "true"`) {
 		t.Fatalf("missing scaffold result: %s", output)
 	}
-	for _, path := range []string{"cmd/greeter/main.go", "internal/pb/greeter_grpc.pb.go", "internal/app/greeter/hello.go", "internal/api/grpc/v1/register.gen.go", "internal/api/grpc/v1/greeter/greeter_grpc.gen.go"} {
+	for _, path := range []string{"cmd/greeter-grpc/main.go", "internal/pb/greeter_grpc.pb.go", "internal/app/greeter/hello.go", "internal/api/grpc/v1/register.gen.go", "internal/api/grpc/v1/greeter/greeter_grpc.gen.go"} {
 		if _, err := os.Stat(filepath.Join(outputDir, path)); err != nil {
 			t.Fatal(err)
 		}
@@ -1129,7 +1129,7 @@ service Billing { rpc Charge(ChargeRequest) returns (ChargeResponse); }
 		t.Fatal(err)
 	}
 	for _, rel := range []string{
-		"cmd/billingv1/main.go",
+		"cmd/billing-grpc/main.go",
 		"etc/billingv1.json",
 		"internal/api/grpc/v1/register.gen.go",
 		"internal/api/grpc/v1/billing/billing_grpc.gen.go",
@@ -1195,7 +1195,7 @@ service Inventory { rpc Check(Request) returns (Request); }
 		t.Fatal(err)
 	}
 	for _, rel := range []string{
-		"cmd/platform/main.go",
+		"cmd/platform-grpc/main.go",
 		"internal/api/grpc/v1/register.gen.go",
 		"internal/api/grpc/v1/catalog/catalog_grpc.gen.go",
 		"internal/api/grpc/v1/inventory/inventory_grpc.gen.go",
@@ -2564,7 +2564,7 @@ func TestExecuteAPINew(t *testing.T) {
 		"Dockerfile",
 		"Makefile",
 		"hello.api",
-		filepath.Join("cmd", "hello", "main.go"),
+		filepath.Join("cmd", "hello-api", "main.go"),
 		filepath.Join("internal", "routes", "routes.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
@@ -2596,7 +2596,7 @@ func TestExecuteAPINewWithGoZeroCompatibleProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, rel := range []string{
-		filepath.Join("cmd", "hello", "main.go"),
+		filepath.Join("cmd", "hello-api", "main.go"),
 		filepath.Join("internal", "config", "config.go"),
 		filepath.Join("internal", "api", "http", "v1", "ping", "ping.go"),
 		filepath.Join("internal", "app", "ping.go"),
@@ -2683,7 +2683,7 @@ func TestExecuteAPINewAcceptsGoctlReservedFlags(t *testing.T) {
 	for _, rel := range []string{
 		"go.mod",
 		"hello.api",
-		filepath.Join("cmd", "hello", "main.go"),
+		filepath.Join("cmd", "hello-api", "main.go"),
 		filepath.Join("internal", "api", "http", "v1", "ping", "ping.go"),
 		filepath.Join("internal", "routes", "routes.go"),
 	} {
@@ -2851,7 +2851,7 @@ func TestExecuteNewMergesDiscoveryCLIOverlay(t *testing.T) {
 		t.Fatalf("saved discovery config = %#v, want CLI overlay", cfg.Discovery)
 	}
 
-	mainData, err := os.ReadFile(filepath.Join(outDir, "cmd", "greeter", "main.go"))
+	mainData, err := os.ReadFile(filepath.Join(outDir, "cmd", "greeter-grpc", "main.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4943,7 +4943,7 @@ func TestExecuteNewAPIIsUnifiedScaffoldEntry(t *testing.T) {
 
 	productionOnlyFiles := []string{
 		filepath.Join("etc", "governance.json"),
-		filepath.Join("internal", "api", "grpc", "greeter.go"),
+		filepath.Join("internal", "api", "grpc", "v1", "greeter", "greeter.go"),
 	}
 	for _, rel := range productionOnlyFiles {
 		if _, err := os.Stat(filepath.Join(apiDir, rel)); err == nil {
@@ -4969,8 +4969,9 @@ func TestExecuteNewAPIProductionReplacesNewServiceChoice(t *testing.T) {
 	for _, rel := range []string{
 		"hello.api",
 		"Dockerfile",
+		filepath.Join("cmd", "hello-api", "main.go"),
 		filepath.Join("etc", "governance.json"),
-		filepath.Join("internal", "api", "grpc", "greeter.go"),
+		filepath.Join("internal", "api", "grpc", "v1", "greeter", "greeter.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
 			t.Fatalf("expected api new --style production file %s: %v", rel, err)
@@ -4993,7 +4994,8 @@ func TestExecuteNewServiceGoldenPath(t *testing.T) {
 		filepath.Join("internal", "config", "config_test.go"),
 		filepath.Join("internal", "config", "discovery_test.go"),
 		filepath.Join("internal", "discovery", "registry.go"),
-		filepath.Join("internal", "api", "grpc", "greeter.go"),
+		filepath.Join("internal", "api", "grpc", "v1", "register.gen.go"),
+		filepath.Join("internal", "api", "grpc", "v1", "greeter", "greeter.go"),
 		filepath.Join("internal", "smoke", "service_smoke_test.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
@@ -5005,6 +5007,95 @@ func TestExecuteNewServiceGoldenPath(t *testing.T) {
 	}
 }
 
+func TestExecuteAPIAndGRPCScaffoldsShareProjectWithoutEntrypointCollision(t *testing.T) {
+	for _, tool := range []string{"protoc", "protoc-gen-go", "protoc-gen-go-grpc"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skipf("%s is not available: %v", tool, err)
+		}
+	}
+
+	dir := t.TempDir()
+	if err := Execute([]string{"new", "api", "world", "--module", "example.com/world", "--dir", dir, "--profile", "gozero-compatible"}); err != nil {
+		t.Fatalf("generate API scaffold: %v", err)
+	}
+	apiPath := filepath.Join(dir, "user.api")
+	api := `type CreateUserRequest {
+  Name string ` + "`json:\"name\"`" + `
+}
+type User {
+  Name string ` + "`json:\"name\"`" + `
+}
+service world-api {
+  @handler CreateUser
+  post /v1/users (CreateUserRequest) returns (User)
+}
+`
+	if err := os.WriteFile(apiPath, []byte(api), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Execute([]string{"api", "go", "--api", apiPath, "--dir", dir, "--profile", "gozero-compatible"}); err != nil {
+		t.Fatalf("generate HTTP adapters: %v", err)
+	}
+	protoPath := filepath.Join(dir, "user.proto")
+	proto := `syntax = "proto3";
+package user.v1;
+option go_package = "example.com/world/internal/pb;pb";
+message CreateUserRequest { string name = 1; }
+message User { string name = 1; }
+service UserService { rpc CreateUser(CreateUserRequest) returns (User); }
+`
+	if err := os.WriteFile(protoPath, []byte(proto), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"rpc", "protoc", protoPath, "--zrpc_out", dir, "--module", "example.com/world"}
+	if err := Execute(args); err != nil {
+		t.Fatalf("generate gRPC scaffold: %v", err)
+	}
+	if err := Execute(args); err != nil {
+		t.Fatalf("regenerate gRPC scaffold: %v", err)
+	}
+
+	for _, rel := range []string{
+		filepath.Join("cmd", "world-api", "main.go"),
+		filepath.Join("cmd", "world-grpc", "main.go"),
+		filepath.Join("internal", "api", "http", "v1", "world", "createuser.go"),
+		filepath.Join("internal", "api", "grpc", "v1", "register.gen.go"),
+		filepath.Join("internal", "api", "grpc", "v1", "world", "userservice_grpc.gen.go"),
+		filepath.Join("internal", "app", "world", "createuser.go"),
+	} {
+		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
+			t.Fatalf("shared API/gRPC project missing %s: %v", rel, err)
+		}
+	}
+	mainFiles, err := filepath.Glob(filepath.Join(dir, "cmd", "*", "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mainFiles) != 2 {
+		t.Fatalf("shared API/gRPC project main files = %v, want exactly API and gRPC entries", mainFiles)
+	}
+	for _, forbidden := range []string{
+		filepath.Join("cmd", "world", "main.go"),
+		filepath.Join("cmd", "userv1", "main.go"),
+		filepath.Join("internal", "logic"),
+		filepath.Join("internal", "server"),
+		filepath.Join("internal", "types"),
+		filepath.Join("internal", "api", "rpc"),
+	} {
+		if _, err := os.Stat(filepath.Join(dir, forbidden)); err == nil {
+			t.Fatalf("shared API/gRPC project unexpectedly generated %s", forbidden)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("inspect forbidden path %s: %v", forbidden, err)
+		}
+	}
+	replace := exec.Command("go", "mod", "edit", "-replace", "github.com/imajinyun/gofly="+repositoryRootFromCommandTest(t))
+	replace.Dir = dir
+	if out, err := replace.CombinedOutput(); err != nil {
+		t.Fatalf("configure generated project framework replace: %v\n%s", err, out)
+	}
+	assertGeneratedProtoModuleCompiles(t, dir)
+}
+
 func TestExecuteRPCNew(t *testing.T) {
 	dir := t.TempDir()
 	if err := Execute([]string{"rpc", "new", "greeter", "--module", "example.com/greeter", "--dir", dir}); err != nil {
@@ -5013,7 +5104,9 @@ func TestExecuteRPCNew(t *testing.T) {
 	for _, rel := range []string{
 		"go.mod",
 		"greeter.proto",
-		filepath.Join("internal", "api", "grpc", "greeter.go"),
+		filepath.Join("cmd", "greeter-grpc", "main.go"),
+		filepath.Join("internal", "api", "grpc", "v1", "register.gen.go"),
+		filepath.Join("internal", "api", "grpc", "v1", "greeter", "greeter.go"),
 		"Dockerfile",
 		filepath.Join("etc", "greeter.json"),
 		filepath.Join("etc", "governance.json"),
@@ -5103,7 +5196,8 @@ func TestExecuteRPCNewAcceptsGoctlReservedFlags(t *testing.T) {
 	for _, rel := range []string{
 		"go.mod",
 		"greeter.proto",
-		filepath.Join("internal", "api", "grpc", "greeter.go"),
+		filepath.Join("cmd", "greeter-grpc", "main.go"),
+		filepath.Join("internal", "api", "grpc", "v1", "greeter", "greeter.go"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
 			t.Fatalf("expected rpc new file %s with accepted extra flags: %v", rel, err)
@@ -6940,17 +7034,6 @@ service user-api {
 	}
 	if _, err := os.Stat(filepath.Join(outDir, "internal", "middleware", "audit_log.go")); err != nil {
 		t.Fatalf("expected plural api middleware file: %v", err)
-	}
-}
-
-func TestMiddlewareNamesFromLine(t *testing.T) {
-	got := middlewareNamesFromLine(`@server(middleware: Auth, AuditLog)`)
-	if len(got) != 2 || got[0] != "Auth" || got[1] != "AuditLog" {
-		t.Fatalf("middleware names = %v, want Auth/AuditLog", got)
-	}
-	got = middlewareNamesFromLine(`middlewares: [Trace, Metrics]`)
-	if len(got) != 2 || got[0] != "Trace" || got[1] != "Metrics" {
-		t.Fatalf("middleware names = %v, want Trace/Metrics", got)
 	}
 }
 

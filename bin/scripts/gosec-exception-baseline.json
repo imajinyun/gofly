@@ -5,7 +5,6 @@
     "cmd/gofly/internal/command/ai_project_verify.go|G204|verification commands are selected from aiProjectVerificationCommandArgs allow-list and never executed through a shell.",
     "cmd/gofly/internal/command/api_format_command.go|G301|CLI formatting writes user-visible project artifacts that should remain traversable by tools.",
     "cmd/gofly/internal/command/api_format_command.go|G306|formatted API files are generated project artifacts intentionally readable by collaborators and tooling.",
-    "cmd/gofly/internal/command/api_middleware_command.go|G304|middleware discovery reads an explicit API file path supplied to the CLI.",
     "cmd/gofly/internal/command/api_plugin_command.go|G204|legacy API plugins are an explicit compatibility feature; command and args are argv-separated without shell evaluation.",
     "cmd/gofly/internal/command/example.go|G304,G703|candidate is scoped to GOMODCACHE plus built-in module/example metadata.",
     "cmd/gofly/internal/command/example.go|G304|candidate is derived from the current module source and built-in example metadata.",

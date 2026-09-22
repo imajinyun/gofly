@@ -171,6 +171,8 @@ func (c *grpcTranscoder) CallClientStreamRaw(ctx context.Context, method string,
 	var response receiveResult
 	for {
 		select {
+		case <-ctx.Done():
+			return nil, nil, true, status.FromContextError(ctx.Err()).Err()
 		case response = <-received:
 			if response.err != nil {
 				return nil, nil, true, response.err

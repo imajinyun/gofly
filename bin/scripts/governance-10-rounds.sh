@@ -329,11 +329,11 @@ PY
 	python3 - "$tmp/control-plane-http-port" <<'PY'
 import pathlib,sys,time
 port_file=pathlib.Path(sys.argv[1])
-for _ in range(50):
+for _ in range(300):
     if port_file.exists() and port_file.read_text(encoding="utf-8").strip():
         raise SystemExit(0)
     time.sleep(0.1)
-raise SystemExit("http server did not write a port")
+raise SystemExit("http server did not write a port within 30 seconds")
 PY
 	cp_port="$(cat "$tmp/control-plane-http-port")"
 	"$go_cmd" run ./cmd/gofly ai control-plane --source "http://127.0.0.1:$cp_port/runtime-control-plane.json" --watch --max-events 1 --timeout 2s --json 2>/dev/null | python3 -c '
@@ -383,7 +383,7 @@ PY
 	)
 	(
 		cd "$project"
-		"$go_cmd" run ./cmd/smoke
+		"$go_cmd" run ./cmd/smoke-api
 	) >"$tmp/control-plane-smoke.log" 2>&1 &
 	pid="$!"
 	cleanup_smoke() {

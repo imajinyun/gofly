@@ -94,6 +94,7 @@ var redisPoolRegistry = struct {
 type redisObservabilityHook struct {
 	slowThreshold time.Duration
 	after         func()
+	logger        *slog.Logger
 }
 
 func (h redisObservabilityHook) DialHook(next redisv9.DialHook) redisv9.DialHook {
@@ -133,7 +134,11 @@ func (h redisObservabilityHook) observe(ctx context.Context, operation string, n
 	}
 	if h.slowThreshold > 0 && duration > h.slowThreshold {
 		redisMetrics.slow.Inc(operation)
-		slog.WarnContext(ctx, "slow Redis command",
+		logger := h.logger
+		if logger == nil {
+			logger = slog.Default()
+		}
+		logger.WarnContext(ctx, "slow Redis command",
 			"operation", operation,
 			"duration", duration,
 			"threshold", h.slowThreshold,

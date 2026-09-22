@@ -2397,7 +2397,7 @@ func TestAINewGeneratedProjectVerificationMatrix(t *testing.T) {
 				name:                  "hello",
 				template:              "go-rest-minimal",
 				wantVerify:            []string{"gofmt", "go mod tidy", "go test ./...", "go vet ./...", "control-plane snapshot"},
-				wantFiles:             []string{"go.mod", filepath.Join("cmd", "hello", "main.go"), filepath.Join("docs", "openapi.yaml"), filepath.Join("internal", "observability", "observability.go")},
+				wantFiles:             []string{"go.mod", filepath.Join("cmd", "hello-api", "main.go"), filepath.Join("docs", "openapi.yaml"), filepath.Join("internal", "observability", "observability.go")},
 				wantGeneratedFeatures: []string{"observability", "openapi"},
 			},
 			{
@@ -2411,7 +2411,7 @@ func TestAINewGeneratedProjectVerificationMatrix(t *testing.T) {
 				name:                   "greeter",
 				template:               "go-rpc-grpc",
 				wantVerify:             []string{"gofmt", "go mod tidy", "go test ./...", "go vet ./...", "control-plane snapshot"},
-				wantFiles:              []string{"go.mod", filepath.Join("cmd", "greeter", "main.go"), filepath.Join("internal", "observability", "observability.go"), "Dockerfile"},
+				wantFiles:              []string{"go.mod", filepath.Join("cmd", "greeter-grpc", "main.go"), filepath.Join("internal", "observability", "observability.go"), "Dockerfile"},
 				wantGeneratedFeatures:  []string{"ci-docker", "observability"},
 				wantMatrixCapabilities: []string{"generated-rpc-mux-retry-smoke"},
 			},
@@ -2426,7 +2426,7 @@ func TestAINewGeneratedProjectVerificationMatrix(t *testing.T) {
 				name:                  "tool",
 				template:              "go-cli-cobra",
 				wantVerify:            []string{"gofmt", "go mod tidy", "go test ./...", "control-plane snapshot"},
-				wantFiles:             []string{"go.mod", filepath.Join("cmd", "tool", "main.go"), filepath.Join("internal", "config", "config.go"), filepath.Join("internal", "app", "ping.go")},
+				wantFiles:             []string{"go.mod", filepath.Join("cmd", "tool-api", "main.go"), filepath.Join("internal", "config", "config.go"), filepath.Join("internal", "app", "ping.go")},
 				wantGeneratedFeatures: nil,
 			},
 			{

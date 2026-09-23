@@ -13,6 +13,8 @@ an example into a real environment.
 6. Secrets are not copied into control-plane snapshots or `gofly bug --json`
    support bundles.
 7. RPC performance claims are not copied from a single benchmark run.
+8. The required `api client toolchain (javascript|typescript|java|kotlin|dart)`
+   CI matrix is green and each language report artifact is available.
 
 Related: [troubleshooting](troubleshooting.md),
 [zero-to-production](../tutorials/zero-to-production.md).

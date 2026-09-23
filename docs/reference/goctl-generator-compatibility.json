@@ -86,6 +86,15 @@
       "rollbackNote": "Rollback by pinning client generators per language and keeping generated client evidence out of runtime artifacts."
     },
     {
+      "id": "api-client-toolchain-verification",
+      "status": "implemented",
+      "gate": "make api-client-toolchain-check",
+      "implementation": ["bin/scripts/check-api-client-toolchains.py", "docs/reference/api-client-toolchains.json"],
+      "tests": ["bin/scripts/check-api-client-toolchains.sh", "testdata/api-client-toolchain/javascript-runtime.mjs", "testdata/api-client-toolchain/java/com/fasterxml/jackson/databind/ObjectMapper.java", "testdata/api-client-toolchain/kotlin/Serialization.kt", "testdata/api-client-toolchain/kotlin/Json.kt", "testdata/api-client-toolchain/dart/http/lib/http.dart"],
+      "evidence": ["typescript", "javascript", "dart", "java", "kotlin", "required", "unavailable"],
+      "rollbackNote": "Rollback the executable toolchain matrix independently while retaining structural generated-client evidence and the API semantic fixture."
+    },
+    {
       "id": "api-semantic-parity",
       "status": "implemented",
       "gate": "make api-semantic-parity-check",
@@ -167,6 +176,7 @@
     "make goctl-rpc-protoc-parity-check",
     "make goctl-model-parity-replay-check",
     "make api-client-generation-check",
+    "make api-client-toolchain-check",
     "make api-semantic-parity-check",
     "make zrpc-proto-compatibility-check",
     "make goctl-real-project-replay-check",

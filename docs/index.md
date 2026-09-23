@@ -61,6 +61,7 @@ Tracked contracts consumed by Make gates:
 - [REST middleware profiles](reference/rest-middleware-profiles.md)
 - [API client generation](reference/api-client-generation.md)
 - [API semantic parity](reference/api-semantic-parity.md)
+- [API client toolchain verification](reference/api-client-toolchains.md)
 - [Reference app topology](reference/reference-app-topology.json)
 - [DB/cache productization](reference/db-cache-productization.json)
 

@@ -1,0 +1,59 @@
+{
+  "schema": "gofly.api_client_toolchains.v1",
+  "acceptanceGate": "make api-client-toolchain-check",
+  "fixture": "testdata/goctl-api-semantic/contract.api",
+  "localPolicy": {
+    "mode": "available-toolchains",
+    "missingStatus": "unavailable",
+    "requiredEnvironment": "API_CLIENT_TOOLCHAIN_REQUIRED"
+  },
+  "ciPolicy": {
+    "mode": "required-language-matrix",
+    "selectorEnvironment": "API_CLIENT_TOOLCHAIN",
+    "reportEnvironment": "API_CLIENT_TOOLCHAIN_REPORT"
+  },
+  "languages": [
+    {
+      "id": "javascript",
+      "tool": "node",
+      "ciVersion": "24.13.0",
+      "verification": "node testdata/api-client-toolchain/javascript-runtime.mjs <generated-client>",
+      "evidence": ["http-runtime", "path-query-header-body", "201-204-error"]
+    },
+    {
+      "id": "typescript",
+      "tool": "tsc",
+      "ciVersion": "5.9.3",
+      "verification": "tsc --noEmit --strict --target ES2022 --module ES2022 --moduleResolution bundler --lib ES2022,DOM <generated-client>",
+      "evidence": ["strict-compile", "dom-fetch-types", "recursive-model-types"]
+    },
+    {
+      "id": "java",
+      "tool": "javac",
+      "ciVersion": "21.0.12",
+      "verification": "javac -d <classes> ObjectMapper.java APIClient.java",
+      "evidence": ["compile", "bounded-jackson-surface", "jdk-http-client"]
+    },
+    {
+      "id": "kotlin",
+      "tool": "kotlinc",
+      "ciVersion": "2.3.10",
+      "verification": "kotlinc Serialization.kt Json.kt APIClient.kt -d <artifact>",
+      "evidence": ["compile", "bounded-serialization-surface", "jdk-http-client"]
+    },
+    {
+      "id": "dart",
+      "tool": "dart",
+      "ciVersion": "3.9.4",
+      "verification": "dart pub get --offline && dart analyze --fatal-infos --fatal-warnings lib/generated_client.dart",
+      "evidence": ["static-analysis", "local-http-package", "recursive-model-types"]
+    }
+  ],
+  "statusPolicy": {
+    "pass": "The selected client was generated and its compiler, analyzer, or runtime verification exited zero.",
+    "fail": "Generation or verification failed, or a required toolchain was unavailable.",
+    "unavailable": "The local toolchain was not installed; this is report-only unless required mode is enabled.",
+    "partial": "All available local toolchains passed and at least one optional toolchain was unavailable."
+  },
+  "rollback": "Remove the toolchain gate and CI matrix while retaining the structural api-client-generation-check and generated client artifacts."
+}

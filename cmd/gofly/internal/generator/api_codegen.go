@@ -2155,31 +2155,59 @@ func dartType(name string) string {
 }
 
 func dartFromJSON(name, expr string) string {
-	return dartFromJSONRef(apiTypeRefOrNamed(name), expr)
+	return dartFromJSONRef(apiTypeRefOrNamed(name), expr, true)
 }
 
-func dartFromJSONRef(ref apiTypeRef, expr string) string {
+func dartFromJSONRef(ref apiTypeRef, expr string, nullable bool) string {
 	switch ref.Kind {
 	case apiTypeKindPointer:
-		return dartFromJSONRef(apiTypeRefElement(ref), expr)
+		return dartFromJSONRef(apiTypeRefElement(ref), expr, true)
 	case apiTypeKindSlice:
-		return fmt.Sprintf("(%s as List<dynamic>?)?.map((e) => %s).toList()", expr, dartFromJSONRef(apiTypeRefElement(ref), "e"))
+		containerType := "List<dynamic>"
+		operator := "."
+		if nullable {
+			containerType += "?"
+			operator = "?."
+		}
+		return fmt.Sprintf("(%s as %s)%smap((e) => %s).toList()", expr, containerType, operator, dartFromJSONRef(apiTypeRefElement(ref), "e", false))
 	case apiTypeKindMap:
 		value := apiTypeRefElement(ref)
-		return fmt.Sprintf("(%s as Map<String, dynamic>?)?.map((key, value) => MapEntry(key, %s))", expr, dartFromJSONRef(value, "value"))
+		containerType := "Map<String, dynamic>"
+		operator := "."
+		if nullable {
+			containerType += "?"
+			operator = "?."
+		}
+		return fmt.Sprintf("(%s as %s)%smap((key, value) => MapEntry(key, %s))", expr, containerType, operator, dartFromJSONRef(value, "value", false))
 	}
 	switch ref.Name {
 	case "string":
-		return expr + " as String?"
+		return expr + " as String" + nullableDartSuffix(nullable)
 	case "bool":
-		return expr + " as bool?"
+		return expr + " as bool" + nullableDartSuffix(nullable)
 	case "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64":
-		return "(" + expr + " as num?)?.toInt()"
+		if nullable {
+			return "(" + expr + " as num?)?.toInt()"
+		}
+		return "(" + expr + " as num).toInt()"
 	case "float32", "float64":
-		return "(" + expr + " as num?)?.toDouble()"
+		if nullable {
+			return "(" + expr + " as num?)?.toDouble()"
+		}
+		return "(" + expr + " as num).toDouble()"
 	default:
+		if nullable {
+			return expr + " == null ? null : " + exportName(ref.Name) + ".fromJson(" + expr + " as Map<String, dynamic>)"
+		}
 		return exportName(ref.Name) + ".fromJson(" + expr + " as Map<String, dynamic>)"
 	}
+}
+
+func nullableDartSuffix(nullable bool) string {
+	if nullable {
+		return "?"
+	}
+	return ""
 }
 
 func generateJavaClient(doc IDLDocument, baseURL string) []byte {

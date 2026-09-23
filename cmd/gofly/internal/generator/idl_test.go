@@ -6586,10 +6586,13 @@ func TestOpenAPITypeAndDartType(t *testing.T) {
 		}
 	}
 
-	if got := dartFromJSON("[]string", "x"); got != `(x as List<dynamic>?)?.map((e) => e as String?).toList()` {
+	if got := dartFromJSON("[]string", "x"); got != `(x as List<dynamic>?)?.map((e) => e as String).toList()` {
 		t.Fatalf("dartFromJSON []string = %q", got)
 	}
-	if got := dartFromJSON("User", "x"); got != `User.fromJson(x as Map<String, dynamic>)` {
+	if got := dartFromJSON("map[string][]string", "x"); got != `(x as Map<String, dynamic>?)?.map((key, value) => MapEntry(key, (value as List<dynamic>).map((e) => e as String).toList()))` {
+		t.Fatalf("dartFromJSON map = %q", got)
+	}
+	if got := dartFromJSON("User", "x"); got != `x == null ? null : User.fromJson(x as Map<String, dynamic>)` {
 		t.Fatalf("dartFromJSON User = %q", got)
 	}
 

@@ -66,7 +66,7 @@
       "status": "blocking",
       "gate": "make goctl-generator-compat-check",
       "contract": "docs/reference/goctl-generator-compatibility.json",
-      "summary": "The aggregate generator compatibility gate keeps API flags, RPC protoc, model replay, API client generation, and zRPC compatibility wired into one release-ready check.",
+      "summary": "The aggregate generator compatibility gate keeps API flags, RPC protoc, model replay, executable API client toolchains, and zRPC compatibility wired into one release-ready check.",
       "reportOnlyClasses": []
     }
   ],
@@ -90,7 +90,7 @@
   "releaseChecklist": [
     "Run make goctl-compatibility-report-check to validate this index.",
     "Run make goctl-surface-drift-check to review report-only goctl command-surface drift before release notes are written.",
-    "Run make goctl-generator-compat-check for generator, API flag, RPC protoc, model parity, API client, and zRPC compatibility.",
+    "Run make goctl-generator-compat-check for generator, API flag, RPC protoc, model parity, API client toolchains, and zRPC compatibility.",
     "Run make goctl-real-project-replay-check before promoting migration compatibility claims.",
     "Treat oracle replay layout differences as report-only unless a future contract promotes byte-for-byte layout parity."
   ],

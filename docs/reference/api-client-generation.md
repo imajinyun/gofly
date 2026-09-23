@@ -45,5 +45,10 @@ The gate verifies:
    bodies. A field must not leak into another request location.
 6. Both go-zero `:name` and OpenAPI `{name}` route parameters are normalized to
    `{name}` in generated clients.
-7. The gate is structural by default; language toolchain compilation can be
-   added later without making Node, Java, Dart, or Kotlin mandatory locally.
+7. `make api-client-toolchain-check` adds executable compiler, analyzer, and
+   runtime evidence. Missing local toolchains are reported as `unavailable`;
+   the dedicated CI matrix requires every language and blocks on absence.
+
+The versioned toolchain contract and its evidence boundaries are documented in
+`docs/reference/api-client-toolchains.json` and
+`docs/reference/api-client-toolchains.md`.

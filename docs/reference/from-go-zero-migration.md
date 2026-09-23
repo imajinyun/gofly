@@ -19,7 +19,7 @@ runnable as teams move selected surfaces.
 | REST middleware and auth | generated REST routes plus route/middleware compatibility evidence | `docs/reference/rest-middleware-profiles.md`, `docs/reference/goctl-real-project-replay.json` |
 | zRPC `.proto` and runnable service | `gofly rpc protoc <service.proto> --zrpc_out <dir> --module <module>` for a gofly-native gRPC scaffold with zRPC-compatible semantics; `gofly new rpc <name> --profile gozero-compatible` for a contract-first starter; `gofly rpc protoc` without `--zrpc_out` for standard protobuf stubs | `docs/reference/zrpc-proto-compatibility.json`, `docs/reference/goctl-rpc-protoc-parity.json` |
 | model/cache generation | `gofly model gen --style go_zero` and replay fixtures | `docs/reference/goctl-real-project-replay.json`, `docs/reference/goctl-model-parity-replay.json` |
-| multi-language API clients | `gofly api client --language <language>` | `docs/reference/api-client-generation.md` |
+| multi-language API clients | `gofly api client --language <language>` | `docs/reference/api-client-generation.md`, `docs/reference/api-client-toolchains.json` |
 | production service scaffold | `gofly new service --style production` | `docs/reference/generated-service-layout.md` |
 | generated upgrade proof | repeat generation, diff classification, and rollback evidence | `docs/reference/generated-upgrade-dry-run.json` |
 
@@ -74,6 +74,7 @@ gofly-compatible generated surface. It is not a full goctl replacement.
    make goctl-api-flag-parity-check
    GOZERO_ROOT=/path/to/go-zero make api-semantic-parity-check
    make goctl-model-parity-replay-check
+   make api-client-toolchain-check
    make goctl-generator-compat-check
    make goctl-real-project-replay-check
    ```
@@ -425,6 +426,7 @@ make goctl-model-parity-replay-check
 make goctl-real-project-replay-check
 make zrpc-proto-compatibility-check
 make api-client-generation-check
+make api-client-toolchain-check
 make rest-profile-check
 make generated-service-layout-check
 make generated-upgrade-dry-run-check

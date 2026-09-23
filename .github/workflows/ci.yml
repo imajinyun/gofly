@@ -100,6 +100,73 @@ jobs:
           path: ${{ runner.temp }}/api-semantic-parity-report.json
           if-no-files-found: error
 
+  api-client-toolchains:
+    name: api client toolchain (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: javascript
+          - language: typescript
+          - language: java
+          - language: kotlin
+          - language: dart
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      - name: Set up Node.js
+        if: matrix.language == 'javascript' || matrix.language == 'typescript'
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: "24.13.0"
+
+      - name: Install pinned TypeScript compiler
+        if: matrix.language == 'typescript'
+        run: npm install --global typescript@5.9.3
+
+      - name: Set up Java
+        if: matrix.language == 'java' || matrix.language == 'kotlin'
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          distribution: temurin
+          java-version: "21.0.12"
+
+      - name: Set up Kotlin
+        if: matrix.language == 'kotlin'
+        uses: fwilhe2/setup-kotlin@ee9692514da313706b193d808526812102a344e4
+        with:
+          version: "2.3.10"
+
+      - name: Set up Dart
+        if: matrix.language == 'dart'
+        uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d
+        with:
+          sdk: "3.9.4"
+
+      - name: Verify generated API client toolchain
+        env:
+          API_CLIENT_TOOLCHAIN: ${{ matrix.language }}
+          API_CLIENT_TOOLCHAIN_REQUIRED: "true"
+          API_CLIENT_TOOLCHAIN_REPORT: ${{ runner.temp }}/api-client-toolchain-${{ matrix.language }}.json
+        run: make api-client-toolchain-check
+
+      - name: Upload API client toolchain report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: api-client-toolchain-${{ matrix.language }}
+          path: ${{ runner.temp }}/api-client-toolchain-${{ matrix.language }}.json
+          if-no-files-found: error
+
   lint:
     name: golangci-lint
     runs-on: ubuntu-latest
@@ -332,6 +399,11 @@ jobs:
           expected = {
               "build & test (go 1.26)",
               "build & test (go stable)",
+              "api client toolchain (javascript)",
+              "api client toolchain (typescript)",
+              "api client toolchain (java)",
+              "api client toolchain (kotlin)",
+              "api client toolchain (dart)",
               "golangci-lint",
               "platform smoke (macos-latest)",
               "platform smoke (windows-latest)",
@@ -871,7 +943,7 @@ jobs:
   release:
     name: release (tagged)
     if: startsWith(github.ref, 'refs/tags/v') && github.repository == 'gofly/gofly'
-    needs: [build-test, platform-smoke, lint, security, supply-chain, codeql, dependency-upgrade-validation, gateway-profile-contract, contract-check, governance, bench-fuzz, integration, cloud-native-live-render, docker, scorecard]
+    needs: [build-test, api-client-toolchains, platform-smoke, lint, security, supply-chain, codeql, dependency-upgrade-validation, gateway-profile-contract, contract-check, governance, bench-fuzz, integration, cloud-native-live-render, docker, scorecard]
     runs-on: ubuntu-latest
     permissions:
       actions: read

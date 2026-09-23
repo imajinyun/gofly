@@ -4,6 +4,7 @@
   "acceptanceGate": "make api-contract-check",
   "childGates": [
     "make api-semantic-parity-check",
+    "make api-client-toolchain-check",
     "make openapi-validation-check",
     "make rpc-boundary-check"
   ],
@@ -27,6 +28,7 @@
     "fileBasedAPIConsumersMustResolveImports": true,
     "goZeroPathParametersMustUseRuntimeServeMuxSyntax": true,
     "generatedClientsMustPreserveFieldLocations": true,
+    "generatedClientsMustPassLanguageToolchains": true,
     "documentedSuccessStatusMustMatchRuntimeResponse": true,
     "apiSemanticParityMustCompileAndRunBothProfiles": true,
     "rpcTier1PromotionRequiresReleaseTrainEvidence": true,
@@ -35,6 +37,35 @@
     "releaseContractCheckMustStayReleaseBlocking": true
   },
   "surfaces": [
+    {
+      "id": "api-client-toolchain-verification",
+      "risk": "Generated API clients may look structurally correct while failing to compile or execute in their target language.",
+      "gate": "make api-client-toolchain-check",
+      "evidenceRefs": [
+        {
+          "path": "docs/reference/api-client-toolchains.json",
+          "contains": [
+            "gofly.api_client_toolchains.v1",
+            "required-language-matrix",
+            "http-runtime"
+          ]
+        },
+        {
+          "path": "bin/scripts/check-api-client-toolchains.py",
+          "contains": [
+            "gofly.api_client_toolchain_report.v1",
+            "unavailable"
+          ]
+        },
+        {
+          "path": "bin/scripts/check-api-client-toolchains.sh",
+          "contains": [
+            "API_CLIENT_TOOLCHAIN_REQUIRED",
+            "API_CLIENT_TOOLCHAIN_REPORT"
+          ]
+        }
+      ]
+    },
     {
       "id": "api-semantic-parity",
       "risk": "Grouped declarations, composite types, request locations, and response-less routes must remain consistent across generated profiles and OpenAPI.",

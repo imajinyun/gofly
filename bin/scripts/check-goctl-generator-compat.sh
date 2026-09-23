@@ -20,6 +20,7 @@ expected_capabilities = {
     "route-layout-boundary": "implemented",
     "goctl-api-flag-parity": "implemented",
     "multi-language-client-generation": "implemented",
+    "api-client-toolchain-verification": "implemented",
     "api-semantic-parity": "implemented",
     "zrpc-proto-compatibility-matrix": "implemented",
     "goctl-rpc-protoc-parity": "implemented",
@@ -45,6 +46,7 @@ required_release_gates = {
     "make goctl-rpc-protoc-parity-check",
     "make goctl-model-parity-replay-check",
     "make api-client-generation-check",
+    "make api-client-toolchain-check",
     "make api-semantic-parity-check",
     "make zrpc-proto-compatibility-check",
     "make goctl-real-project-replay-check",
@@ -140,6 +142,11 @@ for capability_id, expected_status in expected_capabilities.items():
             for language in ("typescript", "javascript", "dart", "java", "kotlin"):
                 require(language in evidence, f"{capability_id}: evidence must include {language!r}")
                 require(language in searchable, f"{capability_id}: implementation or tests must mention {language!r}")
+        if capability_id == "api-client-toolchain-verification":
+            for language in ("typescript", "javascript", "dart", "java", "kotlin"):
+                require(language in evidence, f"{capability_id}: evidence must include {language!r}")
+                require(language in searchable, f"{capability_id}: implementation or tests must mention {language!r}")
+            require("API_CLIENT_TOOLCHAIN_REQUIRED" in searchable, f"{capability_id}: required-mode contract is missing")
     else:
         require(not item.get("implementation"), f"{capability_id}: planned capability must not claim implementation paths")
         require(not item.get("tests"), f"{capability_id}: planned capability must not claim test paths")

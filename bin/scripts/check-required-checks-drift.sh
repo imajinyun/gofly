@@ -33,6 +33,21 @@ release_job = job_block("release")
 branch_audit_job = job_block("branch-protection-audit")
 
 require(workflow, ".github/workflows/ci.yml must exist")
+client_toolchain_job = job_block("api-client-toolchains")
+require(client_toolchain_job, "ci.yml must define api-client-toolchains job")
+for token in (
+    "name: api client toolchain (${{ matrix.language }})",
+    "language: javascript",
+    "language: typescript",
+    "language: java",
+    "language: kotlin",
+    "language: dart",
+    "API_CLIENT_TOOLCHAIN_REQUIRED: \"true\"",
+    "make api-client-toolchain-check",
+    "api-client-toolchain-${{ matrix.language }}.json",
+    "if-no-files-found: error",
+):
+    require(token in client_toolchain_job, f"api-client-toolchains job missing {token!r}")
 require("required-checks-drift-check:" in makefile, "Makefile must expose required-checks-drift-check")
 require("sh $(SCRIPTS_DIR)/check-required-checks-drift.sh" in makefile, "required-checks-drift-check must execute check-required-checks-drift.sh")
 require("sh $(SCRIPTS_DIR)/check-generated-rpc-mux-mtls-evidence.sh" in makefile, "rpc-boundary-check must assert generated RPC mux mTLS success evidence locally")
@@ -68,7 +83,7 @@ for token in (
     "gateway-aggregation-invalid.sarif",
     "python3 - gateway-aggregation-breaking.sarif gateway-aggregation-invalid.sarif gateway-aggregation.sarif",
     "gateway-aggregation-sarif",
-    "github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a",
+    "github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd",
     "security-events: write",
     "sarif_file: gateway-aggregation.sarif",
     "if-no-files-found: error",
@@ -123,10 +138,10 @@ for token in (
 	"RPCMuxLogConfig{Enabled: true, Diagnosis: true, ExportEvents: true, EventFamily: \"flow-control\", Event: \"fragment-window-refill\"}",
 	"RPCMuxOTelCompatibleLogConfig{Enabled: true, Sink: \"slog\", Profile: \"generated-mtls-refill\"}",
 	"mtlsClient.ObserveMuxDiagnosis(mtlsRefillTraceCtx, refillDiagnosis)",
-	"rpc.ValidateRPCMuxOTelLogSinkProfile",
-	"rpc.NewRPCMuxOTelLogSinkExporter",
+	"rpc.ValidateRPCMuxDiagnosisSinkSetConfig",
+	"rpc.NewRPCMuxDiagnosisSinkSet",
 	"rpc.WithServerMuxDiagnosisEventExporter",
-	"func (c RPCMuxConfig) ServerOptions() []rpc.ServerOption",
+	"func (c RPCMuxConfig) ServerOptionsWithSinkSet(sinkSet *rpc.RPCMuxDiagnosisSinkSet) []rpc.ServerOption",
 	"func TestRPCMuxConfigValidatesOTelCompatibleSink",
 	"mtlsTraceAttrs[\"rpc.mux.candidate.negotiated_protocol\"].AsString() != \"gofly-mux/generated-mtls-test\"",
 	"mtlsRefillTraceAttrs[\"rpc.mux.manager.refill_profile.refills.count\"].AsInt64() < 1",
@@ -168,6 +183,13 @@ if release_needs is not None:
 
 require(branch_audit_job, "ci.yml must define branch-protection-audit job")
 require('"gateway profile contract"' in branch_audit_job, "branch protection audit must expect gateway profile contract required check")
+for language in ("javascript", "typescript", "java", "kotlin", "dart"):
+    require(f'"api client toolchain ({language})"' in branch_audit_job, f"branch protection audit must expect {language} API client toolchain check")
+
+release_needs = re.search(r"needs:\s*\[(?P<needs>[^\]]+)\]", release_job)
+if release_needs is not None:
+    needs = {item.strip() for item in release_needs.group("needs").split(",")}
+    require("api-client-toolchains" in needs, "release job must need api-client-toolchains")
 
 if missing:
     print("required-check drift check failed:", file=sys.stderr)

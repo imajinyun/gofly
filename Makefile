@@ -274,7 +274,7 @@ goctl-compatibility-report-check: ## Validate goctl compatibility release report
 	sh $(SCRIPTS_DIR)/check-goctl-compatibility-report.sh
 
 .PHONY: goctl-generator-compat-check
-goctl-generator-compat-check: goctl-surface-drift-check goctl-api-flag-parity-check goctl-rpc-protoc-parity-check goctl-model-parity-replay-check api-client-generation-check zrpc-proto-compatibility-check ## Validate goctl-compatible generator tests
+goctl-generator-compat-check: goctl-surface-drift-check goctl-api-flag-parity-check goctl-rpc-protoc-parity-check goctl-model-parity-replay-check api-client-generation-check api-semantic-parity-check zrpc-proto-compatibility-check ## Validate goctl-compatible generator tests
 	$(GO) test $(TESTFLAGS) ./cmd/gofly/internal/generator ./cmd/gofly/internal/command -run 'Test.*Goctl|Test.*goctl|Test.*Generated|TestNewService'
 	sh $(SCRIPTS_DIR)/check-goctl-generator-compat.sh
 
@@ -293,6 +293,10 @@ goctl-model-parity-replay-check: goctl-surface-drift-check ## Validate goctl mod
 .PHONY: api-client-generation-check
 api-client-generation-check: ## Validate multi-language API client generation fixtures
 	sh $(SCRIPTS_DIR)/check-api-client-generation.sh
+
+.PHONY: api-semantic-parity-check
+api-semantic-parity-check: ## Validate goctl API grammar, generated profiles, runtime binding, and OpenAPI semantics
+	sh $(SCRIPTS_DIR)/check-api-semantic-parity.sh
 
 .PHONY: zrpc-proto-compatibility-check
 zrpc-proto-compatibility-check: native-grpc-golden-path-check ## Validate zRPC/proto compatibility support matrix
@@ -441,7 +445,7 @@ openapi-validation-check: ## Validate OpenAPI, binding, validation, and error en
 	$(GO) test $(TESTFLAGS) ./rest/... ./cmd/gofly/internal/generator -run 'Test.*OpenAPI|Test.*Validation|Test.*Error'
 
 .PHONY: api-contract-check
-api-contract-check: openapi-validation-check rpc-boundary-check ## Validate REST/OpenAPI and RPC boundary contracts
+api-contract-check: api-semantic-parity-check openapi-validation-check rpc-boundary-check ## Validate REST/OpenAPI and RPC boundary contracts
 	sh $(SCRIPTS_DIR)/check-api-contract-governance.sh
 
 .PHONY: api-contract-governance-check

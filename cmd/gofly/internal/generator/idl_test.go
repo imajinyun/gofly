@@ -2108,8 +2108,8 @@ func TestGenerateAPIRoutes(t *testing.T) {
 	api := `type PingResponse {
   Message string
 }
+@server(group: admin prefix: /api jwt: required middlewares: auth,trace)
 service user-api {
-  @server(group: admin prefix: /api jwt: required middlewares: auth,trace)
   @handler ping
   get /ping returns (PingResponse)
 }`

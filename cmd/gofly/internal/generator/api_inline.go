@@ -42,7 +42,11 @@ func resolveAPIInlineFields(msg IDLMessage, messages map[string]IDLMessage, reso
 			fields = append(fields, field)
 			continue
 		}
-		embedded, ok := messages[exportName(apiBaseType(field.Type))]
+		embeddedType := apiTypeRefOrNamed(field.Type)
+		for embeddedType.Kind == apiTypeKindPointer {
+			embeddedType = apiTypeRefElement(embeddedType)
+		}
+		embedded, ok := messages[exportName(embeddedType.Name)]
 		if !ok || resolving[exportName(embedded.Name)] {
 			continue
 		}

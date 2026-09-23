@@ -170,7 +170,7 @@ func ObservabilityStreamClientInterceptor(service string, registry *metrics.Regi
 		op := observer.Start("grpc_client_stream:"+method, "method", method)
 		ctx, cancel := context.WithCancel(ctx)
 		stream, err := streamer(ctx, desc, cc, method, opts...)
-		wrapped := &observabilityClientStream{ClientStream: stream, ctx: ctx, cancel: cancel, operation: op, serverStreams: desc.ServerStreams}
+		wrapped := &observabilityClientStream{ClientStream: stream, ctx: ctx, cancel: cancel, operation: op}
 		if err != nil {
 			wrapped.finish(err)
 			return nil, err
@@ -182,16 +182,17 @@ func ObservabilityStreamClientInterceptor(service string, registry *metrics.Regi
 
 type observabilityClientStream struct {
 	stdgrpc.ClientStream
-	ctx           context.Context
-	operation     *observability.Operation
-	once          sync.Once
-	cancel        context.CancelFunc
-	serverStreams bool
+	ctx       context.Context
+	operation *observability.Operation
+	once      sync.Once
+	cancel    context.CancelFunc
 }
 
 func (s *observabilityClientStream) RecvMsg(message any) error {
 	err := s.ClientStream.RecvMsg(message)
-	if err != nil || !s.serverStreams {
+	// The stream is complete only after a terminal receive error (normally EOF).
+	// A nil result may still be followed by grpc-go's trailer receive.
+	if err != nil {
 		s.finish(err)
 	}
 	return err
@@ -284,11 +285,7 @@ func TimeoutStreamClientInterceptor(timeout time.Duration) stdgrpc.StreamClientI
 			cancel()
 			return nil, err
 		}
-		wrapped := &timeoutClientStream{
-			ClientStream:  stream,
-			cancel:        cancel,
-			serverStreams: desc.ServerStreams,
-		}
+		wrapped := &timeoutClientStream{ClientStream: stream, cancel: cancel}
 		context.AfterFunc(callCtx, wrapped.finish)
 		return wrapped, nil
 	}
@@ -296,9 +293,8 @@ func TimeoutStreamClientInterceptor(timeout time.Duration) stdgrpc.StreamClientI
 
 type timeoutClientStream struct {
 	stdgrpc.ClientStream
-	cancel        context.CancelFunc
-	once          sync.Once
-	serverStreams bool
+	cancel context.CancelFunc
+	once   sync.Once
 }
 
 func (s *timeoutClientStream) CloseSend() error {
@@ -315,7 +311,7 @@ func (s *timeoutClientStream) Header() (metadata.MD, error) {
 
 func (s *timeoutClientStream) RecvMsg(message any) error {
 	err := s.ClientStream.RecvMsg(message)
-	if err != nil || !s.serverStreams {
+	if err != nil {
 		s.finish()
 	}
 	return err

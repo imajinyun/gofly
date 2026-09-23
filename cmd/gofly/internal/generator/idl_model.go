@@ -60,6 +60,12 @@ type IDLServerAnnotation struct {
 	Values     map[string]string
 }
 
+type IDLRouteAnnotation struct {
+	Handler string
+	Group   string
+	Values  map[string]string
+}
+
 type IDLMethod struct {
 	Name          string
 	Request       string
@@ -72,4 +78,5 @@ type IDLMethod struct {
 	HTTPPath      string
 	Handler       string
 	Doc           map[string]string
+	Route         IDLRouteAnnotation
 }

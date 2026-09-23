@@ -86,6 +86,15 @@
       "rollbackNote": "Rollback by pinning client generators per language and keeping generated client evidence out of runtime artifacts."
     },
     {
+      "id": "api-semantic-parity",
+      "status": "implemented",
+      "gate": "make api-semantic-parity-check",
+      "implementation": ["cmd/gofly/internal/generator/api_parser.go", "cmd/gofly/internal/generator/api_type_ref.go", "cmd/gofly/internal/generator/api_codegen.go"],
+      "tests": ["cmd/gofly/internal/generator/api_parser_goctl_test.go", "cmd/gofly/internal/generator/api_semantic_replay_test.go", "bin/scripts/check-api-semantic-parity.sh", "docs/reference/api-semantic-parity.json"],
+      "evidence": ["grouped-imports", "map-types", "response-less-route"],
+      "rollbackNote": "Rollback unsupported grammar rows independently while retaining P0 import, location, path, and response status contracts."
+    },
+    {
       "id": "zrpc-proto-compatibility-matrix",
       "status": "implemented",
       "gate": "make zrpc-proto-compatibility-check",
@@ -158,6 +167,7 @@
     "make goctl-rpc-protoc-parity-check",
     "make goctl-model-parity-replay-check",
     "make api-client-generation-check",
+    "make api-semantic-parity-check",
     "make zrpc-proto-compatibility-check",
     "make goctl-real-project-replay-check",
     "make generated-version-compat-check",

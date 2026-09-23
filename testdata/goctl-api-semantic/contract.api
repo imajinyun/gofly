@@ -1,0 +1,41 @@
+syntax = "v1"
+
+import (
+	"types/common.api"
+)
+
+type (
+	CreateRequest {
+		Audit
+		TenantID string `header:"X-Tenant-ID"`
+		ID       string `path:"id"`
+		DryRun   bool   `form:"dryRun,optional"`
+		Item     *Item  `json:"item"`
+	}
+	CreateResponse {
+		ID string `json:"id"`
+	}
+)
+
+@server (
+	prefix:     /api/v1
+	group:      catalog
+	middleware: Auth
+)
+service catalog-api {
+	@doc (
+		respCode: "201"
+	)
+	@handler createItem
+	post /items/:id (CreateRequest) returns (CreateResponse)
+
+	@handler health
+	get /health returns (CreateResponse)
+
+	@doc (
+		respCode: "204"
+	)
+	@handler deleteItem
+	delete /items/:id (CreateRequest)
+}
+

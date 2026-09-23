@@ -5,7 +5,8 @@ go 1.26.7
 require (
 	github.com/imajinyun/gofly v0.0.0
 	github.com/zeromicro/go-zero v1.10.3
-	google.golang.org/grpc v1.83.2
+	go.etcd.io/etcd/api/v3 v3.7.1
+	google.golang.org/grpc v1.85.0-dev.0.20260825072537-93e31b48545e
 	google.golang.org/protobuf v1.36.12
 )
 
@@ -62,7 +63,6 @@ require (
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/titanous/json5 v1.0.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
-	go.etcd.io/etcd/api/v3 v3.7.1 // indirect
 	go.etcd.io/etcd/client/pkg/v3 v3.7.1 // indirect
 	go.etcd.io/etcd/client/v3 v3.7.1 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect

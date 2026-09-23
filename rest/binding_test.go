@@ -379,12 +379,16 @@ func TestBindRequestSourceOrderingAndMethodBodyBranches(t *testing.T) {
 		t.Fatalf("BindRequest POST = %+v, want later query binding to override json name", got)
 	}
 
-	req = httptest.NewRequest(http.MethodDelete, "/users/13?name=delete", strings.NewReader(`{invalid-json`))
+	req = httptest.NewRequest(http.MethodDelete, "/users/13?name=delete", strings.NewReader(`{"name":"json"}`))
+	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("id", "13")
 	req.Header.Set("X-Role", "admin")
 	got = request{}
 	if err := BindRequest(req, &got); err != nil {
-		t.Fatalf("BindRequest DELETE with body returned error: %v", err)
+		t.Fatalf("BindRequest DELETE: %v", err)
+	}
+	if got.ID != 13 || got.Name != "delete" {
+		t.Fatalf("BindRequest DELETE = %+v, want path/query override over JSON", got)
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/users/14?name=post", strings.NewReader(`{invalid-json`))

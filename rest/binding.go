@@ -129,7 +129,7 @@ func BindRequest(r *http.Request, v any) error {
 }
 
 func bindRequest(r *http.Request, v any, validator Validator) error {
-	if r.Body != nil && r.Body != http.NoBody && r.Method != http.MethodGet && r.Method != http.MethodDelete {
+	if r.Body != nil && r.Body != http.NoBody && r.Method != http.MethodGet {
 		if err := decodeJSON(r, v); err != nil {
 			return invalidRequestError(err)
 		}

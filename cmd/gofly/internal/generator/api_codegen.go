@@ -1,6 +1,7 @@
 package generator
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -333,11 +334,20 @@ func FormatAPI(doc IDLDocument) []byte {
 		fprintf(&b, "service %s {\n", svc.Name)
 		for _, method := range svc.Methods {
 			writeAPIDocAnnotation(&b, method.Doc)
+			writeAPIRouteAnnotation(&b, method.Route)
 			if method.Handler != "" {
 				fprintf(&b, "  @handler %s\n", exportName(method.Handler))
 			}
-			if method.Request == "" {
+			if method.Request == "" && method.Response != "" {
 				fprintf(&b, "  %s %s returns (%s)\n", strings.ToLower(method.HTTPMethod), method.HTTPPath, exportName(method.Response))
+				continue
+			}
+			if method.Request != "" && method.Response == "" {
+				fprintf(&b, "  %s %s (%s)\n", strings.ToLower(method.HTTPMethod), method.HTTPPath, exportName(method.Request))
+				continue
+			}
+			if method.Request == "" {
+				fprintf(&b, "  %s %s\n", strings.ToLower(method.HTTPMethod), method.HTTPPath)
 				continue
 			}
 			fprintf(&b, "  %s %s (%s) returns (%s)\n", strings.ToLower(method.HTTPMethod), method.HTTPPath, exportName(method.Request), exportName(method.Response))
@@ -396,6 +406,33 @@ func writeAPIDocAnnotation(b *bytes.Buffer, values map[string]string) {
 		parts = append(parts, fmt.Sprintf("%s: %q", key, values[key]))
 	}
 	fprintf(b, "  @doc(%s)\n", strings.Join(parts, " "))
+}
+
+func writeAPIRouteAnnotation(b *bytes.Buffer, annotation IDLRouteAnnotation) {
+	values := cloneStringMap(annotation.Values)
+	if values == nil {
+		values = map[string]string{}
+	}
+	delete(values, "handler")
+	delete(values, "group")
+	parts := make([]string, 0, len(values)+2)
+	if annotation.Handler != "" {
+		parts = append(parts, "handler: "+annotation.Handler)
+	}
+	if annotation.Group != "" {
+		parts = append(parts, "group: "+annotation.Group)
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		parts = append(parts, key+": "+values[key])
+	}
+	if len(parts) > 0 {
+		fprintf(b, "  @server(%s)\n", strings.Join(parts, " "))
+	}
 }
 
 func GenerateAPIFromOpenAPI(opts APIImportOptions) error {
@@ -543,16 +580,36 @@ func readAPIFileWithImportsSeen(path string, seen map[string]struct{}) (IDLDocum
 	return doc, nil
 }
 
-var apiImportRE = regexp.MustCompile(`(?m)^\s*import\s+"([^"]+)"\s*$`)
+var apiImportRE = regexp.MustCompile(`^"([^"]+)"$`)
 
 func apiImportPaths(content string) []string {
-	matches := apiImportRE.FindAllStringSubmatch(content, -1)
-	if len(matches) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(matches))
-	for _, match := range matches {
-		if len(match) == 2 {
+	var out []string
+	var inBlock bool
+	scanner := bufio.NewScanner(strings.NewReader(stripBlockComments(content)))
+	for scanner.Scan() {
+		line := strings.TrimSpace(stripLineComment(scanner.Text()))
+		if line == "" {
+			continue
+		}
+		if inBlock {
+			if line == ")" {
+				inBlock = false
+				continue
+			}
+			if match := apiImportRE.FindStringSubmatch(line); len(match) == 2 {
+				out = append(out, strings.TrimSpace(match[1]))
+			}
+			continue
+		}
+		if isAPIBlockStart(line, "import") {
+			inBlock = true
+			continue
+		}
+		if !strings.HasPrefix(line, "import") {
+			continue
+		}
+		value := strings.TrimSpace(strings.TrimPrefix(line, "import"))
+		if match := apiImportRE.FindStringSubmatch(value); len(match) == 2 {
 			out = append(out, strings.TrimSpace(match[1]))
 		}
 	}
@@ -1145,6 +1202,7 @@ func apiRouteInfos(doc IDLDocument) []APIRouteInfo {
 	routes := make([]APIRouteInfo, 0)
 	for _, svc := range doc.Services {
 		for _, method := range svc.Methods {
+			effective := effectiveAPIRouteAnnotation(svc.Server, method.Route)
 			routes = append(routes, APIRouteInfo{
 				Service:     svc.Name,
 				Method:      method.HTTPMethod,
@@ -1152,14 +1210,47 @@ func apiRouteInfos(doc IDLDocument) []APIRouteInfo {
 				Handler:     exportName(method.Name),
 				Request:     exportOptionalName(method.Request),
 				Response:    exportName(method.Response),
-				Group:       exportAnnotationName(svc.Server.Group),
-				Prefix:      svc.Server.Prefix,
-				JWT:         exportAnnotationName(svc.Server.JWT),
-				Middlewares: exportAnnotationNames(svc.Server.Middleware),
+				Group:       exportAnnotationName(effective.Group),
+				Prefix:      effective.Prefix,
+				JWT:         exportAnnotationName(effective.JWT),
+				Middlewares: exportAnnotationNames(effective.Middleware),
 			})
 		}
 	}
 	return routes
+}
+
+func effectiveAPIRouteAnnotation(service IDLServerAnnotation, route IDLRouteAnnotation) IDLServerAnnotation {
+	effective := service
+	if len(service.Values) > 0 {
+		effective.Values = cloneStringMap(service.Values)
+	}
+	if route.Group != "" {
+		effective.Group = route.Group
+	}
+	if len(route.Values) == 0 {
+		return effective
+	}
+	if effective.Values == nil {
+		effective.Values = make(map[string]string, len(route.Values))
+	}
+	for key, value := range route.Values {
+		effective.Values[key] = value
+	}
+	if value := strings.TrimSpace(route.Values["prefix"]); value != "" {
+		effective.Prefix = value
+	}
+	if value := strings.TrimSpace(route.Values["jwt"]); value != "" {
+		effective.JWT = value
+	}
+	middleware := route.Values["middleware"]
+	if middleware == "" {
+		middleware = route.Values["middlewares"]
+	}
+	if middleware != "" {
+		effective.Middleware = splitAPIAnnotationList(middleware)
+	}
+	return effective
 }
 
 func exportOptionalName(name string) string {
@@ -1744,6 +1835,9 @@ func writeTypeScriptMethod(b *bytes.Buffer, method IDLMethod, request IDLMessage
 	methodName := lowerCamel(method.Name)
 	requestType := exportName(method.Request)
 	responseType := exportName(method.Response)
+	if method.Response == "" {
+		responseType = "void"
+	}
 	if method.Request == "" {
 		fprintf(b, "  async %s(): Promise<%s> {\n", methodName, responseType)
 	} else {
@@ -1765,7 +1859,11 @@ func writeTypeScriptMethod(b *bytes.Buffer, method IDLMethod, request IDLMessage
 	}
 	fprintf(b, "    const resp = await fetch(url, init);\n")
 	fprintf(b, "    if (!resp.ok) throw new Error(await resp.text());\n")
-	fprintf(b, "    return await resp.json() as %s;\n", responseType)
+	if method.Response == "" {
+		fprintf(b, "    return;\n")
+	} else {
+		fprintf(b, "    return await resp.json() as %s;\n", responseType)
+	}
 	fprintf(b, "  }\n\n")
 }
 
@@ -1862,7 +1960,11 @@ func writeJavaScriptMethod(b *bytes.Buffer, method IDLMethod, request IDLMessage
 	}
 	fprintf(b, "    const resp = await fetch(url, init);\n")
 	fprintf(b, "    if (!resp.ok) throw new Error(await resp.text());\n")
-	fprintf(b, "    return await resp.json();\n")
+	if method.Response == "" {
+		fprintf(b, "    return;\n")
+	} else {
+		fprintf(b, "    return await resp.json();\n")
+	}
 	fprintf(b, "  }\n\n")
 }
 
@@ -1965,6 +2067,9 @@ func writeDartModel(b *bytes.Buffer, msg IDLMessage) {
 func writeDartMethod(b *bytes.Buffer, method IDLMethod, request IDLMessage) {
 	methodName := lowerCamel(method.Name)
 	responseType := exportName(method.Response)
+	if method.Response == "" {
+		responseType = "void"
+	}
 	if method.Request == "" {
 		fprintf(b, "  Future<%s> %s() async {\n", responseType, methodName)
 	} else {
@@ -1977,7 +2082,7 @@ func writeDartMethod(b *bytes.Buffer, method IDLMethod, request IDLMessage) {
 		fprintf(b, "    if (req.%s != null) headers[%q] = req.%s.toString();\n", field.Property, field.WireName, field.Property)
 	}
 	verb := strings.ToUpper(method.HTTPMethod)
-	if bodyFields := apiClientFieldsAt(fields, apiClientFieldBody); method.Request != "" && verb != http.MethodGet && verb != http.MethodDelete && len(bodyFields) > 0 {
+	if bodyFields := apiClientFieldsAt(fields, apiClientFieldBody); method.Request != "" && apiClientMethodAllowsBody(method.HTTPMethod) && len(bodyFields) > 0 {
 		body := "req.toJson()"
 		if apiClientBodyNeedsProjection(fields, bodyFields) {
 			body = dartBodyExpression(bodyFields)
@@ -1989,7 +2094,11 @@ func writeDartMethod(b *bytes.Buffer, method IDLMethod, request IDLMessage) {
 	fprintf(b, "    if (resp.statusCode < 200 || resp.statusCode >= 300) {\n")
 	fprintf(b, "      throw Exception(resp.body);\n")
 	fprintf(b, "    }\n")
-	fprintf(b, "    return %s.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);\n", responseType)
+	if method.Response == "" {
+		fprintf(b, "    return;\n")
+	} else {
+		fprintf(b, "    return %s.fromJson(jsonDecode(resp.body) as Map<String, dynamic>);\n", responseType)
+	}
 	fprintf(b, "  }\n\n")
 }
 
@@ -2042,29 +2151,24 @@ func dartBodyExpression(fields []apiClientField) string {
 }
 
 func dartType(name string) string {
-	if strings.HasPrefix(name, "[]") {
-		return "List<" + dartType(strings.TrimPrefix(name, "[]")) + ">"
-	}
-	switch name {
-	case "string":
-		return "String"
-	case "bool":
-		return "bool"
-	case "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64":
-		return "int"
-	case "float32", "float64":
-		return "double"
-	default:
-		return exportName(name)
-	}
+	return apiDartTypeRef(apiTypeRefOrNamed(name))
 }
 
 func dartFromJSON(name, expr string) string {
-	if strings.HasPrefix(name, "[]") {
-		elem := strings.TrimPrefix(name, "[]")
-		return fmt.Sprintf("(%s as List<dynamic>?)?.map((e) => %s).toList()", expr, dartFromJSON(elem, "e"))
+	return dartFromJSONRef(apiTypeRefOrNamed(name), expr)
+}
+
+func dartFromJSONRef(ref apiTypeRef, expr string) string {
+	switch ref.Kind {
+	case apiTypeKindPointer:
+		return dartFromJSONRef(apiTypeRefElement(ref), expr)
+	case apiTypeKindSlice:
+		return fmt.Sprintf("(%s as List<dynamic>?)?.map((e) => %s).toList()", expr, dartFromJSONRef(apiTypeRefElement(ref), "e"))
+	case apiTypeKindMap:
+		value := apiTypeRefElement(ref)
+		return fmt.Sprintf("(%s as Map<String, dynamic>?)?.map((key, value) => MapEntry(key, %s))", expr, dartFromJSONRef(value, "value"))
 	}
-	switch name {
+	switch ref.Name {
 	case "string":
 		return expr + " as String?"
 	case "bool":
@@ -2074,7 +2178,7 @@ func dartFromJSON(name, expr string) string {
 	case "float32", "float64":
 		return "(" + expr + " as num?)?.toDouble()"
 	default:
-		return exportName(name) + ".fromJson(" + expr + " as Map<String, dynamic>)"
+		return exportName(ref.Name) + ".fromJson(" + expr + " as Map<String, dynamic>)"
 	}
 }
 
@@ -2123,6 +2227,9 @@ func writeJavaModel(b *bytes.Buffer, msg IDLMessage) {
 func writeJavaMethod(b *bytes.Buffer, method IDLMethod, request IDLMessage) {
 	methodName := lowerCamel(method.Name)
 	responseType := exportName(method.Response)
+	if method.Response == "" {
+		responseType = "void"
+	}
 	if method.Request == "" {
 		fprintf(b, "  public %s %s() throws Exception {\n", responseType, methodName)
 	} else {
@@ -2155,7 +2262,11 @@ func writeJavaMethod(b *bytes.Buffer, method IDLMethod, request IDLMessage) {
 	fprintf(b, "    builder.header(\"Content-Type\", \"application/json\");\n")
 	fprintf(b, "    HttpResponse<String> resp = client.send(builder.build(), HttpResponse.BodyHandlers.ofString());\n")
 	fprintf(b, "    if (resp.statusCode() < 200 || resp.statusCode() >= 300) throw new RuntimeException(resp.body());\n")
-	fprintf(b, "    return mapper.readValue(resp.body(), %s.class);\n", responseType)
+	if method.Response == "" {
+		fprintf(b, "    return;\n")
+	} else {
+		fprintf(b, "    return mapper.readValue(resp.body(), %s.class);\n", responseType)
+	}
 	fprintf(b, "  }\n\n")
 }
 
@@ -2205,10 +2316,7 @@ func writeJavaQueryHelper(b *bytes.Buffer) {
 }
 
 func javaType(name string) string {
-	if strings.HasPrefix(name, "[]") {
-		return "java.util.List<" + javaBoxedType(strings.TrimPrefix(name, "[]")) + ">"
-	}
-	return javaBoxedType(name)
+	return apiJavaTypeRef(apiTypeRefOrNamed(name))
 }
 
 func javaBoxedType(name string) string {
@@ -2276,6 +2384,9 @@ func writeKotlinModel(b *bytes.Buffer, msg IDLMessage) {
 func writeKotlinMethod(b *bytes.Buffer, method IDLMethod, request IDLMessage) {
 	methodName := lowerCamel(method.Name)
 	responseType := exportName(method.Response)
+	if method.Response == "" {
+		responseType = "Unit"
+	}
 	if method.Request == "" {
 		fprintf(b, "  fun %s(): %s {\n", methodName, responseType)
 	} else {
@@ -2300,7 +2411,11 @@ func writeKotlinMethod(b *bytes.Buffer, method IDLMethod, request IDLMessage) {
 	fprintf(b, "      .header(\"Content-Type\", \"application/json\")\n")
 	fprintf(b, "    val resp = client.send(builder.build(), HttpResponse.BodyHandlers.ofString())\n")
 	fprintf(b, "    if (resp.statusCode() !in 200..299) throw RuntimeException(resp.body())\n")
-	fprintf(b, "    return json.decodeFromString(resp.body())\n")
+	if method.Response == "" {
+		fprintf(b, "    return Unit\n")
+	} else {
+		fprintf(b, "    return json.decodeFromString(resp.body())\n")
+	}
 	fprintf(b, "  }\n\n")
 }
 
@@ -2358,41 +2473,11 @@ func writeKotlinQueryHelper(b *bytes.Buffer) {
 }
 
 func kotlinType(name string) string {
-	if strings.HasPrefix(name, "[]") {
-		return "List<" + kotlinType(strings.TrimPrefix(name, "[]")) + ">"
-	}
-	switch name {
-	case "string":
-		return "String"
-	case "bool":
-		return "Boolean"
-	case "int", "int8", "int16", "int32", "uint8", "uint16", "uint32":
-		return "Int"
-	case "int64", "uint", "uint64":
-		return "Long"
-	case "float32":
-		return "Float"
-	case "float64":
-		return "Double"
-	default:
-		return exportName(name)
-	}
+	return apiKotlinTypeRef(apiTypeRefOrNamed(name))
 }
 
 func typeScriptType(name string) string {
-	if strings.HasPrefix(name, "[]") {
-		return typeScriptType(strings.TrimPrefix(name, "[]")) + "[]"
-	}
-	switch name {
-	case "string":
-		return "string"
-	case "bool":
-		return "boolean"
-	case "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "float32", "float64":
-		return "number"
-	default:
-		return exportName(name)
-	}
+	return apiTypeScriptTypeRef(apiTypeRefOrNamed(name))
 }
 
 func generateAPIMarkdown(doc IDLDocument) []byte {
@@ -2478,8 +2563,11 @@ func buildAPIOpenAPISpec(doc IDLDocument) map[string]any {
 	paths := spec["paths"].(map[string]any)
 	messageNames := openAPIMessageNames(doc)
 	for _, svc := range doc.Services {
-		tag := openAPIServiceTag(svc)
 		for _, method := range svc.Methods {
+			effective := effectiveAPIRouteAnnotation(svc.Server, method.Route)
+			routeService := svc
+			routeService.Server = effective
+			tag := openAPIServiceTag(routeService)
 			path := openAPIServicePath(svc, method.HTTPPath)
 			pathItem, _ := paths[path].(map[string]any)
 			if pathItem == nil {
@@ -2491,7 +2579,7 @@ func buildAPIOpenAPISpec(doc IDLDocument) map[string]any {
 				"tags":        []string{tag},
 				"responses":   openAPIResponsesForMethod(method, doc, messageNames),
 			}
-			if security := openAPIOperationSecurity(svc); len(security) > 0 {
+			if security := openAPIOperationSecurity(routeService); len(security) > 0 {
 				operation["security"] = security
 			}
 			request := messageByName(doc, method.Request)
@@ -2524,7 +2612,9 @@ func openAPIResponsesForMethod(method IDLMethod, doc IDLDocument, messageNames m
 	}
 	response := map[string]any{
 		"description": http.StatusText(statusCode),
-		"content":     jsonContentRef(method.Response, messageByName(doc, method.Response), messageNames),
+	}
+	if method.Response != "" {
+		response["content"] = jsonContentRef(method.Response, messageByName(doc, method.Response), messageNames)
 	}
 	if response["description"] == "" {
 		response["description"] = "OK"
@@ -2562,16 +2652,24 @@ func openAPITags(doc IDLDocument) []map[string]any {
 	seen := map[string]struct{}{}
 	out := make([]map[string]any, 0, len(doc.Services))
 	for _, svc := range doc.Services {
-		tag := openAPIServiceTag(svc)
-		if _, ok := seen[tag]; ok {
-			continue
+		annotations := []IDLServerAnnotation{svc.Server}
+		for _, method := range svc.Methods {
+			annotations = append(annotations, effectiveAPIRouteAnnotation(svc.Server, method.Route))
 		}
-		seen[tag] = struct{}{}
-		item := map[string]any{"name": tag}
-		if svc.Server.Group != "" {
-			item["description"] = "@server group " + svc.Server.Group
+		for _, annotation := range annotations {
+			routeService := svc
+			routeService.Server = annotation
+			tag := openAPIServiceTag(routeService)
+			if _, ok := seen[tag]; ok {
+				continue
+			}
+			seen[tag] = struct{}{}
+			item := map[string]any{"name": tag}
+			if annotation.Group != "" {
+				item["description"] = "@server group " + annotation.Group
+			}
+			out = append(out, item)
 		}
-		out = append(out, item)
 	}
 	return out
 }
@@ -2871,9 +2969,21 @@ func openAPIDefaultExample(fieldType string, messageNames map[string]struct{}) a
 }
 
 func openAPISchema(name string, messageNames map[string]struct{}) map[string]any {
-	if strings.HasPrefix(name, "[]") {
-		return map[string]any{"type": "array", "items": openAPISchema(strings.TrimPrefix(name, "[]"), messageNames)}
+	return apiOpenAPISchemaRef(apiTypeRefOrNamed(name), messageNames)
+}
+
+func apiOpenAPISchemaRef(ref apiTypeRef, messageNames map[string]struct{}) map[string]any {
+	switch ref.Kind {
+	case apiTypeKindPointer:
+		schema := apiOpenAPISchemaRef(apiTypeRefElement(ref), messageNames)
+		schema["nullable"] = true
+		return schema
+	case apiTypeKindSlice:
+		return map[string]any{"type": "array", "items": apiOpenAPISchemaRef(apiTypeRefElement(ref), messageNames)}
+	case apiTypeKindMap:
+		return map[string]any{"type": "object", "additionalProperties": apiOpenAPISchemaRef(apiTypeRefElement(ref), messageNames)}
 	}
+	name := ref.Name
 	if _, ok := messageNames[exportName(name)]; ok {
 		return map[string]any{"$ref": "#/components/schemas/" + exportName(name)}
 	}
@@ -2944,7 +3054,9 @@ func writeRESTFiles(doc IDLDocument, opts APIOptions) error {
 		}
 		// one file per method
 		for _, method := range svc.Methods {
-			if err := writeMethodFile(svcDir, method, svc, opts.Package, rpcAlias, opts.RPCPackage); err != nil {
+			routeMethod := method
+			routeMethod.HTTPPath = openAPIServicePath(svc, method.HTTPPath)
+			if err := writeMethodFile(svcDir, routeMethod, svc, opts.Package, rpcAlias, opts.RPCPackage); err != nil {
 				return err
 			}
 			if opts.RPCPackage != "" {
@@ -3015,11 +3127,17 @@ func writeServiceInterfaceFile(dir string, svc IDLService, pkg, rpcAlias, rpcPkg
 	fprintf(&b, "type %s interface {\n", serviceName)
 	for _, method := range svc.Methods {
 		requestName := exportName(method.Request)
-		if method.Request == "" {
+		responseName := exportName(method.Response)
+		switch {
+		case method.Request == "" && method.Response == "":
+			fprintf(&b, "\t%s(ctx context.Context) error\n", exportName(method.Name))
+		case method.Request == "":
 			fprintf(&b, "\t%s(ctx context.Context) (*%s, error)\n", exportName(method.Name), exportName(method.Response))
-			continue
+		case method.Response == "":
+			fprintf(&b, "\t%s(ctx context.Context, req *%s) error\n", exportName(method.Name), requestName)
+		default:
+			fprintf(&b, "\t%s(ctx context.Context, req *%s) (*%s, error)\n", exportName(method.Name), requestName, responseName)
 		}
-		fprintf(&b, "\t%s(ctx context.Context, req *%s) (*%s, error)\n", exportName(method.Name), requestName, exportName(method.Response))
 	}
 	fprintf(&b, "}\n")
 	formatted, err := format.Source(b.Bytes())
@@ -3067,11 +3185,15 @@ func writeMethodFile(dir string, method IDLMethod, svc IDLService, pkg, rpcAlias
 		description = "OK"
 	}
 	fprintf(&b, "\tresponses := rest.DefaultErrorResponses()\n")
-	fprintf(&b, "\tresponses[%q] = rest.JSONResponse(%q, rest.StructSchema(%s{}))\n", strconv.Itoa(statusCode), description, responseName)
+	if method.Response == "" {
+		fprintf(&b, "\tresponses[%q] = rest.Response{Description: %q}\n", strconv.Itoa(statusCode), description)
+	} else {
+		fprintf(&b, "\tresponses[%q] = rest.JSONResponse(%q, rest.StructSchema(%s{}))\n", strconv.Itoa(statusCode), description, responseName)
+	}
 	fprintf(&b, "\troute := rest.Route{Method: http.Method%s, Path: %q, Responses: responses", exportName(strings.ToLower(method.HTTPMethod)), normalizeAPIRoutePath(method.HTTPPath))
 	if method.Request != "" {
 		fprintf(&b, ", Parameters: rest.ParametersFromStruct(%s{})", requestName)
-		if strings.ToUpper(method.HTTPMethod) != http.MethodGet && strings.ToUpper(method.HTTPMethod) != http.MethodDelete {
+		if apiClientMethodAllowsBody(method.HTTPMethod) {
 			fprintf(&b, ", RequestBody: rest.JSONBodySchema(rest.BodySchemaFromStruct(%s{}), true)", requestName)
 		}
 	}
@@ -3082,15 +3204,27 @@ func writeMethodFile(dir string, method IDLMethod, svc IDLService, pkg, rpcAlias
 		fprintf(&b, "\t\t\tctx.Error(err)\n")
 		fprintf(&b, "\t\t\treturn\n")
 		fprintf(&b, "\t\t}\n")
-		fprintf(&b, "\t\tresp, err := impl.%s(ctx.Request.Context(), &req)\n", methodName)
+		if method.Response == "" {
+			fprintf(&b, "\t\terr := impl.%s(ctx.Request.Context(), &req)\n", methodName)
+		} else {
+			fprintf(&b, "\t\tresp, err := impl.%s(ctx.Request.Context(), &req)\n", methodName)
+		}
 	} else {
-		fprintf(&b, "\t\tresp, err := impl.%s(ctx.Request.Context())\n", methodName)
+		if method.Response == "" {
+			fprintf(&b, "\t\terr := impl.%s(ctx.Request.Context())\n", methodName)
+		} else {
+			fprintf(&b, "\t\tresp, err := impl.%s(ctx.Request.Context())\n", methodName)
+		}
 	}
 	fprintf(&b, "\t\tif err != nil {\n")
 	fprintf(&b, "\t\t\tctx.Error(err)\n")
 	fprintf(&b, "\t\t\treturn\n")
 	fprintf(&b, "\t\t}\n")
-	fprintf(&b, "\t\tctx.JSON(%s, resp)\n", apiHTTPStatusExpression(statusCode))
+	if method.Response == "" {
+		fprintf(&b, "\t\tctx.Response.WriteHeader(%s)\n", apiHTTPStatusExpression(statusCode))
+	} else {
+		fprintf(&b, "\t\tctx.JSON(%s, resp)\n", apiHTTPStatusExpression(statusCode))
+	}
 	fprintf(&b, "\t}}\n")
 	fprintf(&b, "\ts.AddRoute(route)\n")
 	fprintf(&b, "}\n")
@@ -3207,8 +3341,8 @@ func writeGoZeroCompatibleRESTFiles(doc IDLDocument, opts APIOptions) error {
 		return err
 	}
 	for _, svc := range services {
-		group := goflyAPIServiceGroup(svc)
 		for _, method := range svc.Methods {
+			group := effectiveAPIHandlerGroup(svc, method)
 			if err := writeGoZeroAPILogicFile(opts.Dir, module, group, method); err != nil {
 				return err
 			}
@@ -3388,15 +3522,21 @@ func goZeroAPIJWTNames(services []IDLService) []string {
 	seen := make(map[string]struct{})
 	names := make([]string, 0)
 	for _, service := range services {
-		name := strings.TrimSpace(service.Server.JWT)
-		if name == "" {
-			continue
+		annotations := []IDLServerAnnotation{service.Server}
+		for _, method := range service.Methods {
+			annotations = append(annotations, effectiveAPIRouteAnnotation(service.Server, method.Route))
 		}
-		if _, ok := seen[name]; ok {
-			continue
+		for _, annotation := range annotations {
+			name := strings.TrimSpace(annotation.JWT)
+			if name == "" {
+				continue
+			}
+			if _, ok := seen[name]; ok {
+				continue
+			}
+			seen[name] = struct{}{}
+			names = append(names, name)
 		}
-		seen[name] = struct{}{}
-		names = append(names, name)
 	}
 	sort.Strings(names)
 	return names
@@ -3406,15 +3546,21 @@ func goZeroAPISignatureNames(services []IDLService) []string {
 	seen := make(map[string]struct{})
 	names := make([]string, 0)
 	for _, service := range services {
-		name := strings.TrimSpace(service.Server.Values["signature"])
-		if name == "" {
-			continue
+		annotations := []IDLServerAnnotation{service.Server}
+		for _, method := range service.Methods {
+			annotations = append(annotations, effectiveAPIRouteAnnotation(service.Server, method.Route))
 		}
-		if _, ok := seen[name]; ok {
-			continue
+		for _, annotation := range annotations {
+			name := strings.TrimSpace(annotation.Values["signature"])
+			if name == "" {
+				continue
+			}
+			if _, ok := seen[name]; ok {
+				continue
+			}
+			seen[name] = struct{}{}
+			names = append(names, name)
 		}
-		seen[name] = struct{}{}
-		names = append(names, name)
 	}
 	sort.Strings(names)
 	return names
@@ -3684,7 +3830,9 @@ func writeGoZeroAPILogicFile(root, module string, group string, method IDLMethod
 	fprintf(&b, "import (\n")
 	fprintf(&b, "\t\"context\"\n\n")
 	fprintf(&b, "\t%q\n", strings.TrimRight(module, "/")+"/internal/svc")
-	fprintf(&b, "\tappmodel %q\n", strings.TrimRight(module, "/")+"/internal/model")
+	if method.Request != "" || method.Response != "" {
+		fprintf(&b, "\tappmodel %q\n", strings.TrimRight(module, "/")+"/internal/model")
+	}
 	fprintf(&b, ")\n\n")
 	fprintf(&b, "type %s struct {\n", logicName)
 	fprintf(&b, "\tctx context.Context\n")
@@ -3693,12 +3841,21 @@ func writeGoZeroAPILogicFile(root, module string, group string, method IDLMethod
 	fprintf(&b, "func New%s(ctx context.Context, stx *svc.ServiceContext) *%s {\n", logicName, logicName)
 	fprintf(&b, "\treturn &%s{ctx: ctx, stx: stx}\n", logicName)
 	fprintf(&b, "}\n\n")
-	if strings.TrimSpace(method.Request) == "" {
+	switch {
+	case method.Request == "" && method.Response == "":
+		fprintf(&b, "func (l *%s) %s() error {\n", logicName, methodName)
+	case method.Request == "":
 		fprintf(&b, "func (l *%s) %s() (*appmodel.%s, error) {\n", logicName, methodName, responseName)
-	} else {
+	case method.Response == "":
+		fprintf(&b, "func (l *%s) %s(req *appmodel.%s) error {\n", logicName, methodName, requestName)
+	default:
 		fprintf(&b, "func (l *%s) %s(req *appmodel.%s) (*appmodel.%s, error) {\n", logicName, methodName, requestName, responseName)
 	}
-	fprintf(&b, "\treturn &appmodel.%s{}, nil\n", responseName)
+	if method.Response == "" {
+		fprintf(&b, "\treturn nil\n")
+	} else {
+		fprintf(&b, "\treturn &appmodel.%s{}, nil\n", responseName)
+	}
 	fprintf(&b, "}\n")
 	formatted, err := format.Source(b.Bytes())
 	if err != nil {
@@ -3733,15 +3890,25 @@ func writeGoZeroAPIHandlerFile(root, module string, group string, method IDLMeth
 		fprintf(&b, "\t\t\tctx.Error(err)\n")
 		fprintf(&b, "\t\t\treturn\n")
 		fprintf(&b, "\t\t}\n")
-		fprintf(&b, "\t\tresp, err := %s.New%s(ctx.Request.Context(), stx).%s(&req)\n", goZeroAPILogicAlias(group), logicName, exportName(method.Name))
+		if method.Response == "" {
+			fprintf(&b, "\t\terr := %s.New%s(ctx.Request.Context(), stx).%s(&req)\n", goZeroAPILogicAlias(group), logicName, exportName(method.Name))
+		} else {
+			fprintf(&b, "\t\tresp, err := %s.New%s(ctx.Request.Context(), stx).%s(&req)\n", goZeroAPILogicAlias(group), logicName, exportName(method.Name))
+		}
 	} else {
-		fprintf(&b, "\t\tresp, err := %s.New%s(ctx.Request.Context(), stx).%s()\n", goZeroAPILogicAlias(group), logicName, exportName(method.Name))
+		if method.Response == "" {
+			fprintf(&b, "\t\terr := %s.New%s(ctx.Request.Context(), stx).%s()\n", goZeroAPILogicAlias(group), logicName, exportName(method.Name))
+		} else {
+			fprintf(&b, "\t\tresp, err := %s.New%s(ctx.Request.Context(), stx).%s()\n", goZeroAPILogicAlias(group), logicName, exportName(method.Name))
+		}
 	}
 	fprintf(&b, "\t\tif err != nil {\n")
 	fprintf(&b, "\t\t\tctx.Error(err)\n")
 	fprintf(&b, "\t\t\treturn\n")
 	fprintf(&b, "\t\t}\n")
-	if sse {
+	if method.Response == "" {
+		fprintf(&b, "\t\tctx.Response.WriteHeader(%s)\n", apiHTTPStatusExpression(apiSuccessStatus(method)))
+	} else if sse {
 		fprintf(&b, "\t\tif err := ctx.SSEJSON(rest.SSEEvent{}, resp); err != nil { ctx.Error(err) }\n")
 	} else {
 		fprintf(&b, "\t\tctx.JSON(%s, resp)\n", apiHTTPStatusExpression(apiSuccessStatus(method)))
@@ -3811,8 +3978,8 @@ func expectedGoZeroAPIBusinessFiles(services []IDLService) goZeroAPIExpectedFile
 		Logics:   map[string]struct{}{},
 	}
 	for _, svc := range services {
-		group := goflyAPIServiceGroup(svc)
 		for _, method := range svc.Methods {
+			group := effectiveAPIHandlerGroup(svc, method)
 			handlerName := goZeroAPIHandlerName(method)
 			methodName := exportName(method.Name)
 			expected.Handlers[filepath.ToSlash(filepath.Join("internal", "api", "http", "v1", goZeroAPIHandlerFile(group, handlerName)))] = struct{}{}
@@ -3942,11 +4109,16 @@ func writeGoZeroAPIRoutesFile(root, module string, services []IDLService) error 
 		fprintf(&b, "\tserver.AddRoute(rest.Route{Method: http.MethodGet, Path: \"/ping\", Handler: ping.PingHandler(stx)}, rest.WithPrefix(\"/api/v1\"))\n")
 	}
 	for _, svc := range services {
-		svc.Server.Group = goflyAPIServiceGroup(svc)
-		prefix := strings.TrimRight(strings.TrimSpace(svc.Server.Prefix), "/")
 		for _, method := range svc.Methods {
+			effective := effectiveAPIRouteAnnotation(svc.Server, method.Route)
+			routeService := svc
+			routeService.Server = effective
+			if routeService.Server.Group == "" {
+				routeService.Server.Group = goflyAPIServiceGroup(svc)
+			}
+			prefix := strings.TrimRight(strings.TrimSpace(routeService.Server.Prefix), "/")
 			responses := writeGoZeroAPIRouteResponses(&b, method)
-			writeGoZeroAPIRouteRegistration(&b, svc, method, prefix, responses)
+			writeGoZeroAPIRouteRegistration(&b, routeService, method, prefix, responses)
 		}
 	}
 	fprintf(&b, "}\n")
@@ -3970,6 +4142,11 @@ func goZeroAPIUsesTimeout(services []IDLService) bool {
 		if _, ok := goZeroAPIServerDuration(service.Server, "timeout"); ok {
 			return true
 		}
+		for _, method := range service.Methods {
+			if _, ok := goZeroAPIServerDuration(effectiveAPIRouteAnnotation(service.Server, method.Route), "timeout"); ok {
+				return true
+			}
+		}
 	}
 	return false
 }
@@ -3986,7 +4163,11 @@ func writeGoZeroAPIRouteResponses(b *bytes.Buffer, method IDLMethod) string {
 		description = "OK"
 	}
 	fprintf(b, "\t%s := rest.DefaultErrorResponses()\n", variable)
-	fprintf(b, "\t%s[%q] = rest.JSONResponse(%q, rest.StructSchema(appmodel.%s{}))\n", variable, strconv.Itoa(statusCode), description, exportName(method.Response))
+	if method.Response == "" {
+		fprintf(b, "\t%s[%q] = rest.Response{Description: %q}\n", variable, strconv.Itoa(statusCode), description)
+	} else {
+		fprintf(b, "\t%s[%q] = rest.JSONResponse(%q, rest.StructSchema(appmodel.%s{}))\n", variable, strconv.Itoa(statusCode), description, exportName(method.Response))
+	}
 	codes := make([]int, 0, len(descriptions))
 	for code := range descriptions {
 		if code != statusCode {
@@ -4142,15 +4323,24 @@ func goflyAPIHandlerGroups(services []IDLService) []string {
 		if len(service.Methods) == 0 {
 			continue
 		}
-		group := goflyAPIServiceGroup(service)
-		if _, ok := seen[group]; ok {
-			continue
+		for _, method := range service.Methods {
+			group := effectiveAPIHandlerGroup(service, method)
+			if _, ok := seen[group]; ok {
+				continue
+			}
+			seen[group] = struct{}{}
+			groups = append(groups, group)
 		}
-		seen[group] = struct{}{}
-		groups = append(groups, group)
 	}
 	sort.Strings(groups)
 	return groups
+}
+
+func effectiveAPIHandlerGroup(service IDLService, method IDLMethod) string {
+	if group := strings.TrimSpace(method.Route.Group); group != "" {
+		return group
+	}
+	return goflyAPIServiceGroup(service)
 }
 
 func goZeroAPIHandlerName(method IDLMethod) string {
@@ -4237,6 +4427,9 @@ func goZeroAPIServiceMiddlewares(services []IDLService) []string {
 	var names []string
 	for _, svc := range services {
 		names = append(names, svc.Server.Middleware...)
+		for _, method := range svc.Methods {
+			names = append(names, effectiveAPIRouteAnnotation(svc.Server, method.Route).Middleware...)
+		}
 	}
 	return goZeroAPIMiddlewareNames(names)
 }
@@ -4413,7 +4606,7 @@ func writeRESTRoute(b *bytes.Buffer, method IDLMethod) {
 	if method.Request != "" {
 		requestName := exportName(method.Request)
 		fprintf(b, ", Parameters: rest.ParametersFromStruct(%s{})", requestName)
-		if strings.ToUpper(method.HTTPMethod) != http.MethodGet && strings.ToUpper(method.HTTPMethod) != http.MethodDelete {
+		if apiClientMethodAllowsBody(method.HTTPMethod) {
 			fprintf(b, ", RequestBody: rest.JSONBodySchema(rest.BodySchemaFromStruct(%s{}), true)", requestName)
 		}
 		fprintf(b, ", Handler: func(ctx *rest.Context) {\n")
@@ -4431,26 +4624,7 @@ func writeRESTRoute(b *bytes.Buffer, method IDLMethod) {
 }
 
 func apiGoType(apiType string) string {
-	if strings.HasPrefix(apiType, "*") {
-		return "*" + apiGoType(strings.TrimPrefix(apiType, "*"))
-	}
-	switch apiType {
-	case "string":
-		return "string"
-	case "bool":
-		return "bool"
-	case "int", "int8", "int16", "int32", "int64":
-		return apiType
-	case "uint", "uint8", "uint16", "uint32", "uint64":
-		return apiType
-	case "float32", "float64":
-		return apiType
-	default:
-		if strings.HasPrefix(apiType, "[]") {
-			return "[]" + apiGoType(strings.TrimPrefix(apiType, "[]"))
-		}
-		return exportName(apiType)
-	}
+	return apiGoTypeRef(apiTypeRefOrNamed(apiType))
 }
 
 func rpcPackageAlias(importPath string) string {

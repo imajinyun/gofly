@@ -3,9 +3,12 @@
   "acceptanceGate": "make goctl-oracle-replay-check",
   "mode": "report-only",
   "externalReference": {
-    "path": "../gozero/tools/goctl",
+    "path": "${GOZERO_ROOT}/tools/goctl",
+    "environmentVariable": "GOZERO_ROOT",
+    "pinnedCommit": "84c92d710b9f2ae11c3cbcee242cea40eec42e70",
+    "resolutionOrder": ["GOZERO_ROOT", "../gozero", "contract-only"],
     "optional": true,
-    "skipPolicy": "If the sibling gozero checkout is unavailable, validate this contract without running oracle replay."
+    "skipPolicy": "If GOZERO_ROOT is explicitly set, an invalid checkout is blocking. If it is unset and the sibling checkout is unavailable, validate this contract without running oracle replay."
   },
   "sourceOfTruth": [
     "docs/reference/goctl-oracle-replay.json",

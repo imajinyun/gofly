@@ -440,15 +440,18 @@ func TestAPIContractMetadataBoundaryBehavior(t *testing.T) {
 		t.Fatalf("ParseAPI: %v", err)
 	}
 	service := doc.Services[0]
-	if service.Server.Group != "users" || service.Server.Prefix != "/api/v1" || service.Server.JWT != "Auth" || len(service.Server.Middleware) != 2 {
-		t.Fatalf("server annotation = %#v", service.Server)
+	if service.Server.Group != "users" || service.Server.Prefix != "/api/v1" || service.Server.JWT != "" || len(service.Server.Middleware) != 0 {
+		t.Fatalf("service annotation = %#v, route metadata must not leak", service.Server)
 	}
 	method := service.Methods[0]
+	if method.Route.Values["jwt"] != "Auth" || method.Route.Values["middleware"] != "audit, trace" {
+		t.Fatalf("route annotation = %#v", method.Route)
+	}
 	if method.Doc["respcode"] != "202" || !strings.Contains(method.Doc["responses"], "Invalid request") {
 		t.Fatalf("doc annotation = %#v", method.Doc)
 	}
 	formatted := string(FormatAPI(doc))
-	for _, want := range []string{"syntax = \"v1\"", "group: users", "jwt: Auth", "middleware: audit,trace", "respcode: \"202\""} {
+	for _, want := range []string{"syntax = \"v1\"", "group: users", "jwt: Auth", "middleware: audit, trace", "respcode: \"202\""} {
 		if !strings.Contains(formatted, want) {
 			t.Fatalf("formatted API missing %q:\n%s", want, formatted)
 		}
@@ -732,7 +735,6 @@ func TestAPIValidationReportsAllP0ContractIssues(t *testing.T) {
 		"route Broken is incomplete",
 		"duplicate handler Same",
 		"references unknown request type Unknown",
-		"response type is required",
 		"references unknown response type Unknown",
 		"invalid response status code \"99\"",
 		"invalid response description \"broken\"",
@@ -788,7 +790,7 @@ func TestAPIContractHelperBoundaryBehavior(t *testing.T) {
 	if _, ok := apiFieldWireName(IDLField{Name: "ID", Tag: `query:"id,options=[a"`}, apiTagQuery); ok {
 		t.Fatal("apiFieldWireName accepted an unbalanced modifier")
 	}
-	if _, err := ParseAPI("type Broken {\n  not a valid field !\n}\n"); err == nil || !strings.Contains(err.Error(), "invalid field") {
+	if _, err := ParseAPI("type Broken {\n  not a valid field !\n}\n"); err == nil || (!strings.Contains(err.Error(), "invalid field") && !strings.Contains(err.Error(), "parse api type")) {
 		t.Fatalf("invalid field error = %v", err)
 	}
 	if _, err := ParseAPI("type Reply {\n  OK bool\n}\nservice api {\n  invalid route\n}\n"); err == nil || !strings.Contains(err.Error(), "invalid route") {

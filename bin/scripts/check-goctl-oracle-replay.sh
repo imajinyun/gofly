@@ -16,6 +16,18 @@ root = pathlib.Path(".").resolve()
 manifest_path = root / "docs" / "reference" / "goctl-oracle-replay.json"
 missing = []
 
+
+def resolve_gozero_root():
+    configured = os.environ.get("GOZERO_ROOT", "").strip()
+    if configured:
+        repo = pathlib.Path(configured).expanduser().resolve()
+        goctl = repo / "tools" / "goctl"
+        if not (repo / "go.mod").is_file() or not (goctl / "go.mod").is_file():
+            raise SystemExit(f"GOZERO_ROOT is not a go-zero checkout: {repo}")
+        return repo, goctl
+    repo = root.parent / "gozero"
+    return repo, repo / "tools" / "goctl"
+
 expected_categories = {
     "same-contract",
     "compatible-addition",
@@ -96,10 +108,8 @@ def isolated_go_env(env, prefix):
     out = env.copy()
     out.setdefault("GOCACHE", str(tmp / "gocache"))
     out.setdefault("GOTMPDIR", str(tmp / "gotmp"))
-    out.setdefault("GOMODCACHE", str(tmp / "gomodcache"))
     pathlib.Path(out["GOCACHE"]).mkdir(parents=True, exist_ok=True)
     pathlib.Path(out["GOTMPDIR"]).mkdir(parents=True, exist_ok=True)
-    pathlib.Path(out["GOMODCACHE"]).mkdir(parents=True, exist_ok=True)
     return out
 
 
@@ -409,10 +419,9 @@ if missing:
         print(f"- {item}", file=sys.stderr)
     sys.exit(1)
 
-gozero_root = root.parent / "gozero" / "tools" / "goctl"
+gozero_repo, gozero_root = resolve_gozero_root()
 base_env = os.environ.copy()
 base_env.setdefault("GOFLAGS", "-count=1")
-base_env.setdefault("GOSUMDB", "off")
 metadata_env = isolated_go_env(base_env, "gofly-goctl-oracle-meta-")
 report = {
     "schema": "gofly.goctl_oracle_replay_report.v1",
@@ -422,8 +431,8 @@ report = {
         "goVersion": command_metadata(["go", "version"], root, metadata_env),
         "gofly": git_commit(root),
         "gozero": {
-            "path": str(gozero_root),
-            "commit": git_commit(gozero_root) if gozero_root.is_dir() else {"ok": False, "error": "sibling gozero checkout unavailable"},
+            "path": str(gozero_repo),
+            "commit": git_commit(gozero_repo) if gozero_repo.is_dir() else {"ok": False, "error": "sibling gozero checkout unavailable"},
         },
         "goctlVersion": command_metadata(["go", "run", ".", "--version"], gozero_root, metadata_env, timeout=120) if (gozero_root / "go.mod").is_file() else {"ok": False, "error": "sibling gozero checkout unavailable"},
     },
@@ -453,10 +462,8 @@ with tempfile.TemporaryDirectory(prefix="gofly-goctl-oracle-") as tmp:
     tmp_root = pathlib.Path(tmp)
     base_env["GOCACHE"] = os.environ.get("GOCACHE", str(tmp_root / "gocache"))
     base_env["GOTMPDIR"] = os.environ.get("GOTMPDIR", str(tmp_root / "gotmp"))
-    base_env["GOMODCACHE"] = os.environ.get("GOMODCACHE", str(tmp_root / "gomodcache"))
     pathlib.Path(base_env["GOCACHE"]).mkdir(parents=True, exist_ok=True)
     pathlib.Path(base_env["GOTMPDIR"]).mkdir(parents=True, exist_ok=True)
-    pathlib.Path(base_env["GOMODCACHE"]).mkdir(parents=True, exist_ok=True)
 
     for fixture_id in manifest.get("fixtures") or []:
         report["summary"]["total"] += 1

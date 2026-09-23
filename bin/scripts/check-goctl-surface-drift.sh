@@ -3,6 +3,7 @@ set -eu
 
 python3 - <<'PY'
 import json
+import os
 import pathlib
 import re
 import sys
@@ -10,6 +11,18 @@ import sys
 root = pathlib.Path(".").resolve()
 manifest_path = root / "docs" / "reference" / "goctl-surface-drift.json"
 missing = []
+
+
+def resolve_goctl_root():
+    configured = os.environ.get("GOZERO_ROOT", "").strip()
+    if configured:
+        repo = pathlib.Path(configured).expanduser().resolve()
+        goctl = repo / "tools" / "goctl"
+        if not (repo / "go.mod").is_file() or not (goctl / "go.mod").is_file():
+            raise SystemExit(f"GOZERO_ROOT is not a go-zero checkout: {repo}")
+        return goctl
+    sibling = root.parent / "gozero" / "tools" / "goctl"
+    return sibling
 
 expected_categories = {
     "supported",
@@ -116,7 +129,9 @@ require("goctl-surface-drift-check" in make_target_deps(makefile, "goctl-generat
 require("goctl-surface-drift-check" in make_target_deps(makefile, "docs-check"), "docs-check must depend on goctl-surface-drift-check")
 
 external = manifest.get("externalReference") or {}
-require(external.get("path") == "../gozero/tools/goctl", "externalReference.path mismatch")
+require(external.get("path") == "${GOZERO_ROOT}/tools/goctl", "externalReference.path mismatch")
+require(external.get("environmentVariable") == "GOZERO_ROOT", "externalReference.environmentVariable mismatch")
+require(external.get("resolutionOrder") == ["GOZERO_ROOT", "../gozero", "contract-only"], "externalReference.resolutionOrder mismatch")
 require(external.get("optional") is True, "externalReference.optional must be true")
 require("unavailable" in str(external.get("skipPolicy") or "").lower(), "externalReference.skipPolicy must explain unavailable sibling checkout")
 
@@ -205,7 +220,7 @@ for needle in (
 ):
     require(needle in goctl_compat_text or needle in long_term_text or needle in from_gozero_text or needle in json.dumps(manifest), f"documentation missing {needle!r}")
 
-gozero_root = root.parent / "gozero" / "tools" / "goctl"
+gozero_root = resolve_goctl_root()
 if gozero_root.is_dir():
     root_text = read_text(gozero_root / "cmd" / "root.go")
     api_text = read_text(gozero_root / "api" / "cmd.go")

@@ -136,9 +136,14 @@ func validateAPIMessage(msg IDLMessage, types map[string]IDLMessage) []string {
 		}
 		fields[fieldName] = struct{}{}
 		issues = append(issues, validateAPIFieldTag(messageName, field)...)
+		ref, err := parseAPITypeRef(field.Type)
+		if err != nil {
+			issues = append(issues, fmt.Sprintf("field %s.%s has invalid type %q", messageName, fieldName, field.Type))
+			continue
+		}
 		fieldType := apiBaseType(field.Type)
 		if field.Inline {
-			if isAPIBuiltinType(fieldType) || strings.HasPrefix(strings.TrimSpace(field.Type), "[]") {
+			if ref.Kind == apiTypeKindSlice || ref.Kind == apiTypeKindMap || isAPIBuiltinType(fieldType) {
 				issues = append(issues, fmt.Sprintf("inline field %s must reference a struct", messageName))
 				continue
 			}
@@ -147,9 +152,12 @@ func validateAPIMessage(msg IDLMessage, types map[string]IDLMessage) []string {
 			}
 			continue
 		}
-		if !isAPIBuiltinType(fieldType) {
-			if _, ok := types[exportName(fieldType)]; !ok {
-				issues = append(issues, fmt.Sprintf("unknown field type %s.%s %s", messageName, fieldName, field.Type))
+		for _, name := range ref.BaseNames() {
+			if isAPIBuiltinType(name) {
+				continue
+			}
+			if _, ok := types[exportName(name)]; !ok {
+				issues = append(issues, fmt.Sprintf("unknown field type %s.%s %s", messageName, fieldName, name))
 			}
 		}
 	}
@@ -379,9 +387,7 @@ func validateAPIMethod(
 	if method.Request != "" && !apiMessageExists(method.Request, types) {
 		issues = append(issues, fmt.Sprintf("route %s references unknown request type %s", methodName, method.Request))
 	}
-	if method.Response == "" {
-		issues = append(issues, fmt.Sprintf("route %s response type is required", methodName))
-	} else if !apiMessageExists(method.Response, types) {
+	if method.Response != "" && !apiMessageExists(method.Response, types) {
 		issues = append(issues, fmt.Sprintf("route %s references unknown response type %s", methodName, method.Response))
 	}
 	issues = append(issues, validateAPIDocResponses(method)...)

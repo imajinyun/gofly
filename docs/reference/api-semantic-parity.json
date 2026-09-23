@@ -1,0 +1,35 @@
+{
+  "schema": "gofly.api_semantic_parity.v1",
+  "acceptanceGate": "make api-semantic-parity-check",
+  "reference": {
+    "project": "go-zero/goctl",
+    "commit": "84c92d710b9f2ae11c3cbcee242cea40eec42e70",
+    "rootEnvironment": "GOZERO_ROOT",
+    "claim": "semantic compatibility, not byte-for-byte generated layout parity"
+  },
+  "rows": [
+    {"id":"grouped-imports","status":"supported","implementation":"cmd/gofly/internal/generator/api_parser.go","test":"cmd/gofly/internal/generator/api_parser_goctl_test.go","gate":"make api-semantic-parity-check","rollback":"Reject grouped imports and retain single-import parsing if semantic replay regresses."},
+    {"id":"grouped-types","status":"supported","implementation":"cmd/gofly/internal/generator/api_parser.go","test":"cmd/gofly/internal/generator/api_parser_goctl_test.go","gate":"make api-semantic-parity-check","rollback":"Revert grouped parsing while preserving existing single type declarations."},
+    {"id":"struct-keyword","status":"enhanced","implementation":"cmd/gofly/internal/generator/api_parser.go","test":"cmd/gofly/internal/generator/api_parser_goctl_test.go","gate":"make api-semantic-parity-check","rollback":"Keep brace-only declarations supported and reject explicit struct syntax."},
+    {"id":"pointer-types","status":"supported","implementation":"cmd/gofly/internal/generator/api_type_ref.go","test":"cmd/gofly/internal/generator/api_parser_goctl_test.go","gate":"make api-semantic-parity-check","rollback":"Reject pointer fields before generation if recursive rendering regresses."},
+    {"id":"slice-types","status":"supported","implementation":"cmd/gofly/internal/generator/api_type_ref.go","test":"cmd/gofly/internal/generator/api_parser_goctl_test.go","gate":"make api-semantic-parity-check","rollback":"Preserve the prior one-dimensional slice path while disabling recursive slices."},
+    {"id":"map-types","status":"supported","implementation":"cmd/gofly/internal/generator/api_type_ref.go","test":"cmd/gofly/internal/generator/api_semantic_replay_test.go","gate":"make api-semantic-parity-check","rollback":"Reject map fields at validation instead of emitting ambiguous schemas or clients."},
+    {"id":"route-local-server","status":"enhanced","implementation":"cmd/gofly/internal/generator/idl_model.go","test":"cmd/gofly/internal/generator/api_parser_goctl_test.go","gate":"make api-semantic-parity-check","rollback":"Preserve service-level annotations and reject route-local overrides."},
+    {"id":"request-less-route","status":"supported","implementation":"cmd/gofly/internal/generator/api_parser.go","test":"cmd/gofly/internal/generator/api_semantic_replay_test.go","gate":"make api-semantic-parity-check","rollback":"Keep request-bearing routes available while request-less generation is disabled."},
+    {"id":"response-less-route","status":"enhanced","implementation":"cmd/gofly/internal/generator/api_codegen.go","test":"cmd/gofly/internal/generator/api_semantic_replay_test.go","gate":"make api-semantic-parity-check","rollback":"Fall back to HTTP 200 empty responses only with an explicit compatibility note."},
+    {"id":"type-alias","status":"intentional-gap","implementation":"cmd/gofly/internal/generator/api_parser.go","test":"cmd/gofly/internal/generator/api_parser_goctl_test.go","gate":"make api-semantic-parity-check","rollback":"Continue returning the stable unsupported alias error until the reference parser supports aliases."},
+    {"id":"comment-preservation","status":"intentional-gap","implementation":"cmd/gofly/internal/generator/api_parser.go","test":"cmd/gofly/internal/generator/api_parser_goctl_test.go","gate":"make api-semantic-parity-check","rollback":"Do not claim comment fidelity; semantic formatting remains the supported boundary."}
+  ],
+  "runtimeEvidence": {
+    "profiles": ["gofly-ai", "gozero-compatible"],
+    "bindings": ["path", "query", "header", "json-body"],
+    "statuses": [200, 201, 204],
+    "errorEnvelope": "rest.ErrorResponse invalid_argument",
+    "fixture": "testdata/goctl-api-semantic/contract.api"
+  },
+  "intentionalDifferences": [
+    "Pinned goctl emits HTTP 200 for successful response-less routes; gofly preserves documented respCode values.",
+    "gofly supports route-local @server as an enhancement; the pinned goctl execution path requires @handler inside services.",
+    "Generated directory layout remains gofly-native."
+  ]
+}

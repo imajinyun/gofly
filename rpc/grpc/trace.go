@@ -99,7 +99,7 @@ func OTelStreamClientInterceptor() stdgrpc.StreamClientInterceptor {
 		ctx = injectTraceOutgoing(ctx)
 		ctx, cancel := context.WithCancel(ctx)
 		cs, err := streamer(ctx, desc, cc, method, opts...)
-		stream := &otelClientStream{ClientStream: cs, span: span, cancel: cancel, serverStreams: desc.ServerStreams}
+		stream := &otelClientStream{ClientStream: cs, span: span, cancel: cancel}
 		if err != nil {
 			stream.finish(err)
 			return nil, err
@@ -168,10 +168,9 @@ func (s otelServerStream) Context() context.Context { return s.ctx }
 // sends/receives. It ends the overall client span when the stream closes.
 type otelClientStream struct {
 	stdgrpc.ClientStream
-	span          oteltrace.Span
-	cancel        context.CancelFunc
-	once          sync.Once
-	serverStreams bool
+	span   oteltrace.Span
+	cancel context.CancelFunc
+	once   sync.Once
 }
 
 func (s *otelClientStream) finish(err error) {
@@ -197,7 +196,7 @@ func (s *otelClientStream) SendMsg(m any) error {
 
 func (s *otelClientStream) RecvMsg(m any) error {
 	err := s.ClientStream.RecvMsg(m)
-	if err != nil || !s.serverStreams {
+	if err != nil {
 		s.finish(err)
 	}
 	return err

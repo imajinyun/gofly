@@ -3,6 +3,7 @@
   "aiflowTask": "GOFLY-GOV-10R3-07",
   "acceptanceGate": "make api-contract-check",
   "childGates": [
+    "make api-semantic-parity-check",
     "make openapi-validation-check",
     "make rpc-boundary-check"
   ],
@@ -27,12 +28,36 @@
     "goZeroPathParametersMustUseRuntimeServeMuxSyntax": true,
     "generatedClientsMustPreserveFieldLocations": true,
     "documentedSuccessStatusMustMatchRuntimeResponse": true,
+    "apiSemanticParityMustCompileAndRunBothProfiles": true,
     "rpcTier1PromotionRequiresReleaseTrainEvidence": true,
     "rpcLatencyRemainsReportOnlyUntilBudgetPromotion": true,
     "gatewayAndDescriptorContractsUseAggregateGate": true,
     "releaseContractCheckMustStayReleaseBlocking": true
   },
   "surfaces": [
+    {
+      "id": "api-semantic-parity",
+      "risk": "Grouped declarations, composite types, request locations, and response-less routes must remain consistent across generated profiles and OpenAPI.",
+      "gate": "make api-semantic-parity-check",
+      "evidenceRefs": [
+        {
+          "path": "docs/reference/api-semantic-parity.json",
+          "contains": [
+            "gofly.api_semantic_parity.v1",
+            "response-less-route",
+            "gozero-compatible"
+          ]
+        },
+        {
+          "path": "bin/scripts/check-api-semantic-parity.sh",
+          "contains": [
+            "gofly.api_semantic_parity_report.v1",
+            "APISemanticReplay",
+            "GOZERO_ROOT"
+          ]
+        }
+      ]
+    },
     {
       "id": "rest-openapi-validation-envelope",
       "risk": "REST binding and OpenAPI schema must expose the same stable invalid request envelope.",

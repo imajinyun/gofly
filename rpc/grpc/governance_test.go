@@ -1063,7 +1063,7 @@ func TestGovernanceClientStreamLifecycle(t *testing.T) {
 			defer cancel()
 			inner := &fakeClientStream{ctx: ctx, sendErr: tc.sendErr}
 			released := 0
-			stream := &governanceClientStream{ClientStream: inner, cancel: cancel, release: func() { released++ }, serverStreams: true}
+			stream := &governanceClientStream{ClientStream: inner, cancel: cancel, release: func() { released++ }}
 			if err := stream.CloseSend(); err != nil {
 				t.Fatal(err)
 			}
@@ -1229,6 +1229,13 @@ func TestTimeoutStreamClientInterceptorLifecycle(t *testing.T) {
 		}
 		if err := stream.RecvMsg(nil); err != nil {
 			t.Fatal(err)
+		}
+		if stream.Context().Err() != nil {
+			t.Fatalf("final response canceled before terminal receive: %v", stream.Context().Err())
+		}
+		inner.recvErr = io.EOF
+		if err := stream.RecvMsg(nil); !errors.Is(err, io.EOF) {
+			t.Fatalf("terminal receive = %v, want EOF", err)
 		}
 		if !errors.Is(stream.Context().Err(), context.Canceled) {
 			t.Fatalf("final response context = %v, want canceled", stream.Context().Err())
@@ -1546,6 +1553,9 @@ func TestClientStreamObservabilityLifecycle(t *testing.T) {
 			} else {
 				if err := stream.RecvMsg(nil); !errors.Is(err, tc.err) {
 					t.Fatalf("receive = %v, want %v", err, tc.err)
+				}
+				if !tc.serverStreams && tc.err == nil {
+					inner.recvErr = io.EOF
 				}
 				_ = stream.RecvMsg(nil)
 			}

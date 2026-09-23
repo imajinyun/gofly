@@ -63,6 +63,43 @@ jobs:
           make build
           ./bin/gofly version
 
+  goctl-api-oracle:
+    name: goctl API semantic oracle
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Check out pinned go-zero oracle
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: zeromicro/go-zero
+          ref: 84c92d710b9f2ae11c3cbcee242cea40eec42e70
+          path: _reference/gozero
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      - name: Run API semantic parity against goctl
+        env:
+          GOZERO_ROOT: ${{ github.workspace }}/_reference/gozero
+          API_SEMANTIC_REPORT: ${{ runner.temp }}/api-semantic-parity-report.json
+        run: make api-semantic-parity-check
+
+      - name: Upload API semantic oracle report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: api-semantic-parity-report
+          path: ${{ runner.temp }}/api-semantic-parity-report.json
+          if-no-files-found: error
+
   lint:
     name: golangci-lint
     runs-on: ubuntu-latest

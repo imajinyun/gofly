@@ -224,7 +224,7 @@ func GovernanceStreamClientInterceptor(rules *governance.RuleSet, opts ...Govern
 		if err != nil {
 			return nil, grpcGovernanceError(err)
 		}
-		wrapped := &governanceClientStream{ClientStream: stream, cancel: cancel, release: releaseConcurrency, settleBreaker: settleBreaker, serverStreams: desc.ServerStreams}
+		wrapped := &governanceClientStream{ClientStream: stream, cancel: cancel, release: releaseConcurrency, settleBreaker: settleBreaker}
 		streamOwnsCleanup = true
 		context.AfterFunc(ctx, func() { wrapped.finish(ctx.Err()) })
 		return wrapped, nil
@@ -244,7 +244,6 @@ type governanceClientStream struct {
 	release       func()
 	settleBreaker func(error)
 	once          sync.Once
-	serverStreams bool
 }
 
 func (s *governanceClientStream) finish(err error) {
@@ -277,7 +276,10 @@ func (s *governanceClientStream) Header() (metadata.MD, error) {
 
 func (s *governanceClientStream) RecvMsg(m any) error {
 	err := s.ClientStream.RecvMsg(m)
-	if err != nil || !s.serverStreams {
+	// A successful receive is a message, not a terminal stream signal. Newer
+	// grpc-go versions perform an internal follow-up receive for client-streaming
+	// RPCs to collect trailers, so canceling here can race that receive.
+	if err != nil {
 		s.finish(err)
 	}
 	return err

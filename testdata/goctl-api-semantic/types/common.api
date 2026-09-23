@@ -1,0 +1,12 @@
+syntax = "v1"
+
+type (
+  Audit {
+    RequestID string `header:"X-Request-ID"`
+  }
+
+  Item {
+    SKU string `json:"sku"`
+    Labels map[string][]string `json:"labels,optional"`
+  }
+)

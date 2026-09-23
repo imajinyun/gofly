@@ -50,7 +50,7 @@ target = re.search(
 require(target is not None, "Makefile target api-contract-check is missing")
 deps = target.group("deps") if target else ""
 body = target.group("body") if target else ""
-for dep in ("openapi-validation-check", "rpc-boundary-check"):
+for dep in ("api-semantic-parity-check", "openapi-validation-check", "rpc-boundary-check"):
     require(dep in deps, f"api-contract-check must depend on {dep}")
 require(
     "check-api-contract-governance.sh" in body,
@@ -95,7 +95,7 @@ for needle in (
 require(manifest.get("schema") == "gofly.api_contract_governance.v1", "api contract governance schema mismatch")
 require(manifest.get("aiflowTask") == "GOFLY-GOV-10R3-07", "api contract governance aiflowTask mismatch")
 require(manifest.get("acceptanceGate") == "make api-contract-check", "api contract governance acceptanceGate mismatch")
-require(set(manifest.get("childGates") or []) == {"make openapi-validation-check", "make rpc-boundary-check"}, "api contract governance childGates mismatch")
+require(set(manifest.get("childGates") or []) == {"make api-semantic-parity-check", "make openapi-validation-check", "make rpc-boundary-check"}, "api contract governance childGates mismatch")
 aggregate_gates = set(manifest.get("aggregateGates") or [])
 for gate in ("make api-contract-governance-check", "make docs-check", "make contract-docs-check"):
     require(gate in aggregate_gates, f"api contract governance aggregateGates missing {gate}")
@@ -111,6 +111,7 @@ for key in (
     "goZeroPathParametersMustUseRuntimeServeMuxSyntax",
     "generatedClientsMustPreserveFieldLocations",
     "documentedSuccessStatusMustMatchRuntimeResponse",
+    "apiSemanticParityMustCompileAndRunBothProfiles",
     "rpcTier1PromotionRequiresReleaseTrainEvidence",
     "rpcLatencyRemainsReportOnlyUntilBudgetPromotion",
     "gatewayAndDescriptorContractsUseAggregateGate",
@@ -120,6 +121,7 @@ for key in (
 
 surface_ids = {item.get("id") for item in manifest.get("surfaces") or [] if isinstance(item, dict)}
 required_surfaces = {
+    "api-semantic-parity",
     "rest-openapi-validation-envelope",
     "rpc-tier1-boundary",
     "gateway-descriptor-contracts",

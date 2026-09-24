@@ -21,7 +21,17 @@ func TestRPCMuxSubprocessExporterProvider(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(workRoot, "work"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	profile := `{"command":"` + os.Args[0] + `","args":["-test.run=TestRPCMuxSubprocessHelperProcess","--"],"timeout":5000000000,"maxOutputBytes":1024,"workDir":"work","workDirRoot":"` + workRoot + `","allowCommands":["` + os.Args[0] + `"],"env":{"GOFLY_MUX_TEST":"1","GOFLY_MUX_HELPER":"1"},"envWhitelist":["GOFLY_MUX_TEST","GOFLY_MUX_HELPER"]}`
+	profile := mustMarshalRPCMuxSubprocessProfile(t, RPCMuxSubprocessExporterConfig{
+		Command:        os.Args[0],
+		Args:           []string{"-test.run=TestRPCMuxSubprocessHelperProcess", "--"},
+		Timeout:        5 * time.Second,
+		MaxOutputBytes: 1024,
+		WorkDir:        "work",
+		WorkDirRoot:    workRoot,
+		AllowCommands:  []string{os.Args[0]},
+		Env:            map[string]string{"GOFLY_MUX_TEST": "1", "GOFLY_MUX_HELPER": "1"},
+		EnvWhitelist:   []string{"GOFLY_MUX_TEST", "GOFLY_MUX_HELPER"},
+	})
 	if err := provider.ValidateRPCMuxOTelLogProfile(profile); err != nil {
 		t.Fatalf("ValidateRPCMuxOTelLogProfile: %v", err)
 	}
@@ -54,19 +64,36 @@ func TestRPCMuxSubprocessExporterProvider(t *testing.T) {
 	if err := provider.ValidateRPCMuxOTelLogProfile(`{"command":""}`); err == nil {
 		t.Fatal("empty subprocess command validated")
 	}
-	if err := provider.ValidateRPCMuxOTelLogProfile(`{"command":"` + os.Args[0] + `","allowCommands":["/bin/other"]}`); err == nil {
+	if err := provider.ValidateRPCMuxOTelLogProfile(mustMarshalRPCMuxSubprocessProfile(t, RPCMuxSubprocessExporterConfig{
+		Command:       os.Args[0],
+		AllowCommands: []string{"/bin/other"},
+	})); err == nil {
 		t.Fatal("non-allowlisted subprocess command validated")
 	}
-	if err := provider.ValidateRPCMuxOTelLogProfile(`{"command":"` + os.Args[0] + `","denyCommands":["` + os.Args[0] + `"]}`); err == nil {
+	if err := provider.ValidateRPCMuxOTelLogProfile(mustMarshalRPCMuxSubprocessProfile(t, RPCMuxSubprocessExporterConfig{
+		Command:      os.Args[0],
+		DenyCommands: []string{os.Args[0]},
+	})); err == nil {
 		t.Fatal("denylisted subprocess command validated")
 	}
-	if err := provider.ValidateRPCMuxOTelLogProfile(`{"command":"` + os.Args[0] + `","workDir":"../escape","workDirRoot":"` + workRoot + `"}`); err == nil {
+	if err := provider.ValidateRPCMuxOTelLogProfile(mustMarshalRPCMuxSubprocessProfile(t, RPCMuxSubprocessExporterConfig{
+		Command:     os.Args[0],
+		WorkDir:     "../escape",
+		WorkDirRoot: workRoot,
+	})); err == nil {
 		t.Fatal("escaping subprocess workDir validated")
 	}
-	if err := provider.ValidateRPCMuxOTelLogProfile(`{"command":"` + os.Args[0] + `","env":{"SECRET":"x"}}`); err == nil {
+	if err := provider.ValidateRPCMuxOTelLogProfile(mustMarshalRPCMuxSubprocessProfile(t, RPCMuxSubprocessExporterConfig{
+		Command: os.Args[0],
+		Env:     map[string]string{"SECRET": "x"},
+	})); err == nil {
 		t.Fatal("env without whitelist validated")
 	}
-	if err := provider.ValidateRPCMuxOTelLogProfile(`{"command":"` + os.Args[0] + `","env":{"SECRET":"x"},"envWhitelist":["OTHER"]}`); err == nil {
+	if err := provider.ValidateRPCMuxOTelLogProfile(mustMarshalRPCMuxSubprocessProfile(t, RPCMuxSubprocessExporterConfig{
+		Command:      os.Args[0],
+		Env:          map[string]string{"SECRET": "x"},
+		EnvWhitelist: []string{"OTHER"},
+	})); err == nil {
 		t.Fatal("non-whitelisted env validated")
 	}
 	if err := provider.ValidateRPCMuxOTelLogProfile(`{`); err == nil {
@@ -79,6 +106,15 @@ func TestRPCMuxSubprocessExporterProvider(t *testing.T) {
 		t.Fatalf("invalid JSON subprocess exporter = %#v, want nil", exporter)
 	}
 	(rpcMuxSubprocessOTelLogExporter{}).ExportRPCMuxOTelLog(context.Background(), RPCMuxDiagnosisEventOTelLogRecord{})
+}
+
+func mustMarshalRPCMuxSubprocessProfile(t *testing.T, config RPCMuxSubprocessExporterConfig) string {
+	t.Helper()
+	data, err := json.Marshal(config)
+	if err != nil {
+		t.Fatalf("marshal subprocess profile: %v", err)
+	}
+	return string(data)
 }
 
 func TestRPCMuxSubprocessHelperProcess(t *testing.T) {

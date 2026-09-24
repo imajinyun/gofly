@@ -939,8 +939,12 @@ func (s *RPCMuxDiagnosisOperatorHistoryFileStore) AppendRPCMuxDiagnosisOperatorA
 		s.recordErrorLocked(err)
 		return err
 	}
-	defer file.Close()
 	if _, err := file.Write(append(entry, '\n')); err != nil {
+		_ = file.Close()
+		s.recordErrorLocked(err)
+		return err
+	}
+	if err := file.Close(); err != nil {
 		s.recordErrorLocked(err)
 		return err
 	}

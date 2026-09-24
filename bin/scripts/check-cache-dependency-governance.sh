@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-root="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
+root="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
 go_cmd="${GO:-go}"
 testflags="${TESTFLAGS:--shuffle=on}"
 tmp="$(mktemp -d)"
@@ -192,7 +192,11 @@ sh "$root/bin/scripts/check-dependency-upgrade-evidence.sh"
 sh "$root/bin/scripts/check-root-dependency-policy.sh"
 sh "$root/bin/scripts/check-mod-tidy.sh"
 
+# TESTFLAGS is an operator-controlled argument list and must split into arguments.
+# shellcheck disable=SC2086
 GOFLY_CACHE_DISABLED=true "$go_cmd" test $testflags ./cache -run 'Test(CacheDisabledBy|TieredCacheDisabledBy)'
+# TESTFLAGS is an operator-controlled argument list and must split into arguments.
+# shellcheck disable=SC2086
 "$go_cmd" test $testflags ./cmd/gofly/internal/generator -run 'TestPluginRunnerDownloadPlugin(DoesNotReuseLocalCache|IgnoresUserCache|UsesUniqueTempFile)'
 
 printf '%s\n' "cache and remote-dependency governance ok"

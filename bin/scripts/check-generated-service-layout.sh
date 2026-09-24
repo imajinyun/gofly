@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-root="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
+root="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
 go_cmd="${GO:-go}"
 testflags="${TESTFLAGS:--count=1 -shuffle=on}"
 tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/gofly-generated-service-layout-XXXXXX")"
@@ -14,6 +14,8 @@ run_go_test() {
 	printf 'generated-service-layout: %s %s\n' "$pkg" "$pattern"
 	(
 		cd "$root"
+		# TESTFLAGS is an operator-controlled argument list and must split into arguments.
+		# shellcheck disable=SC2086
 		GOCACHE="${GOCACHE:-$tmp_root/gocache}" GOTMPDIR="${GOTMPDIR:-$tmp_root/gotmp}" "$go_cmd" test $testflags "$pkg" -run "$pattern"
 	)
 }

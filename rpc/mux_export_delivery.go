@@ -592,6 +592,12 @@ func (e *governedRPCMuxDiagnosisExporter) recordFailure(reason string, latency t
 
 func (e *governedRPCMuxDiagnosisExporter) recordLatency(latency time.Duration) {
 	nanos := int64(latency)
+	if nanos == 0 {
+		// Some platforms expose a coarser monotonic clock than the operation.
+		// Preserve the observable fact that a completed delivery took time.
+		nanos = 1
+		latency = time.Nanosecond
+	}
 	e.lastLatency.Store(nanos)
 	e.totalLatency.Add(nanos)
 	e.latencyCount.Add(1)

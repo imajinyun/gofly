@@ -45,6 +45,13 @@ Any downgrade must document: original risk, existing protections, downgrade rati
 - When changing `AGENTS.md`, `Makefile`, `bin/scripts/`, `.golangci.yml`, or CI configuration, treat it as a governance change: align existing scripts first, then update documentation, and finally run at least the smallest verifiable subset of the related script.
 - Do not silently ignore external changes. If files were changed by users, scripts, or linters, preserve their intent and avoid rolling back unrelated edits.
 
+### 🧪 Test-first and E2E-first constraints
+
+- Never write unit tests after implementing the production code. For any isolated test that is necessary, write the complete failure-mode inventory first, then write the tests, and only then implement the code.
+- Strongly prefer end-to-end tests as the sole testing mechanism for feature behavior. Use E2E tests to verify the real integration path and produce a verifiable, repeatable artifact at the end of the run, such as a report, fixture, trace, snapshot, or generated-output manifest.
+- Use isolated unit tests only when E2E coverage is impractical or insufficient, such as pure logic, deterministic boundary conditions, or failure paths that cannot be exercised reliably through the system boundary. The test must be derived from the pre-written failure-mode inventory, not added afterward merely to increase coverage.
+- When an isolated test is required, record the failure modes, the reason E2E is insufficient, the expected invariant, and the repeatable verification command or artifact.
+
 ## 🧠 Required Go capabilities
 
 Apply these capabilities by scenario when working on Go-related tasks; avoid changing code based only on generic experience:
@@ -273,6 +280,7 @@ If a gate fails because a local tool is missing, continue running other availabl
 ## 🧪 Coverage and test governance
 
 - New or fixed functionality should prioritize behavior tests. Do not write fragile implementation-detail tests only for coverage.
+- Test planning must follow the test-first and E2E-first constraints above: define failure modes before isolated tests, prefer E2E verification, and retain a repeatable artifact from every E2E run.
 - Use temporary directories and independent fixtures for complex generator paths. Tests must not depend on execution order, global HOME, user plugin cache, or persistent build cache.
 - Coverage-improvement work must record baseline, target, final coverage, and key new cases. If a new stable level is reached, recommend raising `COVERAGE_RATCHET`.
 - Tests involving goroutines, streams, watchers, or cache refresh should preferentially run with `-race`. Diagnose flaky root causes first; do not use lower concurrency or disabling shuffle as a long-term fix.

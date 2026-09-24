@@ -9,7 +9,7 @@
 #   runtime  - distroless image containing only the binary
 #   debug    - debian-based image with a shell for troubleshooting
 
-ARG BUILDER_IMAGE=golang:1.26-alpine@sha256:f1ddd9fe14fffc091dd98cb4bfa999f32c5fc77d2f2305ea9f0e2595c5437c14
+ARG BUILDER_IMAGE=golang:1.26.7-alpine@sha256:28d89ee9cc0ff9fec75c82ca201e6bf7fdf9a679d4b7b24dfa04f2bb766bb468
 ARG BASE_IMAGE=gcr.io/distroless/static-debian12:nonroot@sha256:d093aa3e30dbadd3efe1310db061a14da60299baff8450a17fe0ccc514a16639
 ARG DEBUG_IMAGE=gcr.io/distroless/base-debian12:debug-nonroot@sha256:ddd86b705dac25b3cc5f9d580018c6397c6b02ae5c2fa58ae95409c71e73cc3b
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-root="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
+root="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/gofly-api-semantic-XXXXXX")"
 trap 'chmod -R u+w "$tmp" 2>/dev/null || true; rm -rf "$tmp"' EXIT INT TERM
 

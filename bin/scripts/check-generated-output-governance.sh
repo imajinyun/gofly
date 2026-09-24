@@ -11,6 +11,8 @@ run_go_test() {
 	pkg="$1"
 	pattern="$2"
 	printf 'generated-output governance: %s %s\n' "$pkg" "$pattern"
+	# TESTFLAGS is an operator-controlled argument list and must split into arguments.
+	# shellcheck disable=SC2086
 	GOCACHE="${GOCACHE:-$tmp_root/gocache}" GOTMPDIR="${GOTMPDIR:-$tmp_root/gotmp}" "$go_cmd" test $testflags "$pkg" -run "$pattern"
 }
 
@@ -22,7 +24,7 @@ run_go_test ./cmd/gofly/internal/generator 'Test(PluginResponseWriteFilesRejects
 run_go_test ./cmd/gofly/internal/generator 'Test(ApplyTemplateExtensionRejectsSymlinkTemplate|CopyDirRejectsSymlinkSourceEntry)'
 run_go_test ./cmd/gofly/internal/generator 'Test(GenerateModelFromDDLGORMStyle|GenerateModelFromDDLGoZeroStyleDoesNotRequireGORM|GenerateModelFromDDLGORMStyleFindsParentGoMod|GenerateMongoModelDriverStyle)$'
 run_go_test ./cmd/gofly/internal/command 'Test(AINewGeneratedArtifactsAreDeterministicAndIdempotent|AINewGeneratedProjectVerificationMatrix|NewServiceGeneratedProjectSmokeMatrix)'
-sh "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/check-generated-service-layout.sh"
-sh "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/check-rest-profiles.sh"
+sh "$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)/check-generated-service-layout.sh"
+sh "$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)/check-rest-profiles.sh"
 
 printf 'generated-output governance ok\n'

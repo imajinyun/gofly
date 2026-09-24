@@ -5,7 +5,7 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT INT TERM
 go_cmd="${GO:-go}"
 generated_only_root_modules="${GENERATED_ONLY_ROOT_MODULES:-gorm.io/gorm go.mongodb.org/mongo-driver}"
-script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+script_dir="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 
 module_declared_in_go_mod() {
 	module="$1"

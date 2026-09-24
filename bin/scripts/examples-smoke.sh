@@ -95,7 +95,7 @@ assert migration_proof['schema'] == 'gofly.migration_proof.v1', migration_proof
 cases = {item['source']: item for item in migration_proof['cases']}
 assert set(cases) == {'gin', 'go-zero', 'kratos', 'kitex'}, migration_proof
 assert cases['gin']['example'] == 'examples/getting-started/restserver', migration_proof
-assert cases['go-zero']['example'] == 'examples/production/production-orders', migration_proof
+assert cases['go-zero']['example'] == 'examples/migration/gozero-basic', migration_proof
 assert cases['kratos']['example'] == 'examples/production/microshop', migration_proof
 assert cases['kitex']['example'] == 'examples/microservices/rpc-idl-matrix', migration_proof
 for source, item in cases.items():

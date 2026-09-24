@@ -18,14 +18,15 @@ set -eu
 
 GO="${GO:-go}"
 BENCH_DIR="${BENCH_DIR:-bench}"
-CURRENT_FILE="${BENCH_DIR}/current.txt"
-BASELINE_FILE="${BENCH_DIR}/baseline.txt"
+CURRENT_FILE="${CURRENT_FILE:-${BENCH_DIR}/current.txt}"
+BASELINE_FILE="${BASELINE_FILE:-${BENCH_DIR}/baseline.txt}"
 SUMMARY_FILE="${BENCH_DIR}/summary.md"
 MATRIX_FILE="${BENCH_DIR}/matrix.md"
 EVIDENCE_FILE="${BENCH_DIR}/evidence.md"
 REGRESSION_REPORT_FILE="${BENCH_DIR}/regression-report.json"
 RATCHET_FILE="${BENCH_DIR}/budget-ratchet.json"
 BENCH_ALLOC_REGRESSION_TOLERANCE="${BENCH_ALLOC_REGRESSION_TOLERANCE:-0}"
+BENCH_REQUIRE_COMPARABLE_LATENCY="${BENCH_REQUIRE_COMPARABLE_LATENCY:-false}"
 
 # Package that contains the reproducible benchmark matrix and public artifacts.
 # Set BENCH_PKGS explicitly to include legacy package-local benchmarks.
@@ -218,7 +219,7 @@ check_regression() {
 		exit 1
 	fi
 	mkdir -p "$BENCH_DIR"
-	python3 - "$BASELINE_FILE" "$CURRENT_FILE" "$REGRESSION_REPORT_FILE" "$RATCHET_FILE" "$BENCH_ALLOC_REGRESSION_TOLERANCE" <<'PY'
+	python3 - "$BASELINE_FILE" "$CURRENT_FILE" "$REGRESSION_REPORT_FILE" "$RATCHET_FILE" "$BENCH_ALLOC_REGRESSION_TOLERANCE" "$BENCH_REQUIRE_COMPARABLE_LATENCY" <<'PY'
 import json
 import re
 import statistics
@@ -230,6 +231,7 @@ current_path = Path(sys.argv[2])
 report_path = Path(sys.argv[3])
 ratchet_path = Path(sys.argv[4])
 alloc_tolerance = float(sys.argv[5])
+require_comparable_latency = sys.argv[6].lower() == "true"
 
 line_re = re.compile(
     r"^(Benchmark\S+)-\d+\s+\d+\s+([0-9.]+)\s+ns/op\s+([0-9.]+)\s+B/op\s+([0-9.]+)\s+allocs/op$"
@@ -245,6 +247,29 @@ promoted_latency = {
 }
 
 policy_failures = []
+
+
+def environment(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        if raw.startswith("Benchmark"):
+            break
+        key, separator, value = raw.partition(":")
+        if separator and key in {"goos", "goarch", "go", "cpu"}:
+            values[key] = value.strip()
+    return values
+
+
+baseline_environment = environment(baseline_path)
+current_environment = environment(current_path)
+latency_comparable = all(
+    baseline_environment.get(field) == current_environment.get(field)
+    for field in ("goos", "goarch", "cpu")
+)
+if require_comparable_latency and not latency_comparable:
+    policy_failures.append(
+        "blocking latency requires baseline and current results from the same goos, goarch, and CPU"
+    )
 
 
 def require_policy(condition: bool, message: str) -> None:
@@ -2960,7 +2985,8 @@ for name in sorted(tracked):
     latency_mode = latency_rule.get("mode", latency_policy.get("defaultMode", "report-only")) if latency_rule else latency_policy.get("defaultMode", "report-only")
     latency_budget = None
     latency_passed = True
-    if latency_mode == "blocking":
+    effective_latency_mode = latency_mode if latency_comparable else "report-only-cross-environment"
+    if latency_mode == "blocking" and latency_comparable:
         minimum_samples = int(latency_rule.get("minimumBaselineSamples") or 1)
         max_ratio = float(latency_rule.get("maxRegressionRatio") or 1)
         latency_budget = base_ns * max_ratio
@@ -2982,7 +3008,7 @@ for name in sorted(tracked):
         "budget": {
             "allocsPerOpMax": alloc_budget,
             "allocTolerance": alloc_tolerance,
-            "latencyMode": latency_mode,
+            "latencyMode": effective_latency_mode,
             "nsPerOpMax": latency_budget,
         },
         "status": "passed" if current_allocs <= alloc_budget and latency_passed else "failed",
@@ -3016,6 +3042,9 @@ report = {
         "ratchetSchema": ratchet.get("schema", ""),
         "latencyMode": latency_policy.get("defaultMode", "report-only"),
         "latencyBlockingBenchmarks": sorted(promoted_latency),
+        "latencyComparable": latency_comparable,
+        "baselineEnvironment": baseline_environment,
+        "currentEnvironment": current_environment,
         "performancePromotionEvidence": ratchet.get("performancePromotionEvidence", {}),
         "p10PerformanceBudgetRatchet": ratchet.get("p10PerformanceBudgetRatchet", {}),
         "rpcPolicy": ratchet.get("rpcPolicy", {}),
@@ -3076,7 +3105,7 @@ case "${1:-}" in
 		compare
 		;;
 	--smoke)
-		run_benchmarks "$CURRENT_FILE" 1
+		run_benchmarks "$CURRENT_FILE" "${BENCH_SMOKE_COUNT:-1}"
 		;;
 	--trend)
 		write_trend

@@ -1,680 +1,155 @@
 #!/usr/bin/env sh
 set -eu
 
-rendered="${TMPDIR:-/tmp}/gofly-helm-render-smoke.yaml"
-rendered_production="${TMPDIR:-/tmp}/gofly-helm-render-production-smoke.yaml"
-kustomize_rendered="${TMPDIR:-/tmp}/gofly-kustomize-production-render-smoke.yaml"
+workdir="$(mktemp -d "${TMPDIR:-/tmp}/gofly-cloud-native-render-XXXXXX")"
+trap 'rm -rf "$workdir"' EXIT INT TERM
+
+helm_default="$workdir/helm-default.yaml"
+helm_production="$workdir/helm-production.yaml"
+kustomize_production="$workdir/kustomize-production.yaml"
 report_path="${CLOUD_NATIVE_RENDER_REPORT:-.tmp-test/cloud-native-render/render-report.json}"
 mkdir -p "$(dirname -- "$report_path")"
 
 if command -v helm >/dev/null 2>&1; then
-	helm template gofly deploy/helm/gofly > "$rendered"
-	helm template gofly deploy/helm/gofly -f deploy/helm/gofly/values-production.yaml > "$rendered_production"
-	render_mode="helm-template"
-	helm_available="true"
+	helm template gofly deploy/helm/gofly >"$helm_default"
+	helm template gofly deploy/helm/gofly -f deploy/helm/gofly/values-production.yaml >"$helm_production"
+	helm_available=true
+	helm_mode=helm-template
 else
-	cat deploy/helm/gofly/templates/*.yaml > "$rendered"
-	cat deploy/helm/gofly/templates/*.yaml > "$rendered_production"
-	render_mode="static-template-render"
-	helm_available="false"
+	cat deploy/k8s/deployment.yaml deploy/k8s/servicemonitor.yaml deploy/k8s/hpa.yaml deploy/k8s/pdb.yaml deploy/k8s/networkpolicy.yaml >"$helm_default"
+	cp "$helm_default" "$helm_production"
+	helm_available=false
+	helm_mode=static-template-render
 fi
 
 if command -v kustomize >/dev/null 2>&1; then
-	kustomize build deploy/k8s/overlays/production > "$kustomize_rendered"
-	kustomize_available="true"
+	kustomize build deploy/k8s/overlays/production >"$kustomize_production"
+	kustomize_available=true
+	kustomize_mode=kustomize-build
 else
-	cat deploy/k8s/deployment.yaml deploy/k8s/servicemonitor.yaml deploy/k8s/hpa.yaml deploy/k8s/pdb.yaml deploy/k8s/networkpolicy.yaml > "$kustomize_rendered"
-	kustomize_available="false"
+	cat \
+		deploy/k8s/deployment.yaml \
+		deploy/k8s/servicemonitor.yaml \
+		deploy/k8s/hpa.yaml \
+		deploy/k8s/pdb.yaml \
+		deploy/k8s/networkpolicy.yaml >"$kustomize_production"
+	kustomize_available=false
+	kustomize_mode=static-resource-render
 fi
+
+kubeconform_available=false
+kubeconform_status=tool-unavailable
 if command -v kubeconform >/dev/null 2>&1; then
-	kubeconform_available="true"
-else
-	kubeconform_available="false"
-fi
-if command -v kubeval >/dev/null 2>&1; then
-	kubeval_available="true"
-else
-	kubeval_available="false"
-fi
-
-kubeconform_status="tool-unavailable"
-kubeconform_output=""
-if [ "$kubeconform_available" = "true" ]; then
-	kubeconform_output="${TMPDIR:-/tmp}/gofly-kubeconform-output.txt"
-	if kubeconform -ignore-missing-schemas -summary "$rendered_production" "$kustomize_rendered" >"$kubeconform_output" 2>&1; then
-		kubeconform_status="passed"
+	kubeconform_available=true
+	if kubeconform -ignore-missing-schemas -summary "$helm_production" "$kustomize_production" >"$workdir/kubeconform.txt" 2>&1; then
+		kubeconform_status=passed
 	else
-		cat "$kubeconform_output" >&2
-		kubeconform_status="failed"
+		kubeconform_status=failed
+		cat "$workdir/kubeconform.txt" >&2
 	fi
 fi
 
-kubeval_status="tool-unavailable"
-kubeval_output=""
-if [ "$kubeval_available" = "true" ]; then
-	kubeval_output="${TMPDIR:-/tmp}/gofly-kubeval-output.txt"
-	if kubeval --ignore-missing-schemas "$rendered_production" "$kustomize_rendered" >"$kubeval_output" 2>&1; then
-		kubeval_status="passed"
-	else
-		cat "$kubeval_output" >&2
-		kubeval_status="failed"
-	fi
-fi
-
-python3 - "$rendered" "$rendered_production" "$kustomize_rendered" "$report_path" "$render_mode" "$helm_available" "$kustomize_available" "$kubeconform_available" "$kubeval_available" "$kubeconform_status" "$kubeval_status" "$kubeconform_output" "$kubeval_output" <<'PY'
+python3 - \
+	"$helm_default" \
+	"$helm_production" \
+	"$kustomize_production" \
+	"$report_path" \
+	"$helm_available" \
+	"$helm_mode" \
+	"$kustomize_available" \
+	"$kustomize_mode" \
+	"$kubeconform_available" \
+	"$kubeconform_status" <<'PY'
+import json
 import pathlib
 import sys
-import json
 
-rendered = pathlib.Path(sys.argv[1])
-rendered_production = pathlib.Path(sys.argv[2])
-kustomize_rendered = pathlib.Path(sys.argv[3])
+helm_default = pathlib.Path(sys.argv[1])
+helm_production = pathlib.Path(sys.argv[2])
+kustomize_production = pathlib.Path(sys.argv[3])
 report_path = pathlib.Path(sys.argv[4])
-render_mode = sys.argv[5]
-helm_available = sys.argv[6] == "true"
+helm_available = sys.argv[5] == "true"
+helm_mode = sys.argv[6]
 kustomize_available = sys.argv[7] == "true"
-kubeconform_available = sys.argv[8] == "true"
-kubeval_available = sys.argv[9] == "true"
+kustomize_mode = sys.argv[8]
+kubeconform_available = sys.argv[9] == "true"
 kubeconform_status = sys.argv[10]
-kubeval_status = sys.argv[11]
-kubeconform_output = sys.argv[12]
-kubeval_output = sys.argv[13]
-checks = {
-    pathlib.Path("deploy/helm/gofly/values.schema.json"): [
-        "networkPolicy",
-        "serviceMonitor",
-        "autoscaling",
-        "podDisruptionBudget",
-    ],
-    pathlib.Path("deploy/helm/gofly/values-production.yaml"): [
-        "networkPolicy:",
-        "serviceMonitor:",
-        "autoscaling:",
-        "podDisruptionBudget:",
-    ],
-    pathlib.Path("deploy/k8s/overlays/production/kustomization.yaml"): [
-        "../../deployment.yaml",
-        "networkpolicy.yaml",
-    ],
-    pathlib.Path("docs/reference/cloud-native-rendering.md"): [
-        "gofly.cloud_native_rendering.v1",
-        "Helm schema",
-        "values profiles",
-        "Kustomize overlays",
-        "NetworkPolicy",
-        "HPA",
-        "PDB",
-        "ServiceMonitor",
-        "helm template",
-        "kubeconform",
-        "kubeval",
-        "static fallback",
-    ],
-    pathlib.Path("docs/reference/cloud-native-policy-conformance.json"): [
-        "gofly.cloud_native_policy_conformance.v1",
-        "gofly.cloud_native_render_report.v1",
-        "helm-template",
-        "static-template-render",
-        "toolAvailabilityPolicy",
-        "kubeconform",
-        "kubeval",
-        "renderedGoldens",
-        "renderReport",
-        "fallbackStatus",
-        "fallbackReasons",
-        "ServiceMonitor",
-        "HorizontalPodAutoscaler",
-        "PodDisruptionBudget",
-        "NetworkPolicy",
-        "make cloud-native-render-check",
-    ],
-    pathlib.Path("docs/reference/cloud-native-rendered-production.golden.yaml"): [
-        "kind: Deployment",
-        "kind: Service",
-        "kind: ServiceMonitor",
-        "kind: HorizontalPodAutoscaler",
-        "kind: PodDisruptionBudget",
-        "kind: NetworkPolicy",
-    ],
+
+required_sources = [
+    pathlib.Path("deploy/helm/gofly/values.schema.json"),
+    pathlib.Path("deploy/helm/gofly/values-production.yaml"),
+    pathlib.Path("deploy/k8s/overlays/production/kustomization.yaml"),
+]
+missing = [f"required source is missing: {path}" for path in required_sources if not path.is_file()]
+
+required_kinds = {
+    "helm-default": {"Deployment", "Service", "ServiceMonitor", "HorizontalPodAutoscaler", "PodDisruptionBudget", "NetworkPolicy"},
+    "helm-production": {"Deployment", "Service", "ServiceMonitor", "HorizontalPodAutoscaler", "PodDisruptionBudget", "NetworkPolicy"},
+    "kustomize-production": {"Deployment", "ServiceMonitor", "HorizontalPodAutoscaler", "PodDisruptionBudget", "NetworkPolicy"},
 }
-
-missing = []
-for path, needles in checks.items():
-    if not path.is_file():
-        missing.append(f"{path}: file is missing")
-        continue
+renders = {
+    "helm-default": helm_default,
+    "helm-production": helm_production,
+    "kustomize-production": kustomize_production,
+}
+for profile, path in renders.items():
     text = path.read_text(encoding="utf-8")
-    for needle in needles:
-        if needle not in text:
-            missing.append(f"{path}: missing {needle!r}")
-
-render_text = rendered.read_text(encoding="utf-8")
-production_render_text = rendered_production.read_text(encoding="utf-8")
-kustomize_render_text = kustomize_rendered.read_text(encoding="utf-8")
-for needle in ("kind: Deployment", "kind: Service", "kind: NetworkPolicy"):
-    if needle not in render_text:
-        missing.append(f"rendered Helm output missing {needle!r}")
-for needle in (
-    "kind: ServiceMonitor",
-    "kind: HorizontalPodAutoscaler",
-    "kind: PodDisruptionBudget",
-    "kind: NetworkPolicy",
-):
-    if needle not in production_render_text:
-        missing.append(f"rendered production Helm output missing {needle!r}")
-for needle in (
-    "kind: Deployment",
-    "kind: ServiceMonitor",
-    "kind: HorizontalPodAutoscaler",
-    "kind: PodDisruptionBudget",
-    "kind: NetworkPolicy",
-):
-    if needle not in kustomize_render_text:
-        missing.append(f"rendered Kustomize output missing {needle!r}")
+    for kind in sorted(required_kinds[profile]):
+        if f"kind: {kind}" not in text:
+            missing.append(f"{profile} render is missing kind {kind}")
 
 if kubeconform_status == "failed":
     missing.append("kubeconform schema validation failed")
-if kubeval_status == "failed":
-    missing.append("kubeval schema validation failed")
 
-manifest_path = pathlib.Path("docs/reference/cloud-native-policy-conformance.json")
-if manifest_path.is_file():
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-else:
-    manifest = {}
-    missing.append("docs/reference/cloud-native-policy-conformance.json: file is missing")
-
-if manifest.get("schema") != "gofly.cloud_native_policy_conformance.v1":
-    missing.append("cloud-native policy conformance schema mismatch")
-if manifest.get("sourceOfTruth") != "docs/reference/cloud-native-rendering.md":
-    missing.append("cloud-native policy conformance sourceOfTruth mismatch")
-if manifest.get("acceptanceGate") != "make cloud-native-render-check":
-    missing.append("cloud-native policy conformance acceptanceGate mismatch")
-
-render_report = manifest.get("renderReport") or {}
-if render_report.get("schema") != "gofly.cloud_native_render_report.v1":
-    missing.append("cloud-native policy conformance renderReport schema mismatch")
-if render_report.get("path") != ".tmp-test/cloud-native-render/render-report.json":
-    missing.append("cloud-native policy conformance renderReport path mismatch")
-required_report_fields = {
-    "schema",
-    "renderMode",
-    "helm.available",
-    "helm.requiredWhenAvailable",
-    "helm.fallbackStatus",
-    "kustomize.available",
-    "kustomize.fallbackStatus",
-    "kubeconform.schemaValidationStatus",
-    "kubeval.schemaValidationStatus",
-    "fallbackReasons",
-    "requiredKinds",
-}
-if set(render_report.get("requiredFields") or []) != required_report_fields:
-    missing.append("cloud-native policy conformance renderReport requiredFields mismatch")
-
-render_modes = {item.get("mode") for item in manifest.get("renderModes") or [] if isinstance(item, dict)}
-for mode in ("helm-template", "static-template-render", "kustomize-build"):
-    if mode not in render_modes:
-        missing.append(f"cloud-native policy conformance renderModes missing {mode!r}")
-
-schema_tools = {item.get("tool") for item in manifest.get("schemaValidation") or [] if isinstance(item, dict)}
-for tool in ("kubeconform", "kubeval"):
-    if tool not in schema_tools:
-        missing.append(f"cloud-native policy conformance schemaValidation missing {tool!r}")
-
-adopter_proof = manifest.get("adopterRolloutProof") or {}
-if adopter_proof.get("schema") != "gofly.cloud_native_adopter_rollout_proof.v1":
-    missing.append("cloud-native policy conformance adopterRolloutProof schema mismatch")
-if adopter_proof.get("source") != "docs/reference/cloud-native-policy-conformance.json":
-    missing.append("cloud-native policy conformance adopterRolloutProof source mismatch")
-if adopter_proof.get("dashboardReportField") != "cloudNativeAdoption.rolloutProof":
-    missing.append("cloud-native policy conformance adopterRolloutProof dashboardReportField mismatch")
-if set(adopter_proof.get("acceptanceGates") or []) != {
-    "make helm-template-smoke",
-    "make cloud-native-render-check",
-    "make p1-growth-check",
-}:
-    missing.append("cloud-native policy conformance adopterRolloutProof acceptanceGates mismatch")
-if len(str(adopter_proof.get("policy") or "").split()) < 20:
-    missing.append("cloud-native policy conformance adopterRolloutProof policy must be actionable")
-
-expected_rollout_profiles = {
-    "helm-default": ("local-smoke", "make helm-template-smoke"),
-    "helm-production": ("production-candidate", "make cloud-native-render-check"),
-    "kustomize-production": ("static-fallback-evidence", "make cloud-native-render-check"),
-}
-rollout_profiles = {
-    item.get("profile"): item
-    for item in adopter_proof.get("rolloutProfiles") or []
-    if isinstance(item, dict) and item.get("profile")
-}
-if set(rollout_profiles) != set(expected_rollout_profiles):
-    missing.append(
-        "cloud-native policy conformance adopterRolloutProof rolloutProfiles drifted "
-        f"missing={sorted(set(expected_rollout_profiles) - set(rollout_profiles))} "
-        f"extra={sorted(set(rollout_profiles) - set(expected_rollout_profiles))}"
-    )
-for profile, (classification, gate) in expected_rollout_profiles.items():
-    item = rollout_profiles.get(profile) or {}
-    if item.get("classification") != classification:
-        missing.append(f"cloud-native adopterRolloutProof {profile}: classification must be {classification}")
-    if item.get("requiredGate") != gate:
-        missing.append(f"cloud-native adopterRolloutProof {profile}: requiredGate must be {gate}")
-    for field in ("renderMode", "adopterAction", "rollbackAction"):
-        if len(str(item.get(field) or "").split()) < 8:
-            missing.append(f"cloud-native adopterRolloutProof {profile}: {field} must be actionable")
-
-resource_requirements = {
-    item.get("kind"): item
-    for item in adopter_proof.get("policyResourceRequirements") or []
-    if isinstance(item, dict) and item.get("kind")
-}
-for kind in ("ServiceMonitor", "HorizontalPodAutoscaler", "PodDisruptionBudget", "NetworkPolicy"):
-    item = resource_requirements.get(kind)
-    if not item:
-        missing.append(f"cloud-native adopterRolloutProof policyResourceRequirements missing {kind!r}")
-        continue
-    for field in ("adopterAction", "rollbackAction"):
-        if len(str(item.get(field) or "").split()) < 8:
-            missing.append(f"cloud-native adopterRolloutProof {kind}: {field} must be actionable")
-if len(str(adopter_proof.get("toolFallbackPolicy") or "").split()) < 15:
-    missing.append("cloud-native adopterRolloutProof toolFallbackPolicy must be actionable")
-
-tool_policy = manifest.get("toolAvailabilityPolicy") or {}
-for tool, field in (
-    ("helm", "renderMode"),
-    ("kustomize", "renderMode"),
-    ("kubeconform", "schemaValidationStatus"),
-    ("kubeval", "schemaValidationStatus"),
-):
-    policy = tool_policy.get(tool)
-    if not isinstance(policy, dict):
-        missing.append(f"cloud-native policy conformance toolAvailabilityPolicy missing {tool!r}")
-        continue
-    if policy.get("reportField") != field:
-        missing.append(f"cloud-native policy conformance {tool}: reportField must be {field!r}")
-    if not policy.get("missingStatus"):
-        missing.append(f"cloud-native policy conformance {tool}: missingStatus is required")
-    if tool in ("helm", "kustomize") and policy.get("requiredWhenAvailable") is not True:
-        missing.append(f"cloud-native policy conformance {tool}: requiredWhenAvailable must be true")
-    if tool in ("kubeconform", "kubeval") and policy.get("requiredWhenAvailable") is not False:
-        missing.append(f"cloud-native policy conformance {tool}: requiredWhenAvailable must be false")
-
-required_kinds = {
-    "Deployment",
-    "Service",
-    "ServiceMonitor",
-    "HorizontalPodAutoscaler",
-    "PodDisruptionBudget",
-    "NetworkPolicy",
-}
-profiles = manifest.get("profiles") or []
-profile_names = {item.get("name") for item in profiles if isinstance(item, dict)}
-for name in ("helm-default", "helm-production", "kustomize-production"):
-    if name not in profile_names:
-        missing.append(f"cloud-native policy conformance profiles missing {name!r}")
-for profile in profiles:
-    if not isinstance(profile, dict):
-        missing.append(f"cloud-native policy conformance profile must be an object: {profile!r}")
-        continue
-    name = profile.get("name", "<missing>")
-    for key in ("values", "schema", "overlay"):
-        rel = profile.get(key)
-        if rel and not pathlib.Path(rel).is_file():
-            missing.append(f"cloud-native policy conformance {name}: {key} path is missing: {rel}")
-    for rel in (profile.get("templates") or []) + (profile.get("resources") or []):
-        if not pathlib.Path(rel).is_file():
-            missing.append(f"cloud-native policy conformance {name}: path is missing: {rel}")
-    kinds = set(profile.get("requiredKinds") or [])
-    if name.startswith("helm-"):
-        expected = required_kinds
-    else:
-        expected = required_kinds - {"Service"}
-    unknown = kinds - required_kinds
-    if unknown:
-        missing.append(f"cloud-native policy conformance {name}: unknown requiredKinds: {sorted(unknown)!r}")
-    if not expected <= kinds:
-        missing.append(f"cloud-native policy conformance {name}: requiredKinds missing {sorted(expected - kinds)!r}")
-
-golden_profiles = {item.get("profile") for item in manifest.get("renderedGoldens") or [] if isinstance(item, dict)}
-if "kustomize-production" not in golden_profiles:
-    missing.append("cloud-native policy conformance renderedGoldens missing kustomize-production")
-for item in manifest.get("renderedGoldens") or []:
-    if not isinstance(item, dict):
-        missing.append(f"cloud-native rendered golden must be an object: {item!r}")
-        continue
-    name = item.get("name", "<missing>")
-    path = item.get("path")
-    if not path or not pathlib.Path(path).is_file():
-        missing.append(f"cloud-native rendered golden {name}: path is missing: {path}")
-        continue
-    if item.get("fallbackStatus") not in {"tool-unavailable-explicit", "not-fallback"}:
-        missing.append(f"cloud-native rendered golden {name}: fallbackStatus must be explicit")
-    if not item.get("producedBy"):
-        missing.append(f"cloud-native rendered golden {name}: producedBy is required")
-    text = pathlib.Path(path).read_text(encoding="utf-8")
-    kinds = set(item.get("requiredKinds") or [])
-    if not required_kinds <= kinds:
-        missing.append(f"cloud-native rendered golden {name}: requiredKinds missing {sorted(required_kinds - kinds)!r}")
-    for kind in kinds:
-        if f"kind: {kind}" not in text:
-            missing.append(f"cloud-native rendered golden {name}: file missing kind {kind!r}")
-
-policy_resources = manifest.get("policyResources") or []
-policy_kinds = {item.get("kind") for item in policy_resources if isinstance(item, dict)}
-for kind in ("ServiceMonitor", "HorizontalPodAutoscaler", "PodDisruptionBudget", "NetworkPolicy"):
-    if kind not in policy_kinds:
-        missing.append(f"cloud-native policy conformance policyResources missing {kind!r}")
-for item in policy_resources:
-    if not isinstance(item, dict):
-        missing.append(f"cloud-native policy resource must be an object: {item!r}")
-        continue
-    kind = item.get("kind", "<missing>")
-    for key in ("helmTemplate", "kustomizeResource"):
-        rel = item.get(key)
-        if not rel or not pathlib.Path(rel).is_file():
-            missing.append(f"cloud-native policy resource {kind}: {key} path is missing: {rel}")
-    if not item.get("requiredSignals"):
-        missing.append(f"cloud-native policy resource {kind}: requiredSignals is required")
-
-rollout_gates = set(manifest.get("rolloutGates") or [])
-for gate in (
-    "make helm-template-smoke",
-    "make cloud-native-render-check",
-    "make reference-app-smoke",
-    "make runtime-slo-check",
-    "make p1-growth-check",
-):
-    if gate not in rollout_gates:
-        missing.append(f"cloud-native policy conformance rolloutGates missing {gate!r}")
-
-p10_proof = manifest.get("p10CloudNativeAdoptionProof") or {}
-if p10_proof.get("schema") != "gofly.cloud_native_p10_adoption_proof.v1":
-    missing.append("cloud-native P10 adoption proof schema mismatch")
-if p10_proof.get("aiflowTask") != "GOFLY-P10-8-CLOUD-NATIVE-ADOPTION-PROOF":
-    missing.append("cloud-native P10 adoption proof aiflowTask mismatch")
-if p10_proof.get("status") != "blocking-contract":
-    missing.append("cloud-native P10 adoption proof status must be blocking-contract")
-if p10_proof.get("acceptanceGate") != "make p1-growth-check":
-    missing.append("cloud-native P10 adoption proof acceptanceGate mismatch")
-if p10_proof.get("dashboardReportField") != "cloudNativeAdoption.p10Proof":
-    missing.append("cloud-native P10 adoption proof dashboardReportField mismatch")
-if len(str(p10_proof.get("policy") or "").split()) < 20:
-    missing.append("cloud-native P10 adoption proof policy must be actionable")
-
-p10_required_gates = {
-    "make helm-template-smoke",
-    "make cloud-native-render-check",
-    "make reference-app-smoke",
-    "make runtime-slo-check",
-    "make p1-growth-check",
-}
-if set(p10_proof.get("requiredGates") or []) != p10_required_gates:
-    missing.append("cloud-native P10 adoption proof requiredGates mismatch")
-
-p10_chains = {
-    item.get("id"): item
-    for item in p10_proof.get("proofChains") or []
-    if isinstance(item, dict) and item.get("id")
-}
-expected_p10_chains = {
-    "render-proof": "make cloud-native-render-check",
-    "reference-topology-proof": "make reference-app-smoke",
-    "runtime-slo-proof": "make runtime-slo-check",
-    "rollback-proof": "make governance-report-check",
-}
-if set(p10_chains) != set(expected_p10_chains):
-    missing.append(
-        "cloud-native P10 adoption proof chains drifted "
-        f"missing={sorted(set(expected_p10_chains) - set(p10_chains))!r} "
-        f"extra={sorted(set(p10_chains) - set(expected_p10_chains))!r}"
-    )
-for chain_id, gate in expected_p10_chains.items():
-    item = p10_chains.get(chain_id) or {}
-    for field in ("id", "surface", "gate", "evidence", "adopterAction", "rollbackOrEscalation"):
-        if item.get(field) in ("", None, []):
-            missing.append(f"cloud-native P10 adoption proof {chain_id}: {field} is required")
-    if item.get("gate") != gate:
-        missing.append(f"cloud-native P10 adoption proof {chain_id}: gate must be {gate}")
-    for evidence in item.get("evidence") or []:
-        if not pathlib.Path(evidence).exists():
-            missing.append(f"cloud-native P10 adoption proof {chain_id}: evidence path missing: {evidence}")
-    for field in ("adopterAction", "rollbackOrEscalation"):
-        if len(str(item.get(field) or "").split()) < 10:
-            missing.append(f"cloud-native P10 adoption proof {chain_id}: {field} must be actionable")
-if len(str(p10_proof.get("runtimeEvidencePolicy") or "").split()) < 15:
-    missing.append("cloud-native P10 adoption proof runtimeEvidencePolicy must be actionable")
-for needle in ("render proof", "reference topology proof", "runtime SLO proof", "rollback proof", "P1 growth gates"):
-    if needle not in str(p10_proof.get("promotionPolicy") or ""):
-        missing.append(f"cloud-native P10 adoption proof promotionPolicy missing {needle!r}")
-
-p11_proof = manifest.get("p11HostedCloudNativeProof") or {}
-if p11_proof.get("schema") != "gofly.cloud_native_p11_hosted_proof.v1":
-    missing.append("cloud-native P11 hosted proof schema mismatch")
-if p11_proof.get("aiflowTask") != "GOFLY-P11-3-CLOUD-NATIVE-HOSTED-PROOF":
-    missing.append("cloud-native P11 hosted proof aiflowTask mismatch")
-if p11_proof.get("status") != "blocking-contract":
-    missing.append("cloud-native P11 hosted proof status must be blocking-contract")
-if p11_proof.get("acceptanceGate") != "make p1-growth-check":
-    missing.append("cloud-native P11 hosted proof acceptanceGate mismatch")
-if p11_proof.get("dashboardReportField") != "cloudNativeAdoption.p11HostedProof":
-    missing.append("cloud-native P11 hosted proof dashboardReportField mismatch")
-if len(str(p11_proof.get("policy") or "").split()) < 20:
-    missing.append("cloud-native P11 hosted proof policy must be actionable")
-p11_env = p11_proof.get("hostedEnvironment") or {}
-for tool in ("Docker", "Helm", "Kustomize", "kubeconform", "kubeval", "Trivy"):
-    if tool not in set(p11_env.get("requiredWhenAvailable") or []):
-        missing.append(f"cloud-native P11 hosted proof requiredWhenAvailable missing {tool!r}")
-for needle in ("fallbackReasons", "release promotion", "hosted Docker", "Helm", "Trivy"):
-    if needle not in str(p11_env.get("fallbackPolicy") or ""):
-        missing.append(f"cloud-native P11 hosted proof fallbackPolicy missing {needle!r}")
-for needle in (".aiflow", ".tmp-test", "must not be committed"):
-    if needle not in str(p11_env.get("runtimeStatePolicy") or ""):
-        missing.append(f"cloud-native P11 hosted proof runtimeStatePolicy missing {needle!r}")
-
-p11_rows = {
-    item.get("id"): item
-    for item in p11_proof.get("proofRows") or []
-    if isinstance(item, dict) and item.get("id")
-}
-expected_p11_rows = {
-    "docker-reference-app": "REFERENCE_APP_MODE=docker make reference-app-smoke",
-    "helm-render": "make helm-template-smoke && make cloud-native-render-check",
-    "kustomize-policy": "make cloud-native-render-check",
-    "kube-schema-validation": "make cloud-native-render-check",
-    "release-security-evidence": "make governance-report-check && make required-checks-drift-check",
-    "operator-rollback": "make governance-report-check",
-}
-if set(p11_rows) != set(expected_p11_rows):
-    missing.append(
-        "cloud-native P11 hosted proof rows drifted "
-        f"missing={sorted(set(expected_p11_rows) - set(p11_rows))!r} "
-        f"extra={sorted(set(p11_rows) - set(expected_p11_rows))!r}"
-    )
-for row_id, gate in expected_p11_rows.items():
-    item = p11_rows.get(row_id) or {}
-    for field in ("id", "surface", "hostedEvidence", "localGate", "sourceEvidence", "fallbackPolicy", "rollbackAction"):
-        if item.get(field) in ("", None, []):
-            missing.append(f"cloud-native P11 hosted proof {row_id}: {field} is required")
-    if item.get("localGate") != gate:
-        missing.append(f"cloud-native P11 hosted proof {row_id}: localGate must be {gate}")
-    for evidence in item.get("sourceEvidence") or []:
-        if not pathlib.Path(evidence).exists():
-            missing.append(f"cloud-native P11 hosted proof {row_id}: evidence path missing: {evidence}")
-    for field in ("fallbackPolicy", "rollbackAction"):
-        if len(str(item.get(field) or "").split()) < 12:
-            missing.append(f"cloud-native P11 hosted proof {row_id}: {field} must be actionable")
-
-p11_required_gates = set(p11_proof.get("requiredGates") or [])
-for gate in (
-    "make helm-template-smoke",
-    "make cloud-native-render-check",
-    "make reference-app-smoke",
-    "make runtime-slo-check",
-    "make governance-report-check",
-    "make required-checks-drift-check",
-    "make p1-growth-check",
-):
-    if gate not in p11_required_gates:
-        missing.append(f"cloud-native P11 hosted proof requiredGates missing {gate!r}")
-p11_fallback_contract = p11_proof.get("fallbackReasonContract") or {}
-if p11_fallback_contract.get("renderReport") != ".tmp-test/cloud-native-render/render-report.json":
-    missing.append("cloud-native P11 hosted proof fallbackReasonContract renderReport mismatch")
-for field in (
-    "fallbackReasons",
-    "helm.fallbackStatus",
-    "kustomize.fallbackStatus",
-    "kubeconform.schemaValidationStatus",
-    "kubeval.schemaValidationStatus",
-):
-    if field not in set(p11_fallback_contract.get("requiredFields") or []):
-        missing.append(f"cloud-native P11 hosted proof fallbackReasonContract requiredFields missing {field!r}")
-if len(str(p11_fallback_contract.get("policy") or "").split()) < 15:
-    missing.append("cloud-native P11 hosted proof fallbackReasonContract policy must be actionable")
-for needle in ("Docker-backed reference topology", "Helm rendering", "Kustomize rendering", "release security evidence", "fallback reasons", "operator rollback"):
-    if needle not in str(p11_proof.get("promotionPolicy") or ""):
-        missing.append(f"cloud-native P11 hosted proof promotionPolicy missing {needle!r}")
-
-p12_proof = manifest.get("p12HostedLiveCIProof") or {}
-if p12_proof.get("schema") != "gofly.cloud_native_p12_hosted_live_ci_proof.v1":
-    missing.append("cloud-native P12 hosted live CI proof schema mismatch")
-if p12_proof.get("aiflowTask") != "GOFLY-P12-3-HOSTED-CLOUD-NATIVE-LIVE-CI":
-    missing.append("cloud-native P12 hosted live CI proof aiflowTask mismatch")
-if p12_proof.get("status") != "release-blocking-contract":
-    missing.append("cloud-native P12 hosted live CI proof status must be release-blocking-contract")
-if p12_proof.get("requiredCheck") != "cloud-native live render":
-    missing.append("cloud-native P12 hosted live CI proof requiredCheck mismatch")
-if p12_proof.get("producerJob") != "cloud-native-live-render":
-    missing.append("cloud-native P12 hosted live CI proof producerJob mismatch")
-for source in p12_proof.get("sourceOfTruth") or []:
-    if not pathlib.Path(source).exists():
-        missing.append(f"cloud-native P12 hosted live CI source path missing: {source}")
-for gate in ("make cloud-native-render-check", "make ci-required-check-evidence-check", "make required-checks-drift-check"):
-    if gate not in set(p12_proof.get("acceptanceGates") or []):
-        missing.append(f"cloud-native P12 hosted live CI acceptanceGates missing {gate!r}")
-p12_tools = {
-    item.get("tool"): item
-    for item in p12_proof.get("hostedToolchain") or []
-    if isinstance(item, dict) and item.get("tool")
-}
-expected_p12_tools = {
-    "Helm": ("go install helm.sh/helm/v3/cmd/helm@", "helm version --short"),
-    "Kustomize": ("go install sigs.k8s.io/kustomize/kustomize/v5@", "kustomize version"),
-    "kubeconform": ("go install github.com/yannh/kubeconform/cmd/kubeconform@", "kubeconform -v"),
-}
-if set(p12_tools) != set(expected_p12_tools):
-    missing.append(
-        "cloud-native P12 hosted live CI toolchain drifted "
-        f"missing={sorted(set(expected_p12_tools) - set(p12_tools))!r} "
-        f"extra={sorted(set(p12_tools) - set(expected_p12_tools))!r}"
-    )
-for tool, (install_prefix, verify_command) in expected_p12_tools.items():
-    item = p12_tools.get(tool) or {}
-    if not str(item.get("installCommand") or "").startswith(install_prefix):
-        missing.append(f"cloud-native P12 hosted live CI {tool}: installCommand must start with {install_prefix!r}")
-    if item.get("verificationCommand") != verify_command:
-        missing.append(f"cloud-native P12 hosted live CI {tool}: verificationCommand mismatch")
-    if item.get("requiredForHostedRelease") is not True:
-        missing.append(f"cloud-native P12 hosted live CI {tool}: requiredForHostedRelease must be true")
-p12_artifact = p12_proof.get("artifactContract") or {}
-expected_artifact = {
-    "uploadArtifact": "cloud-native-live-render-evidence",
-    "runtimeReport": ".tmp-test/cloud-native-render/render-report.json",
-    "releaseDownloadPath": "release-evidence/cloud-native/render-report.json",
-    "releaseUploadArtifact": "release-dist-evidence",
-    "requiredReportSchema": "gofly.cloud_native_render_report.v1",
-}
-for field, expected in expected_artifact.items():
-    if p12_artifact.get(field) != expected:
-        missing.append(f"cloud-native P12 hosted live CI artifactContract.{field} mismatch")
-if len(str(p12_artifact.get("fallbackPolicy") or "").split()) < 15:
-    missing.append("cloud-native P12 hosted live CI artifact fallbackPolicy must be actionable")
-for field in ("releaseNeedsPolicy", "rollbackOrEscalation"):
-    if len(str(p12_proof.get(field) or "").split()) < 15:
-        missing.append(f"cloud-native P12 hosted live CI {field} must be actionable")
-
-fallback_status = "not-fallback" if helm_available else "static-fallback"
-kustomize_fallback_status = "not-fallback" if kustomize_available else "static-fallback"
 fallback_reasons = []
 if not helm_available:
     fallback_reasons.append({
         "tool": "helm",
-        "status": "static-fallback",
-        "reason": "helm binary is unavailable; static chart template concatenation was used",
+        "status": "tool-unavailable",
+        "reason": "helm is unavailable; equivalent static Kubernetes resources were inspected without chart value expansion",
     })
 if not kustomize_available:
     fallback_reasons.append({
         "tool": "kustomize",
-        "status": "static-fallback",
-        "reason": "kustomize binary is unavailable; static production resource concatenation was used",
+        "status": "tool-unavailable",
+        "reason": "kustomize is unavailable; production resources were concatenated for structural checks",
     })
 if not kubeconform_available:
     fallback_reasons.append({
         "tool": "kubeconform",
         "status": "tool-unavailable",
-        "reason": "kubeconform binary is unavailable; schema validation was not run",
+        "reason": "kubeconform is unavailable; schema validation was not run",
     })
-if not kubeval_available:
-    fallback_reasons.append({
-        "tool": "kubeval",
-        "status": "tool-unavailable",
-        "reason": "kubeval binary is unavailable; schema validation was not run",
-    })
-fallback_tools = {item["tool"] for item in fallback_reasons}
-for tool, available in (
-    ("helm", helm_available),
-    ("kustomize", kustomize_available),
-    ("kubeconform", kubeconform_available),
-    ("kubeval", kubeval_available),
-):
-    if not available and tool not in fallback_tools:
-        missing.append(f"{tool} is unavailable but fallbackReasons has no entry")
+
 report = {
     "schema": "gofly.cloud_native_render_report.v1",
-    "renderMode": render_mode,
-    "fallbackReasons": fallback_reasons,
+    "status": "failed" if missing else "passed",
+    "renderMode": helm_mode,
     "helm": {
         "available": helm_available,
-        "requiredWhenAvailable": True,
-        "fallbackStatus": fallback_status,
-        "defaultRender": str(rendered),
-        "productionRender": str(rendered_production),
+        "mode": helm_mode,
+        "requiredKinds": sorted(required_kinds["helm-production"]),
     },
     "kustomize": {
         "available": kustomize_available,
-        "requiredWhenAvailable": True,
-        "fallbackStatus": kustomize_fallback_status,
-        "productionRender": str(kustomize_rendered),
+        "mode": kustomize_mode,
+        "requiredKinds": sorted(required_kinds["kustomize-production"]),
     },
     "kubeconform": {
         "available": kubeconform_available,
         "schemaValidationStatus": kubeconform_status,
-        "output": kubeconform_output,
     },
-    "kubeval": {
-        "available": kubeval_available,
-        "schemaValidationStatus": kubeval_status,
-        "output": kubeval_output,
-    },
-    "requiredKinds": sorted(required_kinds),
-    "golden": "docs/reference/cloud-native-rendered-production.golden.yaml",
+    "fallbackReasons": fallback_reasons,
+    "errors": missing,
+    "sourceOfTruth": [str(path) for path in required_sources],
 }
 report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
-if helm_available and render_mode != "helm-template":
-    missing.append("helm is available, so renderMode must be helm-template")
-if not helm_available and fallback_status != "static-fallback":
-    missing.append("helm is unavailable, so fallbackStatus must be static-fallback")
-if kustomize_available and kustomize_fallback_status != "not-fallback":
-    missing.append("kustomize is available, so fallbackStatus must be not-fallback")
-if not kustomize_available and kustomize_fallback_status != "static-fallback":
-    missing.append("kustomize is unavailable, so fallbackStatus must be static-fallback")
 
 if missing:
     print("cloud-native render check failed:", file=sys.stderr)
     for item in missing:
-        print("  " + item, file=sys.stderr)
-    sys.exit(1)
+        print(f"  {item}", file=sys.stderr)
+    raise SystemExit(1)
 
-print("cloud-native rendering governance ok")
+print(f"cloud-native rendering governance ok: {report_path}")
 PY

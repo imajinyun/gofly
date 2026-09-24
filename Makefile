@@ -427,7 +427,8 @@ helm-template-smoke: ## Validate Helm chart production resource coverage
 	sh $(SCRIPTS_DIR)/helm-template-smoke.sh
 
 .PHONY: cloud-native-render-check
-cloud-native-render-check: helm-template-smoke ## Compatibility gate backed by Helm render smoke
+cloud-native-render-check: helm-template-smoke ## Validate live cloud-native renders and write machine-readable evidence
+	sh $(SCRIPTS_DIR)/check-cloud-native-render.sh
 
 .PHONY: reference-app-smoke
 reference-app-smoke: ## Validate the production-orders reference app evidence

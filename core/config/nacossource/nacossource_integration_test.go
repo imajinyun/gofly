@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
@@ -19,10 +20,11 @@ func TestNacosSourceIntegrationGetAndWatch(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
-	addr := startNacos(t, ctx)
+	host, port, grpcPort := startNacos(t, ctx)
+	addr := fmt.Sprintf("%s:%d", host, port)
 
 	src, err := New(Config{
-		Servers: []ServerConfig{{IPAddr: addr, Port: 8848}},
+		Servers: []ServerConfig{{IPAddr: host, Port: port, GrpcPort: grpcPort}},
 		DataID:  "gofly-test",
 		Group:   "DEFAULT_GROUP",
 	})
@@ -78,35 +80,54 @@ func TestNacosSourceIntegrationGetAndWatch(t *testing.T) {
 	}
 }
 
-func startNacos(t *testing.T, ctx context.Context) string {
+func startNacos(t *testing.T, ctx context.Context) (string, uint64, uint64) {
 	t.Helper()
 
 	req := testcontainers.ContainerRequest{
-		Image:        "nacos/nacos-server:v2.2.3",
-		ExposedPorts: []string{"8848/tcp"},
+		Image:        "nacos/nacos-server:v2.5.1@sha256:8987908cb94ed5f9d30522a64493d35732a6c05f216d667a7addb022f3d92e80",
+		ExposedPorts: []string{"8848/tcp", "9848/tcp"},
 		Env: map[string]string{
 			"MODE": "standalone",
 		},
-		WaitingFor: wait.ForListeningPort("8848/tcp").WithStartupTimeout(2 * time.Minute),
+		WaitingFor: wait.ForHTTP("/nacos/v1/console/health/readiness").
+			WithPort("8848/tcp").
+			WithStatusCodeMatcher(func(status int) bool { return status == http.StatusOK }).
+			WithStartupTimeout(2 * time.Minute),
 	}
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
 		Started:          true,
 	})
+	testcontainers.CleanupContainer(t, container)
 	if err != nil {
 		t.Fatalf("start nacos container: %v", err)
 	}
-	t.Cleanup(func() { _ = testcontainers.TerminateContainer(container) })
 
 	host, err := container.Host(ctx)
 	if err != nil {
 		t.Fatalf("nacos host: %v", err)
 	}
-	return host
+	port, err := container.MappedPort(ctx, "8848/tcp")
+	if err != nil {
+		t.Fatalf("nacos port: %v", err)
+	}
+	mappedPort, err := strconv.ParseUint(port.Port(), 10, 64)
+	if err != nil {
+		t.Fatalf("parse nacos port %q: %v", port.Port(), err)
+	}
+	grpcPort, err := container.MappedPort(ctx, "9848/tcp")
+	if err != nil {
+		t.Fatalf("nacos grpc port: %v", err)
+	}
+	mappedGrpcPort, err := strconv.ParseUint(grpcPort.Port(), 10, 64)
+	if err != nil {
+		t.Fatalf("parse nacos grpc port %q: %v", grpcPort.Port(), err)
+	}
+	return host, mappedPort, mappedGrpcPort
 }
 
-func publishNacosConfig(ctx context.Context, host, dataID, group, content string) error {
-	url := fmt.Sprintf("http://%s:8848/nacos/v1/cs/configs?dataId=%s&group=%s&content=%s", host, dataID, group, content)
+func publishNacosConfig(ctx context.Context, address, dataID, group, content string) error {
+	url := fmt.Sprintf("http://%s/nacos/v1/cs/configs?dataId=%s&group=%s&content=%s", address, dataID, group, content)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
 		return err

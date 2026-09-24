@@ -2,7 +2,7 @@
 set -eu
 
 go_cmd="${GO:-go}"
-root="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
+root="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
 tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/gofly-zrpc-proto-XXXXXX")"
 trap 'rm -rf "$tmp_root"' EXIT
 mkdir -p "$tmp_root/gocache" "$tmp_root/gotmp" "$tmp_root/out"

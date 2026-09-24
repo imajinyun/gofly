@@ -4,7 +4,7 @@ set -eu
 go_cmd="${GO:-go}"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT INT TERM
-script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+script_dir="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 
 policy_file="${ROOT_DEPENDENCY_POLICY_FILE:-$script_dir/root-dependency-policy.tsv}"
 active_policy_file="$tmp/root-dependency-policy.active.tsv"

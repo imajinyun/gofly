@@ -8,6 +8,7 @@ github.com/go-chi/chi/v5|benchmark|bench/http_bench_test.go|HTTP framework compa
 github.com/gofiber/fiber/v2|benchmark|bench/http_bench_test.go|HTTP framework comparison benchmark dependency; not used by runtime packages.
 github.com/labstack/echo/v4|benchmark|bench/http_bench_test.go|HTTP framework comparison benchmark dependency; not used by runtime packages.
 github.com/testcontainers/testcontainers-go|integration-test|core/*/*_integration_test.go|Docker-backed integration tests use containers behind the integration build tag.
+github.com/testcontainers/testcontainers-go/modules/kafka|integration-test|core/mq/kafka/kafka_integration_test.go|The official Kafka testcontainer module provides KRaft startup and advertised-listener wiring for the integration fixture.
 go.uber.org/goleak|unit-test|*/goleak_test.go|Unit tests verify goroutine lifecycle and leak-free shutdown behavior.
 github.com/go-sql-driver/mysql|generator-datasource|cmd/gofly/internal/generator/model_codegen.go|Model datasource introspection opens MySQL DSNs; generated projects own their generated ORM dependencies.
 github.com/jackc/pgx/v5|generator-datasource|cmd/gofly/internal/generator/model_codegen.go|Model datasource introspection opens PostgreSQL DSNs; generated projects own their generated repository dependencies.

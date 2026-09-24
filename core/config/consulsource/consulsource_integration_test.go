@@ -50,7 +50,8 @@ func TestConsulSourceIntegrationGetAndWatch(t *testing.T) {
 		t.Fatalf("Get = %#v, want key=cfg/app data={\"version\":1}", got)
 	}
 
-	// Watch for changes.
+	// Watch emits the current value before later changes. Ignore that initial
+	// snapshot and wait for the version written below.
 	watchCtx, stopWatch := context.WithCancel(ctx)
 	defer stopWatch()
 	changes := make(chan config.RemoteValue, 1)
@@ -62,13 +63,18 @@ func TestConsulSourceIntegrationGetAndWatch(t *testing.T) {
 		t.Fatalf("put updated key: %v", err)
 	}
 
-	select {
-	case change := <-changes:
-		if change.Key != "cfg/app" || string(change.Data) != `{"version":2}` {
-			t.Fatalf("change = %#v, want updated value", change)
+	deadline := time.NewTimer(15 * time.Second)
+	defer deadline.Stop()
+waitForUpdate:
+	for {
+		select {
+		case change := <-changes:
+			if change.Key == "cfg/app" && string(change.Data) == `{"version":2}` {
+				break waitForUpdate
+			}
+		case <-deadline.C:
+			t.Fatal("timed out waiting for consul watch update")
 		}
-	case <-time.After(15 * time.Second):
-		t.Fatal("timed out waiting for consul watch update")
 	}
 
 	stopWatch()
@@ -89,16 +95,19 @@ func startConsul(t *testing.T, ctx context.Context) string {
 		Image:        "hashicorp/consul:1.16",
 		ExposedPorts: []string{"8500/tcp"},
 		Cmd:          []string{"consul", "agent", "-dev", "-client", "0.0.0.0", "-bind", "0.0.0.0"},
-		WaitingFor:   wait.ForListeningPort("8500/tcp").WithStartupTimeout(time.Minute),
+		WaitingFor: wait.ForHTTP("/v1/status/leader").
+			WithPort("8500/tcp").
+			WithStatusCodeMatcher(func(status int) bool { return status == http.StatusOK }).
+			WithStartupTimeout(time.Minute),
 	}
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
 		Started:          true,
 	})
+	testcontainers.CleanupContainer(t, container)
 	if err != nil {
 		t.Fatalf("start consul container: %v", err)
 	}
-	t.Cleanup(func() { _ = testcontainers.TerminateContainer(container) })
 
 	host, err := container.Host(ctx)
 	if err != nil {

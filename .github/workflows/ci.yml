@@ -33,6 +33,11 @@ jobs:
           check-latest: true
           cache: true
 
+      - name: Set up protoc
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b
+        with:
+          version: "33.0"
+
       - name: CI build/test/tidy gates
         run: make ci-fast
 
@@ -692,6 +697,11 @@ jobs:
           check-latest: true
           cache: true
 
+      - name: Set up protoc
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b
+        with:
+          version: "33.0"
+
       - name: 10-round architecture and quality governance
         env:
           GOVERNANCE_ISOLATE_GOMODCACHE: ${{ github.event_name == 'schedule' && 'true' || 'false' }}
@@ -745,6 +755,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
+      - name: Check out benchmark base
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'push' && github.event.before || github.sha }}
+          path: _benchmark-base
+          persist-credentials: false
+
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
@@ -772,13 +789,31 @@ jobs:
         run: make bench-evidence-check
 
       - name: Benchmark baseline smoke
-        run: bash bin/scripts/benchstat.sh --smoke
+        run: |
+          baseline="$RUNNER_TEMP/benchmark-base.txt"
+          current="$RUNNER_TEMP/benchmark-current.txt"
+          pattern='^(BenchmarkCacheHotPath|BenchmarkHTTPHello/gofly|BenchmarkHTTPPathParams/gofly|BenchmarkHTTPJSONBinding/gofly|BenchmarkHTTPMiddlewareChain/gofly|BenchmarkHTTPOpenAPI|BenchmarkHTTPGovernance)$'
+          : > "$baseline"
+          : > "$current"
+          for round in 1 2 3 4 5; do
+            if [ $((round % 2)) -eq 1 ]; then
+              (cd _benchmark-base && go test -run='^$' -bench="$pattern" -count=1 -benchmem ./bench/) >> "$baseline"
+              go test -run='^$' -bench="$pattern" -count=1 -benchmem ./bench/ >> "$current"
+            else
+              go test -run='^$' -bench="$pattern" -count=1 -benchmem ./bench/ >> "$current"
+              (cd _benchmark-base && go test -run='^$' -bench="$pattern" -count=1 -benchmem ./bench/) >> "$baseline"
+            fi
+          done
 
       - name: Benchmark allocation regression gate
-        run: make bench-regression-check
+        run: |
+          BENCH_REQUIRE_COMPARABLE_LATENCY=true \
+            BASELINE_FILE="$RUNNER_TEMP/benchmark-base.txt" \
+            CURRENT_FILE="$RUNNER_TEMP/benchmark-current.txt" \
+            bash bin/scripts/benchstat.sh --regression-check
 
       - name: Benchmark trend summary
-        run: bash bin/scripts/benchstat.sh --trend
+        run: CURRENT_FILE="$RUNNER_TEMP/benchmark-current.txt" bash bin/scripts/benchstat.sh --trend
 
       - name: Upload benchmark artifacts
         if: always()
@@ -786,9 +821,10 @@ jobs:
         with:
           name: benchmark-smoke
           path: |
-            bench/current.txt
             bench/regression-report.json
             bench/summary.md
+            ${{ runner.temp }}/benchmark-base.txt
+            ${{ runner.temp }}/benchmark-current.txt
           if-no-files-found: error
 
       - name: Fuzz smoke — api parser

@@ -5,13 +5,12 @@ package kafka
 import (
 	"context"
 	"errors"
-	"fmt"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
+	tckafka "github.com/testcontainers/testcontainers-go/modules/kafka"
 
 	"github.com/imajinyun/gofly/core/mq"
 )
@@ -167,65 +166,17 @@ func TestKafkaIntegrationRetryThenSuccess(t *testing.T) {
 func startKafka(t *testing.T, ctx context.Context) string {
 	t.Helper()
 
-	// Start Zookeeper (required for Kafka testcontainer).
-	zkReq := testcontainers.ContainerRequest{
-		Image:        "confluentinc/cp-zookeeper:7.5.0",
-		ExposedPorts: []string{"2181/tcp"},
-		Env: map[string]string{
-			"ZOOKEEPER_CLIENT_PORT": "2181",
-		},
-		WaitingFor: wait.ForListeningPort("2181/tcp").WithStartupTimeout(2 * time.Minute),
-	}
-	zkContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: zkReq,
-		Started:          true,
-	})
-	if err != nil {
-		t.Fatalf("start zookeeper container: %v", err)
-	}
-	t.Cleanup(func() { _ = testcontainers.TerminateContainer(zkContainer) })
-
-	zkHost, err := zkContainer.Host(ctx)
-	if err != nil {
-		t.Fatalf("zk host: %v", err)
-	}
-	zkPort, err := zkContainer.MappedPort(ctx, "2181/tcp")
-	if err != nil {
-		t.Fatalf("zk port: %v", err)
-	}
-	zkAddr := fmt.Sprintf("%s:%s", zkHost, zkPort.Port())
-
-	// Start Kafka.
-	kafkaReq := testcontainers.ContainerRequest{
-		Image:        "confluentinc/cp-kafka:7.5.0",
-		ExposedPorts: []string{"9092/tcp", "9093/tcp"},
-		Env: map[string]string{
-			"KAFKA_BROKER_ID":                        "1",
-			"KAFKA_ZOOKEEPER_CONNECT":                zkAddr,
-			"KAFKA_LISTENERS":                        "PLAINTEXT://0.0.0.0:9092,BROKER://0.0.0.0:9093",
-			"KAFKA_ADVERTISED_LISTENERS":             "PLAINTEXT://localhost:9092",
-			"KAFKA_LISTENER_SECURITY_PROTOCOL_MAP":   "PLAINTEXT:PLAINTEXT,BROKER:PLAINTEXT",
-			"KAFKA_INTER_BROKER_LISTENER_NAME":       "BROKER",
-			"KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR": "1",
-		},
-		WaitingFor: wait.ForListeningPort("9092/tcp").WithStartupTimeout(2 * time.Minute),
-	}
-	kafkaContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: kafkaReq,
-		Started:          true,
-	})
+	kafkaContainer, err := tckafka.Run(ctx, "confluentinc/confluent-local@sha256:8e391de42cfcd3498e7317dcf159790f1f1cc3f3ffce900b30d7da23888687fd")
+	testcontainers.CleanupContainer(t, kafkaContainer)
 	if err != nil {
 		t.Fatalf("start kafka container: %v", err)
 	}
-	t.Cleanup(func() { _ = testcontainers.TerminateContainer(kafkaContainer) })
-
-	host, err := kafkaContainer.Host(ctx)
+	brokers, err := kafkaContainer.Brokers(ctx)
 	if err != nil {
-		t.Fatalf("kafka host: %v", err)
+		t.Fatalf("kafka brokers: %v", err)
 	}
-	port, err := kafkaContainer.MappedPort(ctx, "9092/tcp")
-	if err != nil {
-		t.Fatalf("kafka port: %v", err)
+	if len(brokers) != 1 {
+		t.Fatalf("kafka brokers = %v, want one broker", brokers)
 	}
-	return fmt.Sprintf("%s:%s", host, port.Port())
+	return brokers[0]
 }

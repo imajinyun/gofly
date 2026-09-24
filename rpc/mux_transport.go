@@ -1492,6 +1492,10 @@ func (t *ExperimentalMuxTransport) recordFragmentWindowRefillLatency(deliveredAt
 		elapsed = 0
 	}
 	nanos := int64(elapsed)
+	if nanos == 0 {
+		// Windows clocks can report zero for operations shorter than one tick.
+		nanos = 1
+	}
 	t.fragmentWindowRefillLatencyTotalNanos.Add(nanos)
 	updateAtomicMaxInt64(&t.fragmentWindowRefillLatencyMaxNanos, nanos)
 }

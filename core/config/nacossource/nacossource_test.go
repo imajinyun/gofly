@@ -51,6 +51,19 @@ func TestNewConstructsSourceWithClientConfig(t *testing.T) {
 	}
 }
 
+func TestNewConstructsSourceWithExplicitGRPCPort(t *testing.T) {
+	src, err := New(Config{
+		Servers: []ServerConfig{{IPAddr: "127.0.0.1", Port: 18848, GrpcPort: 19848}},
+		DataID:  "cfg/app.yaml",
+	})
+	if err != nil {
+		t.Fatalf("New with explicit gRPC port error = %v", err)
+	}
+	if src == nil || src.client == nil {
+		t.Fatalf("New with explicit gRPC port source = %#v, want source with client", src)
+	}
+}
+
 func TestNewWithClientValidationAndDefaults(t *testing.T) {
 	if _, err := NewWithClient(nil, "", "cfg"); err == nil || !strings.Contains(err.Error(), "client is nil") {
 		t.Fatalf("NewWithClient(nil) error = %v, want client is nil", err)

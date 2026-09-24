@@ -20,6 +20,10 @@ import (
 type ServerConfig struct {
 	IPAddr string
 	Port   uint64
+	// GrpcPort overrides the Nacos SDK's default Port+1000 calculation. This is
+	// required when the HTTP and gRPC ports are independently mapped by a
+	// container runtime or proxy.
+	GrpcPort uint64
 }
 
 // Config configures the Nacos config source.
@@ -63,7 +67,11 @@ func New(cfg Config) (*Source, error) {
 	}
 	servers := make([]constant.ServerConfig, 0, len(cfg.Servers))
 	for _, s := range cfg.Servers {
-		servers = append(servers, *constant.NewServerConfig(s.IPAddr, s.Port))
+		server := constant.NewServerConfig(s.IPAddr, s.Port)
+		if s.GrpcPort != 0 {
+			constant.WithGrpcPort(s.GrpcPort)(server)
+		}
+		servers = append(servers, *server)
 	}
 	clientCfg := constant.NewClientConfig(
 		constant.WithNamespaceId(cfg.Namespace),

@@ -65,10 +65,10 @@ type Stats struct {
 }
 
 type entry[T any] struct {
-	value      T
-	expiresAt  time.Time
-	staleUntil time.Time
-	accessedAt time.Time
+	value       T
+	expiresAt   time.Time
+	staleUntil  time.Time
+	accessOrder uint64
 	// negative marks a cached not-found result.
 	negative bool
 }
@@ -88,6 +88,7 @@ type Cache[T any] struct {
 	staleWhileRevalidate time.Duration
 	refreshTimeout       time.Duration
 	maxEntries           int
+	nextAccessOrder      uint64
 	name                 string
 	stats                Stats
 	group                syncx.Group[T]
@@ -356,7 +357,7 @@ func (c *Cache[T]) Set(key string, value T, ttl ...time.Duration) {
 	now := time.Now()
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.items[key] = entry[T]{value: value, expiresAt: expiresAt, staleUntil: staleUntil, accessedAt: now}
+	c.items[key] = entry[T]{value: value, expiresAt: expiresAt, staleUntil: staleUntil, accessOrder: c.nextAccessOrderLocked()}
 	c.evictLocked(now)
 }
 
@@ -381,7 +382,7 @@ func (c *Cache[T]) Get(key string) (T, bool) {
 		c.stats.Misses++
 		return zero, false
 	}
-	ent.accessedAt = now
+	ent.accessOrder = c.nextAccessOrderLocked()
 	c.items[key] = ent
 	c.stats.Hits++
 	return ent.value, true
@@ -534,7 +535,7 @@ func (c *Cache[T]) lookup(key string, now time.Time) (T, string, bool) {
 		return zero, "", false
 	}
 	if ent.fresh(now) {
-		ent.accessedAt = now
+		ent.accessOrder = c.nextAccessOrderLocked()
 		c.items[key] = ent
 		if ent.negative {
 			c.stats.Hits++
@@ -544,7 +545,7 @@ func (c *Cache[T]) lookup(key string, now time.Time) (T, string, bool) {
 		return ent.value, "fresh", true
 	}
 	if ent.stale(now) {
-		ent.accessedAt = now
+		ent.accessOrder = c.nextAccessOrderLocked()
 		c.items[key] = ent
 		if ent.negative {
 			c.stats.Hits++
@@ -569,7 +570,7 @@ func (c *Cache[T]) load(ctx context.Context, key string, loader Loader[T]) (T, e
 			if c.negativeTTL > 0 && errors.Is(err, c.notFoundError()) {
 				now := time.Now()
 				expiresAt := now.Add(c.jitterTTL(c.negativeTTL))
-				c.items[key] = entry[T]{expiresAt: expiresAt, staleUntil: expiresAt, accessedAt: now, negative: true}
+				c.items[key] = entry[T]{expiresAt: expiresAt, staleUntil: expiresAt, accessOrder: c.nextAccessOrderLocked(), negative: true}
 				c.stats.Negatives++
 				c.evictLocked(now)
 			}
@@ -579,7 +580,7 @@ func (c *Cache[T]) load(ctx context.Context, key string, loader Loader[T]) (T, e
 		c.stats.Loads++
 		now := time.Now()
 		expiresAt := now.Add(c.jitterTTL(c.defaultTTL))
-		c.items[key] = entry[T]{value: value, expiresAt: expiresAt, staleUntil: expiresAt.Add(c.staleWhileRevalidate), accessedAt: now}
+		c.items[key] = entry[T]{value: value, expiresAt: expiresAt, staleUntil: expiresAt.Add(c.staleWhileRevalidate), accessOrder: c.nextAccessOrderLocked()}
 		if c.bloom != nil {
 			c.bloom.AddString(key)
 		}
@@ -617,7 +618,7 @@ func (c *Cache[T]) refresh(ctx context.Context, key string, loader Loader[T], as
 			c.stats.Refreshes++
 			now := time.Now()
 			expiresAt := now.Add(c.jitterTTL(c.defaultTTL))
-			c.items[key] = entry[T]{value: value, expiresAt: expiresAt, staleUntil: expiresAt.Add(c.staleWhileRevalidate), accessedAt: now}
+			c.items[key] = entry[T]{value: value, expiresAt: expiresAt, staleUntil: expiresAt.Add(c.staleWhileRevalidate), accessOrder: c.nextAccessOrderLocked()}
 			c.evictLocked(now)
 			return value, nil
 		}); err != nil {
@@ -666,19 +667,41 @@ func (c *Cache[T]) evictLocked(now time.Time) {
 	}
 	for len(c.items) > c.maxEntries {
 		var oldestKey string
-		var oldest time.Time
+		var oldestOrder uint64
+		found := false
 		for key, ent := range c.items {
-			if oldestKey == "" || ent.accessedAt.Before(oldest) {
+			if !found || ent.accessOrder < oldestOrder {
 				oldestKey = key
-				oldest = ent.accessedAt
+				oldestOrder = ent.accessOrder
+				found = true
 			}
-		}
-		if oldestKey == "" {
-			return
 		}
 		delete(c.items, oldestKey)
 		c.stats.Evictions++
 	}
+}
+
+func (c *Cache[T]) nextAccessOrderLocked() uint64 {
+	// Recency is owned by mu, independent of clock resolution and TTL deadlines.
+	if c.nextAccessOrder == ^uint64(0) {
+		// Rebase live entries before rollover, preserving their relative order.
+		keys := make([]string, 0, len(c.items))
+		for key := range c.items {
+			keys = append(keys, key)
+		}
+		sort.Slice(keys, func(i, j int) bool {
+			return c.items[keys[i]].accessOrder < c.items[keys[j]].accessOrder
+		})
+		c.nextAccessOrder = 0
+		for _, key := range keys {
+			c.nextAccessOrder++
+			ent := c.items[key]
+			ent.accessOrder = c.nextAccessOrder
+			c.items[key] = ent
+		}
+	}
+	c.nextAccessOrder++
+	return c.nextAccessOrder
 }
 
 func (c *Cache[T]) recordMiss() {

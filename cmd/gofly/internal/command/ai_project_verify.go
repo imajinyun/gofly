@@ -14,10 +14,69 @@ import (
 
 const maxVerificationOutputBytes = 4096
 
+func newAIProjectVerificationEnv() ([]string, func(), error) {
+	// Governance owns these explicitly supplied directories. Reuse the pair only
+	// when both are usable, and leave their lifetime to the caller.
+	if aiProjectVerificationDirWritable(os.Getenv("GOCACHE")) && aiProjectVerificationDirWritable(os.Getenv("GOTMPDIR")) {
+		return aiProjectVerificationEnvValue(os.Environ(), "GOWORK", "off"), func() {}, nil
+	}
+	root, err := os.MkdirTemp("", "gofly-ai-verify-go-")
+	if err != nil {
+		return nil, nil, err
+	}
+	cleanup := func() { _ = os.RemoveAll(root) }
+	cacheDir := filepath.Join(root, "gocache")
+	tmpDir := filepath.Join(root, "gotmp")
+	if err := os.MkdirAll(cacheDir, 0o750); err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	if err := os.MkdirAll(tmpDir, 0o750); err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	env := aiProjectVerificationEnvValue(os.Environ(), "GOCACHE", cacheDir)
+	env = aiProjectVerificationEnvValue(env, "GOTMPDIR", tmpDir)
+	env = aiProjectVerificationEnvValue(env, "GOWORK", "off")
+	return env, cleanup, nil
+}
+
+func aiProjectVerificationDirWritable(dir string) bool {
+	if !filepath.IsAbs(dir) {
+		return false
+	}
+	// Probe an existing caller-supplied directory without creating it or changing
+	// permissions. CreateTemp uses an exclusive random filename within that root.
+	probe, err := os.CreateTemp(dir, ".gofly-verify-write-*")
+	if err != nil {
+		return false
+	}
+	closeErr := probe.Close()
+	removeErr := os.Remove(probe.Name())
+	return closeErr == nil && removeErr == nil
+}
+
+func aiProjectVerificationEnvValue(env []string, key, value string) []string {
+	prefix := key + "="
+	filtered := make([]string, 0, len(env)+1)
+	for _, item := range env {
+		if strings.HasPrefix(item, prefix) {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	return append(filtered, prefix+value)
+}
+
 func runAIProjectVerification(dir string, verify []string, timeout time.Duration) ([]aiProjectVerificationResult, bool, error) {
 	if timeout <= 0 {
 		return nil, false, fmt.Errorf("%w: verification timeout must be positive", errUsage)
 	}
+	env, cleanup, err := newAIProjectVerificationEnv()
+	if err != nil {
+		return nil, false, err
+	}
+	defer cleanup()
 	results := make([]aiProjectVerificationResult, 0, len(verify))
 	passed := true
 	for _, command := range verify {
@@ -26,7 +85,15 @@ func runAIProjectVerification(dir string, verify []string, timeout time.Duration
 			continue
 		}
 		command = expandAIProjectVerificationCommand(dir, command)
-		result := runAIProjectVerificationCommand(dir, command, timeout)
+		var result aiProjectVerificationResult
+		if command == "control-plane snapshot" {
+			result = runAIProjectControlPlaneSnapshotAssertionWithEnv(dir, timeout, env)
+			if result.Status == "skipped" {
+				continue
+			}
+		} else {
+			result = runAIProjectVerificationCommandWithEnv(dir, command, timeout, env)
+		}
 		if result.Status == "failed" {
 			passed = false
 		}
@@ -35,7 +102,18 @@ func runAIProjectVerification(dir string, verify []string, timeout time.Duration
 	return results, passed, nil
 }
 
+// runAIProjectVerificationWithSnapshot keeps the generated snapshot assertion in
+// the same cache lifetime as the template's verification commands.
+func runAIProjectVerificationWithSnapshot(dir string, verify []string, timeout time.Duration) ([]aiProjectVerificationResult, bool, error) {
+	commands := append(append([]string(nil), verify...), "control-plane snapshot")
+	return runAIProjectVerification(dir, commands, timeout)
+}
+
 func runAIProjectControlPlaneSnapshotAssertion(dir string, timeout time.Duration) aiProjectVerificationResult {
+	return runAIProjectControlPlaneSnapshotAssertionWithEnv(dir, timeout, nil)
+}
+
+func runAIProjectControlPlaneSnapshotAssertionWithEnv(dir string, timeout time.Duration, env []string) aiProjectVerificationResult {
 	const command = "control-plane snapshot"
 	if timeout <= 0 {
 		return newAIProjectVerificationResult(command, "failed", "", "verification timeout must be positive")
@@ -64,6 +142,15 @@ func runAIProjectControlPlaneSnapshotAssertion(dir string, timeout time.Duration
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "go", "test", "./internal/config", "-run", "TestControlPlaneSnapshotExposesGeneratedContract", "-count=1")
 	cmd.Dir = dir
+	if env == nil {
+		var cleanup func()
+		env, cleanup, err = newAIProjectVerificationEnv()
+		if err != nil {
+			return newAIProjectVerificationResult(command, "failed", "", err.Error())
+		}
+		defer cleanup()
+	}
+	cmd.Env = env
 	out, err := cmd.CombinedOutput()
 	result := newAIProjectVerificationResult(command, "passed", string(out), "")
 	if ctx.Err() == context.DeadlineExceeded {
@@ -81,6 +168,10 @@ func runAIProjectControlPlaneSnapshotAssertion(dir string, timeout time.Duration
 }
 
 func runAIProjectVerificationCommand(dir, command string, timeout time.Duration) aiProjectVerificationResult {
+	return runAIProjectVerificationCommandWithEnv(dir, command, timeout, nil)
+}
+
+func runAIProjectVerificationCommandWithEnv(dir, command string, timeout time.Duration, env []string) aiProjectVerificationResult {
 	name, args, ok := aiProjectVerificationCommandArgs(command)
 	if !ok {
 		return newAIProjectVerificationResult(command, "skipped", "", "unsupported verification command")
@@ -90,11 +181,21 @@ func runAIProjectVerificationCommand(dir, command string, timeout time.Duration)
 	// #nosec G204 -- verification commands are selected from aiProjectVerificationCommandArgs allow-list and never executed through a shell.
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
+	if env == nil {
+		var cleanup func()
+		var err error
+		env, cleanup, err = newAIProjectVerificationEnv()
+		if err != nil {
+			return newAIProjectVerificationResult(command, "failed", "", err.Error())
+		}
+		defer cleanup()
+	}
+	cmd.Env = env
 	if command == "gofmt" {
 		// Fresh generated modules may not have go.sum entries yet. Permit this
 		// first verification step to resolve them before the explicit tidy
 		// check, even when the parent governance process uses readonly flags.
-		cmd.Env = append(os.Environ(), "GOFLAGS="+goFlagsWithModuleUpdates(os.Getenv("GOFLAGS")))
+		cmd.Env = aiProjectVerificationEnvValue(cmd.Env, "GOFLAGS", goFlagsWithModuleUpdates(os.Getenv("GOFLAGS")))
 	}
 	if command == "gofly ai doctor --json" ||
 		strings.HasPrefix(command, "gofly gateway profile validate ") ||

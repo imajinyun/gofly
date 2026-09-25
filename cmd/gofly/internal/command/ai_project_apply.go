@@ -42,16 +42,9 @@ func applyAIProjectPlan(plan aiProjectPlan, opts aiProjectApplyOptions) (aiProje
 	verifyPassed := false
 	if opts.Verify {
 		var err error
-		verification, verifyPassed, err = runAIProjectVerification(dir, verifyCommands, opts.VerifyTimeout)
+		verification, verifyPassed, err = runAIProjectVerificationWithSnapshot(dir, verifyCommands, opts.VerifyTimeout)
 		if err != nil {
 			return aiProjectApplyResult{}, err
-		}
-		controlPlaneResult := runAIProjectControlPlaneSnapshotAssertion(dir, opts.VerifyTimeout)
-		if controlPlaneResult.Status != "skipped" {
-			if controlPlaneResult.Status == "failed" {
-				verifyPassed = false
-			}
-			verification = append(verification, controlPlaneResult)
 		}
 	} else {
 		warnings = append(warnings, "generated verification commands are reported but not executed; pass --verify to run supported checks")

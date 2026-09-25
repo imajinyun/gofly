@@ -252,6 +252,18 @@ jobs:
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends shellcheck
 
+      - name: CI script boundary checks
+        run: make p2-ci-check
+
+      - name: Upload CI script verification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: p2-ci-script-evidence
+          path: .tmp-test/p2-ci/report.json
+          include-hidden-files: true
+          if-no-files-found: error
+
       - name: Workflow, shell, and OSV checks
         run: make supply-chain
 
@@ -806,7 +818,7 @@ jobs:
         run: |
           baseline="$RUNNER_TEMP/benchmark-base.txt"
           current="$RUNNER_TEMP/benchmark-current.txt"
-          pattern='^(BenchmarkCacheHotPath|BenchmarkHTTPHello/gofly|BenchmarkHTTPPathParams/gofly|BenchmarkHTTPJSONBinding/gofly|BenchmarkHTTPMiddlewareChain/gofly|BenchmarkHTTPOpenAPI|BenchmarkHTTPGovernance)$'
+          pattern='^(BenchmarkCacheHotPath|BenchmarkHTTPHello|BenchmarkHTTPPathParams|BenchmarkHTTPJSONBinding|BenchmarkHTTPMiddlewareChain|BenchmarkHTTPOpenAPI|BenchmarkHTTPGovernance)$'
           : > "$baseline"
           : > "$current"
           for round in 1 2 3 4 5; do
@@ -822,12 +834,16 @@ jobs:
       - name: Benchmark allocation regression gate
         run: |
           BENCH_REQUIRE_COMPARABLE_LATENCY=true \
+            BENCH_MIN_SAMPLES=5 \
             BASELINE_FILE="$RUNNER_TEMP/benchmark-base.txt" \
             CURRENT_FILE="$RUNNER_TEMP/benchmark-current.txt" \
             bash bin/scripts/benchstat.sh --regression-check
 
       - name: Benchmark trend summary
-        run: CURRENT_FILE="$RUNNER_TEMP/benchmark-current.txt" bash bin/scripts/benchstat.sh --trend
+        run: |
+          BASELINE_FILE="$RUNNER_TEMP/benchmark-base.txt" \
+            CURRENT_FILE="$RUNNER_TEMP/benchmark-current.txt" \
+            BENCH_MIN_SAMPLES=5 bash bin/scripts/benchstat.sh --trend
 
       - name: Upload benchmark artifacts
         if: always()
@@ -836,6 +852,7 @@ jobs:
           name: benchmark-smoke
           path: |
             bench/regression-report.json
+            bench/sample-report.json
             bench/summary.md
             ${{ runner.temp }}/benchmark-base.txt
             ${{ runner.temp }}/benchmark-current.txt
@@ -921,6 +938,8 @@ jobs:
   docker:
     name: docker build + trivy
     runs-on: ubuntu-latest
+    env:
+      TRIVY_CLI_VERSION: v0.70.0
     permissions:
       contents: read
       security-events: write
@@ -931,6 +950,7 @@ jobs:
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
 
       - name: Build Docker image
+        id: image_build
         run: |
           docker buildx build \
             --load \
@@ -940,12 +960,41 @@ jobs:
           docker image inspect gofly:${{ github.sha }} > docker-image-inspect.json
           python3 -c 'import json; from pathlib import Path; inspect = json.loads(Path("docker-image-inspect.json").read_text(encoding="utf-8"))[0]; metadata_path = Path("docker-build-metadata.json"); metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}; evidence = {"schema": "gofly.docker_build_evidence.v1", "image_ref": "gofly:${{ github.sha }}", "image_id": inspect.get("Id", ""), "repo_digests": inspect.get("RepoDigests") or [], "repo_tags": inspect.get("RepoTags") or [], "build_metadata": metadata}; Path("docker-build-evidence.json").write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8")'
 
-      - name: Trivy image scan
+      - name: Trivy complete vulnerability report
+        id: trivy_report
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
+          version: ${{ env.TRIVY_CLI_VERSION }}
           image-ref: gofly:${{ github.sha }}
-          format: sarif
-          output: trivy-results.sarif
+          format: json
+          output: trivy-results.json
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: "0"
+
+      - name: Convert complete Trivy report to SARIF
+        if: always() && steps.trivy_report.outcome == 'success'
+        run: |
+          trivy version > trivy-version.txt
+          trivy convert --format sarif --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
+            --output trivy-results.sarif trivy-results.json
+
+      - name: Summarize all Trivy severities
+        if: always() && steps.trivy_report.outcome == 'success'
+        run: |
+          python3 bin/scripts/summarize-trivy.py trivy-results.json \
+            --output trivy-severity-counts.json > trivy-summary.md
+          cat trivy-summary.md
+          cat trivy-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Enforce fixed HIGH and CRITICAL vulnerabilities
+        if: always() && steps.image_build.outcome == 'success'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          skip-setup-trivy: true
+          image-ref: gofly:${{ github.sha }}
+          format: json
+          output: trivy-blocking.json
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: "1"
@@ -965,7 +1014,12 @@ jobs:
             docker-build-evidence.json
             docker-build-metadata.json
             docker-image-inspect.json
+            trivy-version.txt
+            trivy-results.json
             trivy-results.sarif
+            trivy-blocking.json
+            trivy-severity-counts.json
+            trivy-summary.md
           if-no-files-found: error
 
   scorecard:

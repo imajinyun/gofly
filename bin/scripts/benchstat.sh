@@ -11,6 +11,7 @@
 #   bash bin/scripts/benchstat.sh --evidence   # write local bench/evidence.md from bench/baseline.txt
 #   bash bin/scripts/benchstat.sh --check-evidence # validate tracked benchmark baseline and budgets
 #   bash bin/scripts/benchstat.sh --regression-check # block HTTP hot-path budget regressions
+#   bash bin/scripts/benchstat.sh --check-samples # verify every blocking row before comparison
 
 set -eu
 
@@ -24,7 +25,9 @@ SUMMARY_FILE="${BENCH_DIR}/summary.md"
 MATRIX_FILE="${BENCH_DIR}/matrix.md"
 EVIDENCE_FILE="${BENCH_DIR}/evidence.md"
 REGRESSION_REPORT_FILE="${BENCH_DIR}/regression-report.json"
+SAMPLE_REPORT_FILE="${BENCH_DIR}/sample-report.json"
 RATCHET_FILE="${BENCH_DIR}/budget-ratchet.json"
+BENCH_MIN_SAMPLES="${BENCH_MIN_SAMPLES:-1}"
 BENCH_ALLOC_REGRESSION_TOLERANCE="${BENCH_ALLOC_REGRESSION_TOLERANCE:-0}"
 BENCH_REQUIRE_COMPARABLE_LATENCY="${BENCH_REQUIRE_COMPARABLE_LATENCY:-false}"
 
@@ -33,6 +36,13 @@ BENCH_REQUIRE_COMPARABLE_LATENCY="${BENCH_REQUIRE_COMPARABLE_LATENCY:-false}"
 BENCH_PKGS="${BENCH_PKGS:-./bench/}"
 BENCH_PATTERN="${BENCH_PATTERN:-Benchmark}"
 BENCH_COUNT="${BENCH_COUNT:-5}"
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
+
+check_samples() {
+	python3 "$SCRIPT_DIR/check-benchmark-samples.py" \
+		--budget "$RATCHET_FILE" --baseline "$BASELINE_FILE" --current "$CURRENT_FILE" \
+		--minimum-samples "$BENCH_MIN_SAMPLES" --report "$SAMPLE_REPORT_FILE"
+}
 
 write_environment() {
 	goos="$($GO env GOOS 2>/dev/null || echo unknown)"
@@ -66,6 +76,7 @@ run_benchmarks() {
 }
 
 compare() {
+	check_samples
 	if ! command -v benchstat >/dev/null 2>&1; then
 		echo "benchstat not found; install with: go install golang.org/x/perf/cmd/benchstat@latest"
 		exit 1
@@ -86,6 +97,9 @@ write_trend() {
 	if [ ! -f "$CURRENT_FILE" ]; then
 		echo "Current results not found at $CURRENT_FILE; run benchmarks first."
 		exit 1
+	fi
+	if command -v benchstat >/dev/null 2>&1 && [ -f "$BASELINE_FILE" ]; then
+		check_samples
 	fi
 	{
 		echo "# Benchmark trend"
@@ -210,6 +224,7 @@ check_evidence() {
 }
 
 check_regression() {
+	check_samples
 	if [ ! -f "$BASELINE_FILE" ]; then
 		echo "Baseline not found at $BASELINE_FILE; run --baseline first."
 		exit 1
@@ -3126,7 +3141,14 @@ case "${1:-}" in
 	--regression-check)
 		check_regression
 		;;
-	*)
+	--check-samples)
+		check_samples
+		;;
+	'')
 		run_benchmarks "$CURRENT_FILE" "$BENCH_COUNT"
+		;;
+	*)
+		echo "Unknown benchmark option: $1" >&2
+		exit 2
 		;;
 esac

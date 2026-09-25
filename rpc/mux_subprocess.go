@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -373,14 +374,18 @@ func (e *rpcMuxSubprocessExporter) ExportRPCMuxDiagnosisEvent(ctx context.Contex
 	cmd.Stdout = writer
 	cmd.Stderr = writer
 	err = cmd.Run()
+	contextErr := runCtx.Err()
 	exitCode := 0
-	if err != nil {
+	if err != nil || contextErr != nil {
 		exitCode = -1
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
 		}
 	}
-	e.recordRun(exitCode, time.Since(startedAt), runCtx.Err() == context.DeadlineExceeded, writer.truncated, err)
+	if err == nil && contextErr != nil {
+		err = contextErr
+	}
+	e.recordRun(exitCode, time.Since(startedAt), errors.Is(contextErr, context.DeadlineExceeded), writer.truncated, err)
 }
 
 func subprocessEnvList(env map[string]string) []string {

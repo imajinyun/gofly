@@ -9,31 +9,42 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
 func TestCacheSetGetTTLEviction(t *testing.T) {
-	c := New[string](WithDefaultTTL[string](30*time.Millisecond), WithMaxEntries[string](2))
-	c.Set("a", "one")
-	c.Set("b", "two")
-	if got, ok := c.Get("a"); !ok || got != "one" {
-		t.Fatalf("Get(a) = %q, %v, want one, true", got, ok)
-	}
-	c.Set("c", "three")
-	if _, ok := c.Get("b"); ok {
-		t.Fatal("expected least recently used entry b to be evicted")
-	}
-	if got := c.Len(); got != 2 {
-		t.Fatalf("Len() = %d, want 2", got)
-	}
-	time.Sleep(40 * time.Millisecond)
-	if _, ok := c.Get("a"); ok {
-		t.Fatal("expected expired entry to be unavailable")
-	}
-	snapshot := c.Snapshot()
-	if snapshot.Hits == 0 || snapshot.Misses == 0 || snapshot.Evictions == 0 {
-		t.Fatalf("unexpected snapshot: %+v", snapshot)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		startedAt := time.Now()
+		c := New[string](WithDefaultTTL[string](30*time.Millisecond), WithMaxEntries[string](2))
+		c.Set("a", "one")
+		c.Set("b", "two")
+		if got, ok := c.Get("a"); !ok || got != "one" {
+			t.Fatalf("Get(a) = %q, %v, want one, true", got, ok)
+		}
+		c.Set("c", "three")
+		if _, ok := c.Get("b"); ok {
+			t.Fatal("expected least recently used entry b to be evicted")
+		}
+		if got := c.Len(); got != 2 {
+			t.Fatalf("Len() = %d, want 2", got)
+		}
+		if elapsed := time.Since(startedAt); elapsed != 0 {
+			t.Fatalf("LRU operations advanced the clock by %s, want equal timestamps", elapsed)
+		}
+		time.Sleep(20 * time.Millisecond)
+		if got, ok := c.Get("a"); !ok || got != "one" {
+			t.Fatalf("Get(a) before TTL = %q, %v, want one, true", got, ok)
+		}
+		time.Sleep(10 * time.Millisecond)
+		if _, ok := c.Get("a"); ok {
+			t.Fatal("expected expiry at the original TTL despite the recent read")
+		}
+		snapshot := c.Snapshot()
+		if snapshot.Hits == 0 || snapshot.Misses == 0 || snapshot.Evictions == 0 {
+			t.Fatalf("unexpected snapshot: %+v", snapshot)
+		}
+	})
 }
 
 func TestCacheGetOrLoadSingleflight(t *testing.T) {

@@ -86,7 +86,15 @@ completion-install: $(CLI_BIN) ## Install shell completion script for the curren
 
 .PHONY: test
 test: ## Run all unit tests with the race detector
-	$(GO) test $(TESTFLAGS) -race $(PKGS)
+	@set -eu; \
+	task_tmp=$$(mktemp -d); \
+	trap 'rm -rf "$$task_tmp"' 0; \
+	trap 'exit 130' INT; trap 'exit 143' TERM; \
+	GOCACHE="$${GOCACHE:-$$task_tmp/gocache}"; \
+	GOTMPDIR="$${GOTMPDIR:-$$task_tmp/gotmp}"; \
+	mkdir -p "$$GOCACHE" "$$GOTMPDIR"; \
+	export GOCACHE GOTMPDIR; \
+	"$(GO)" test $(TESTFLAGS) -race $(PKGS)
 
 .PHONY: test-short
 test-short: ## Run fast unit tests (no race)
@@ -148,6 +156,14 @@ bench-publish-check: ## Validate the benchmark publishing manifest contract
 .PHONY: bench-regression-check
 bench-regression-check: perf-governance-check ## Block HTTP hot-path budget regressions against bench/baseline.txt
 	bash $(SCRIPTS_DIR)/benchstat.sh --regression-check
+
+.PHONY: bench-samples-check
+bench-samples-check: ## Check both raw benchmark files contain every blocking budget row
+	bash $(SCRIPTS_DIR)/benchstat.sh --check-samples
+
+.PHONY: p2-ci-check
+p2-ci-check: ## Verify P2 CI scripts with bounded CLI fixtures (no real benchmark or Docker)
+	python3 $(SCRIPTS_DIR)/check-p2-ci.py --report .tmp-test/p2-ci/report.json
 
 .PHONY: bench-compare
 bench-compare: ## Compare bench/current.txt against bench/baseline.txt using benchstat

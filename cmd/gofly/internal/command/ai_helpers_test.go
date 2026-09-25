@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -22,6 +23,44 @@ import (
 	"github.com/imajinyun/gofly/core/controlplane"
 	"github.com/imajinyun/gofly/core/llm"
 )
+
+// TestMain also lets the verification lifecycle tests use this binary as go,
+// recording the real subprocess environment without compiling another module.
+func TestMain(m *testing.M) {
+	name := filepath.Base(os.Args[0])
+	helperPath := os.Getenv("GOFLY_AI_VERIFY_TEST_EXECUTABLE")
+	if name != "go" && name != "go.exe" {
+		os.Exit(m.Run())
+	}
+	helperInfo, helperErr := os.Stat(helperPath)
+	executable, executableErr := os.Executable()
+	runningInfo, runningErr := os.Stat(executable)
+	if helperErr != nil || executableErr != nil || runningErr != nil || !os.SameFile(helperInfo, runningInfo) {
+		// A go-named helper must never recurse into the package's test suite.
+		os.Exit(6)
+	}
+	env := map[string]string{}
+	for _, key := range []string{"GOCACHE", "GOTMPDIR", "GOWORK", "GOFLAGS"} {
+		env[key] = os.Getenv(key)
+	}
+	if err := json.NewEncoder(os.Stdout).Encode(env); err != nil {
+		os.Exit(2)
+	}
+	for _, key := range []string{"GOCACHE", "GOTMPDIR"} {
+		marker := filepath.Join(env[key], "verification-marker")
+		if len(os.Args) > 1 && os.Args[1] == "fmt" {
+			if err := os.WriteFile(marker, []byte("ready"), 0o600); err != nil {
+				os.Exit(3)
+			}
+		} else if data, err := os.ReadFile(marker); err != nil || string(data) != "ready" {
+			os.Exit(4)
+		}
+	}
+	if os.Getenv("GOFLY_AI_VERIFY_TEST_FAIL") == "1" && len(os.Args) > 1 && os.Args[1] == "vet" {
+		os.Exit(5)
+	}
+	os.Exit(0)
+}
 
 func TestIsAIHelpSubcommand(t *testing.T) {
 	tests := []struct {
@@ -2844,7 +2883,235 @@ func commandRepositoryRoot(t *testing.T) string {
 	return root
 }
 
+func TestAIProjectVerificationCacheLifecycle(t *testing.T) {
+	// Failure inventory: caller-owned cache replacement/deletion; partially valid
+	// directory pairs; per-command cache loss; snapshot cache loss; cleanup after
+	// success/failure; apply JSON must omit skipped snapshots. A controlled go
+	// process verifies the execution boundary without cold builds or network access.
+	binDir := t.TempDir()
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	goName := "go"
+	if runtime.GOOS == "windows" {
+		goName += ".exe"
+	}
+	source, err := os.Open(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	target, err := os.OpenFile(filepath.Join(binDir, goName), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o700)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, copyErr := io.Copy(target, source)
+	closeErr := target.Close()
+	if err := errors.Join(copyErr, closeErr); err != nil {
+		t.Fatal(err)
+	}
+	// Environment changes deliberately keep this test and its subtests serial.
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("GOFLY_AI_VERIFY_TEST_EXECUTABLE", filepath.Join(binDir, goName))
+	t.Setenv("GOFLY_FRAMEWORK_PATH", commandRepositoryRoot(t))
+	t.Setenv("GOWORK", filepath.Join(t.TempDir(), "go.work"))
+	t.Setenv("GOFLAGS", "-count=1 -mod=readonly")
+
+	for _, tt := range []struct {
+		name         string
+		borrowed     bool
+		fail         bool
+		skipSnapshot bool
+	}{
+		{name: "caller caches survive successful batch", borrowed: true},
+		{name: "caller caches survive failed batch", borrowed: true, fail: true},
+		{name: "isolated caches live for complete batch"},
+		{name: "isolated caches removed after failure", fail: true},
+		{name: "apply omits skipped snapshot with caller caches", borrowed: true, skipSnapshot: true},
+		{name: "apply omits skipped snapshot with isolated caches", skipSnapshot: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cacheDir, tmpDir := t.TempDir(), t.TempDir()
+			if tt.borrowed {
+				t.Setenv("GOCACHE", cacheDir)
+				t.Setenv("GOTMPDIR", tmpDir)
+			} else {
+				t.Setenv("GOCACHE", "/inherited/unwritable-cache")
+				t.Setenv("GOTMPDIR", "/inherited/unwritable-tmp")
+			}
+			t.Setenv("GOFLY_AI_VERIFY_TEST_FAIL", "0")
+			if tt.fail {
+				t.Setenv("GOFLY_AI_VERIFY_TEST_FAIL", "1")
+			}
+			project := filepath.Join(t.TempDir(), "sample")
+			template := "go-rest-minimal"
+			wantChecks := 5
+			if tt.skipSnapshot {
+				template = "go-gateway"
+				wantChecks = 7
+			}
+			var stdout bytes.Buffer
+			if err := ExecuteWithIO([]string{"ai", "new", "--template", template, "--name", "sample", "--module", "example.com/sample", "--dir", project, "--apply", "--verify", "--verify-timeout", "5s", "--json"}, IOStreams{Out: &stdout}); err != nil {
+				t.Fatalf("apply verify: %v\n%s", err, stdout.String())
+			}
+			var envelope struct {
+				Data struct {
+					Verify       []string                      `json:"verify"`
+					VerifyRan    bool                          `json:"verifyRan"`
+					VerifyPassed bool                          `json:"verifyPassed"`
+					Verification []aiProjectVerificationResult `json:"verification"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			results := envelope.Data.Verification
+			if !envelope.Data.VerifyRan || envelope.Data.VerifyPassed == tt.fail || len(results) != wantChecks {
+				t.Errorf("verification data=%+v, want ran=true passed=%v checks=%d", envelope.Data, !tt.fail, wantChecks)
+			}
+			if commandContainsString(envelope.Data.Verify, "control-plane snapshot") {
+				t.Error("snapshot assertion leaked into declared template verify commands")
+			}
+			var first map[string]string
+			snapshots := 0
+			for i, result := range results {
+				if result.Command == "control-plane snapshot" {
+					snapshots++
+				}
+				wantStatus := "passed"
+				if tt.fail && result.Command == "go vet ./..." {
+					wantStatus = "failed"
+				}
+				if result.Status != wantStatus {
+					t.Errorf("%s status=%s error=%s, want %s", result.Command, result.Status, result.Error, wantStatus)
+				}
+				var env map[string]string
+				if err := json.Unmarshal([]byte(result.Output), &env); err != nil {
+					t.Errorf("%s environment output=%q: %v", result.Command, result.Output, err)
+					continue
+				}
+				t.Logf("%s environment: %v", result.Command, env)
+				if i == 0 {
+					first = env
+				}
+				for _, key := range []string{"GOCACHE", "GOTMPDIR"} {
+					if env[key] == "" || env[key] != first[key] {
+						t.Errorf("%s %s=%q, first command=%q", result.Command, key, env[key], first[key])
+					}
+					if tt.borrowed && env[key] != os.Getenv(key) {
+						t.Errorf("%s %s=%q, want caller directory %q", result.Command, key, env[key], os.Getenv(key))
+					}
+				}
+				wantFlags := "-count=1 -mod=readonly"
+				if i == 0 {
+					wantFlags = "-count=1 -mod=mod"
+				}
+				if env["GOWORK"] != "off" || env["GOFLAGS"] != wantFlags {
+					t.Errorf("%s environment=%v, want GOWORK=off GOFLAGS=%q", result.Command, env, wantFlags)
+				}
+			}
+			if (tt.skipSnapshot && snapshots != 0) || (!tt.skipSnapshot && snapshots != 1) {
+				t.Errorf("snapshot count=%d, skip=%v", snapshots, tt.skipSnapshot)
+			}
+			for _, key := range []string{"GOCACHE", "GOTMPDIR"} {
+				if tt.borrowed {
+					if data, err := os.ReadFile(filepath.Join(os.Getenv(key), "verification-marker")); err != nil || string(data) != "ready" {
+						t.Errorf("caller %s marker=%q err=%v, want retained marker", key, data, err)
+					}
+				} else if first[key] != "" {
+					if _, err := os.Stat(filepath.Dir(first[key])); !errors.Is(err, os.ErrNotExist) {
+						t.Errorf("owned verification root %q still exists: %v", filepath.Dir(first[key]), err)
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestAIProjectVerificationHelpers(t *testing.T) {
+	t.Run("invalid caller cache pair is replaced and owned", func(t *testing.T) {
+		for _, key := range []string{"GOCACHE", "GOTMPDIR"} {
+			for _, invalid := range []string{"missing", "relative", "file", "read-only"} {
+				t.Run(key+"/"+invalid, func(t *testing.T) {
+					cacheDir, tmpDir := t.TempDir(), t.TempDir()
+					t.Setenv("GOCACHE", cacheDir)
+					t.Setenv("GOTMPDIR", tmpDir)
+					path := filepath.Join(t.TempDir(), "invalid")
+					switch invalid {
+					case "relative":
+						path = "relative-cache"
+					case "file":
+						if err := os.WriteFile(path, nil, 0o600); err != nil {
+							t.Fatal(err)
+						}
+					case "read-only":
+						if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+							t.Skip("permission bits do not enforce a read-only directory here")
+						}
+						if err := os.Mkdir(path, 0o500); err != nil {
+							t.Fatal(err)
+						}
+						t.Cleanup(func() { _ = os.Chmod(path, 0o700) })
+					}
+					t.Setenv(key, path)
+					env, cleanup, err := newAIProjectVerificationEnv()
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer cleanup()
+					values := map[string]string{}
+					for _, item := range env {
+						key, value, _ := strings.Cut(item, "=")
+						values[key] = value
+					}
+					for _, key := range []string{"GOCACHE", "GOTMPDIR"} {
+						if values[key] == "" || values[key] == os.Getenv(key) {
+							t.Errorf("%s=%q, want an owned replacement for invalid pair", key, values[key])
+						}
+					}
+					cleanup()
+					if _, err := os.Stat(filepath.Dir(values["GOCACHE"])); !errors.Is(err, os.ErrNotExist) {
+						t.Errorf("owned root survives cleanup: %v", err)
+					}
+					for _, dir := range []string{cacheDir, tmpDir} {
+						entries, err := os.ReadDir(dir)
+						if err != nil || len(entries) != 0 {
+							t.Errorf("caller directory %s entries=%v err=%v, want untouched", dir, entries, err)
+						}
+					}
+				})
+			}
+		}
+	})
+	t.Run("generated project verification isolates go caches", func(t *testing.T) {
+		t.Setenv("GOCACHE", "/inherited/unwritable-cache")
+		t.Setenv("GOTMPDIR", "/inherited/unwritable-tmp")
+
+		env, cleanup, err := newAIProjectVerificationEnv()
+		if err != nil {
+			t.Fatalf("newAIProjectVerificationEnv: %v", err)
+		}
+		defer cleanup()
+
+		values := make(map[string]string)
+		for _, item := range env {
+			key, value, ok := strings.Cut(item, "=")
+			if ok {
+				values[key] = value
+			}
+		}
+		for _, key := range []string{"GOCACHE", "GOTMPDIR"} {
+			value := values[key]
+			if value == "" || value == os.Getenv(key) {
+				t.Fatalf("isolated %s = %q, inherited=%q", key, value, os.Getenv(key))
+			}
+			if info, statErr := os.Stat(value); statErr != nil || !info.IsDir() {
+				t.Fatalf("isolated %s directory = %q, stat error=%v", key, value, statErr)
+			}
+		}
+	})
+
 	t.Run("all template verify commands are supported", func(t *testing.T) {
 		withFrameworkPath(t, func() {
 			for _, tmpl := range generator.ListProjectTemplates() {

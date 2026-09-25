@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -239,25 +240,30 @@ func TestLimitWriter(t *testing.T) {
 }
 
 func TestRPCMuxSubprocessExporterHonorsContext(t *testing.T) {
-	exporter, err := NewRPCMuxSubprocessDiagnosisEventExporter(RPCMuxSubprocessExporterConfig{
-		Command:      os.Args[0],
-		Args:         []string{"-test.run=TestRPCMuxSubprocessHelperProcess", "--"},
-		Timeout:      time.Second,
-		Env:          map[string]string{"GOFLY_MUX_HELPER": "1"},
-		EnvWhitelist: []string{"GOFLY_MUX_HELPER"},
+	synctest.Test(t, func(t *testing.T) {
+		exporter, err := NewRPCMuxSubprocessDiagnosisEventExporter(RPCMuxSubprocessExporterConfig{
+			Command:      os.Args[0],
+			Args:         []string{"-test.run=TestRPCMuxSubprocessHelperProcess", "--"},
+			Timeout:      time.Second,
+			Env:          map[string]string{"GOFLY_MUX_HELPER": "1"},
+			EnvWhitelist: []string{"GOFLY_MUX_HELPER"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		canceled, cancel := context.WithCancel(context.Background())
+		cancel()
+		exporter.ExportRPCMuxDiagnosisEvent(canceled, RPCMuxDiagnosisEventRecord{})
+		snapshot := exporter.(*rpcMuxSubprocessExporter).RPCMuxSubprocessExporterSnapshot()
+		// An already-canceled command can finish within one clock tick.
+		if snapshot.Runs != 1 || snapshot.LastExitCode != -1 || snapshot.LastDuration < 0 ||
+			snapshot.LastError != context.Canceled.Error() || snapshot.LastRunAt.IsZero() ||
+			snapshot.LastTimedOut || snapshot.Command != os.Args[0] {
+			t.Fatalf("subprocess snapshot = %+v", snapshot)
+		}
+		(*rpcMuxSubprocessExporter)(nil).recordRun(0, 0, false, false, nil)
+		if got := (*rpcMuxSubprocessExporter)(nil).RPCMuxSubprocessExporterSnapshot(); got.Command != "" {
+			t.Fatalf("nil subprocess snapshot = %+v", got)
+		}
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	canceled, cancel := context.WithCancel(context.Background())
-	cancel()
-	exporter.ExportRPCMuxDiagnosisEvent(canceled, RPCMuxDiagnosisEventRecord{})
-	snapshot := exporter.(*rpcMuxSubprocessExporter).RPCMuxSubprocessExporterSnapshot()
-	if snapshot.Runs != 1 || snapshot.LastExitCode != -1 || snapshot.LastDuration <= 0 || snapshot.Command != os.Args[0] {
-		t.Fatalf("subprocess snapshot = %+v", snapshot)
-	}
-	(*rpcMuxSubprocessExporter)(nil).recordRun(0, 0, false, false, nil)
-	if got := (*rpcMuxSubprocessExporter)(nil).RPCMuxSubprocessExporterSnapshot(); got.Command != "" {
-		t.Fatalf("nil subprocess snapshot = %+v", got)
-	}
 }

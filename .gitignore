@@ -24,6 +24,7 @@ profile.cov
 # Volatile benchmark run output (baseline.txt, evidence.md, and matrix.md are tracked)
 bench/current.txt
 bench/regression-report.json
+bench/sample-report.json
 bench/summary.md
 
 # Runtime and governance scratch state.

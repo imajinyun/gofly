@@ -771,18 +771,26 @@ jobs:
 
       - name: Build examples
         run: |
-          if [ -d examples ] && find examples -type f -name '*.go' | grep -q .; then
-            go build ./examples/...
+          if [ -d examples ] && find examples -mindepth 2 -maxdepth 3 -name go.mod -print -quit | grep -q .; then
+            find examples -mindepth 2 -maxdepth 3 -name go.mod -print | sort | while IFS= read -r mod; do
+              dir="$(dirname "$mod")"
+              echo "building $dir"
+              (cd "$dir" && go build ./...)
+            done
           else
-            echo "examples/ not present or empty; skipping build"
+            echo "examples/ has no standalone Go modules; skipping build"
           fi
 
       - name: Vet examples
         run: |
-          if [ -d examples ] && find examples -type f -name '*.go' | grep -q .; then
-            go vet ./examples/...
+          if [ -d examples ] && find examples -mindepth 2 -maxdepth 3 -name go.mod -print -quit | grep -q .; then
+            find examples -mindepth 2 -maxdepth 3 -name go.mod -print | sort | while IFS= read -r mod; do
+              dir="$(dirname "$mod")"
+              echo "vetting $dir"
+              (cd "$dir" && go vet ./...)
+            done
           else
-            echo "examples/ not present or empty; skipping vet"
+            echo "examples/ has no standalone Go modules; skipping vet"
           fi
 
       - name: Benchmark evidence gate

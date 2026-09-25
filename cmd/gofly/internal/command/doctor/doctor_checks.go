@@ -2,6 +2,7 @@ package doctor
 
 import (
 	"go/build"
+	"go/version"
 	"os"
 	"os/exec"
 	"runtime"
@@ -9,14 +10,25 @@ import (
 )
 
 func CheckGoVersion() Check {
-	v := runtime.Version()
-	if strings.HasPrefix(v, "go1.24") || strings.HasPrefix(v, "go1.25") || strings.HasPrefix(v, "go1.26") {
+	return checkGoVersion(runtime.Version())
+}
+
+func checkGoVersion(raw string) Check {
+	v := raw
+	// Development builds prefix the toolchain version and may append build metadata.
+	if rest, ok := strings.CutPrefix(raw, "devel "); ok {
+		if fields := strings.Fields(rest); len(fields) > 0 {
+			v = fields[0]
+		}
+	}
+	lang := version.Lang(v)
+	if version.Compare(lang, "go1.24") >= 0 {
 		return Check{Name: "Go version", Status: "ok"}
 	}
-	if strings.HasPrefix(v, "go1.23") {
+	if lang == "go1.23" {
 		return Check{Name: "Go version", Status: "warn", Message: "Go 1.23 detected; gofly recommends 1.24+", FixHint: "upgrade Go to 1.24 or later", NextActions: []string{"install Go 1.24 or later and rerun `gofly doctor --json`"}}
 	}
-	return Check{Name: "Go version", Status: "warn", Message: v + " may not support go.mod tool directives", FixHint: "upgrade Go to 1.24 or later", NextActions: []string{"install Go 1.24 or later and rerun `gofly doctor --json`"}}
+	return Check{Name: "Go version", Status: "warn", Message: raw + " may not support go.mod tool directives", FixHint: "upgrade Go to 1.24 or later", NextActions: []string{"install Go 1.24 or later and rerun `gofly doctor --json`"}}
 }
 
 func CheckGoModule() Check {

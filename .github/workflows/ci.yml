@@ -38,6 +38,9 @@ jobs:
         with:
           version: "33.0"
 
+      - name: Install Go protobuf plugins
+        run: make protobuf-tools
+
       - name: CI build/test/tidy gates
         run: make ci-fast
 
@@ -701,6 +704,9 @@ jobs:
         uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b
         with:
           version: "33.0"
+
+      - name: Install Go protobuf plugins
+        run: make protobuf-tools
 
       - name: 10-round architecture and quality governance
         env:

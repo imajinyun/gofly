@@ -126,14 +126,55 @@ func TestPrintDoctorReportWithAllStatuses(t *testing.T) {
 }
 
 func TestCheckGoVersionBranches(t *testing.T) {
-	// We cannot change runtime.Version(), but we can verify the function
-	// returns a valid check struct for the current runtime.
-	c := CheckGoVersion()
-	if c.Name != "Go version" {
-		t.Fatalf("name = %q", c.Name)
+	for _, tc := range []struct {
+		name    string
+		version string
+		status  string
+		message string
+	}{
+		{name: "go 1.23", version: "go1.23", status: "warn", message: "Go 1.23 detected; gofly recommends 1.24+"},
+		{name: "go 1.23 patch", version: "go1.23.12", status: "warn", message: "Go 1.23 detected; gofly recommends 1.24+"},
+		{name: "go 1.24", version: "go1.24", status: "ok"},
+		{name: "go 1.24 patch", version: "go1.24.0", status: "ok"},
+		{name: "go 1.26 patch", version: "go1.26.7", status: "ok"},
+		{name: "go 1.27", version: "go1.27.1", status: "ok"},
+		{name: "future release candidate", version: "go1.28rc1", status: "ok"},
+		{name: "minimum release candidate", version: "go1.24rc1", status: "ok"},
+		{name: "development version", version: "devel go1.27-abc", status: "ok"},
+		{name: "development version with timestamp", version: "devel go1.28-abcdef Mon Sep 21 12:00:00 2026 +0000", status: "ok"},
+		{name: "old development version", version: "devel go1.23-abc", status: "warn", message: "Go 1.23 detected; gofly recommends 1.24+"},
+		{name: "older release", version: "go1.22.12", status: "warn"},
+		{name: "empty", version: "", status: "warn"},
+		{name: "missing prefix", version: "1.27.1", status: "warn"},
+		{name: "embedded prefix", version: "garbage go1.24", status: "warn"},
+		{name: "trailing junk", version: "go1.24.0junk", status: "warn"},
+		{name: "leading zero minor", version: "go1.024.0", status: "warn"},
+		{name: "invalid old release", version: "go1.23.0junk", status: "warn"},
+		{name: "development without version", version: "devel", status: "warn"},
+		{name: "empty development version", version: "devel ", status: "warn"},
+		{name: "malformed development version", version: "devel go1.28.0junk", status: "warn"},
+		{name: "embedded development prefix", version: "devel junk go1.28", status: "warn"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			want := Check{Name: "Go version", Status: tc.status}
+			if tc.status == "warn" {
+				want.Message = tc.message
+				if want.Message == "" {
+					want.Message = tc.version + " may not support go.mod tool directives"
+				}
+				want.FixHint = "upgrade Go to 1.24 or later"
+				want.NextActions = []string{"install Go 1.24 or later and rerun `gofly doctor --json`"}
+			}
+			if got := checkGoVersion(tc.version); !reflect.DeepEqual(got, want) {
+				t.Fatalf("checkGoVersion(%q) = %+v, want %+v", tc.version, got, want)
+			}
+		})
 	}
-	if c.Status != "ok" && c.Status != "warn" {
-		t.Fatalf("unexpected status %q", c.Status)
+}
+
+func TestCheckGoVersion(t *testing.T) {
+	if got, want := CheckGoVersion(), checkGoVersion(runtime.Version()); !reflect.DeepEqual(got, want) {
+		t.Fatalf("CheckGoVersion() = %+v, want runtime wrapper result %+v", got, want)
 	}
 }
 

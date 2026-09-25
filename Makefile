@@ -53,6 +53,10 @@ build: ## Build the gofly CLI into $(CLI_BIN)
 install: ## Install the gofly CLI into GOBIN
 	$(GO) install -trimpath -ldflags "$(LDFLAGS)" $(CLI_PKG)
 
+.PHONY: protobuf-tools
+protobuf-tools: ## Install module-pinned protobuf generators, print versions, and verify PATH
+	GO="$(GO)" sh $(SCRIPTS_DIR)/install-protobuf-tools.sh
+
 # Completion script installation helpers.  Usage:
 #   eval "$(make completion-install)"          # auto-detect current shell
 #   make completion-install SHELL=bash          # install for bash explicitly

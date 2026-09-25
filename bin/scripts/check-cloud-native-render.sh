@@ -23,7 +23,7 @@ else
 fi
 
 if command -v kustomize >/dev/null 2>&1; then
-	kustomize build deploy/k8s/overlays/production >"$kustomize_production"
+	kustomize build --load-restrictor=LoadRestrictionsNone deploy/k8s/overlays/production >"$kustomize_production"
 	kustomize_available=true
 	kustomize_mode=kustomize-build
 else

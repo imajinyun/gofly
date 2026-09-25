@@ -20,6 +20,7 @@ bench/current.txt
 .tmp-test/
 
 # Editor / OS
+.trae/
 .idea/
 .vscode/
 *.swp

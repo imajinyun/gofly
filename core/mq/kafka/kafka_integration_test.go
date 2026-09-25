@@ -5,10 +5,12 @@ package kafka
 import (
 	"context"
 	"errors"
+	"net"
 	"reflect"
 	"testing"
 	"time"
 
+	segmentkafka "github.com/segmentio/kafka-go"
 	"github.com/testcontainers/testcontainers-go"
 	tckafka "github.com/testcontainers/testcontainers-go/modules/kafka"
 
@@ -29,6 +31,7 @@ func TestKafkaIntegrationPublishSubscribe(t *testing.T) {
 
 	const topic = "gofly.test.events"
 	const group = "gofly-test-group"
+	createKafkaTopics(t, ctx, brokerAddr, topic)
 
 	// Publish a message.
 	msg := mq.Message{Topic: topic, Key: "k1", Body: []byte("hello kafka")}
@@ -72,6 +75,7 @@ func TestKafkaIntegrationDeadLetterSuccess(t *testing.T) {
 	const topic = "gofly.test.dlq.events"
 	const dlqTopic = "gofly.test.dlq.events.dlq"
 	const group = "gofly-test-dlq-group"
+	createKafkaTopics(t, ctx, brokerAddr, topic, dlqTopic)
 
 	dlqReceived := make(chan mq.Message, 1)
 	dlqSub, err := broker.Subscribe(ctx, dlqTopic, "dlq-group", func(_ context.Context, m mq.Message) error {
@@ -128,6 +132,7 @@ func TestKafkaIntegrationRetryThenSuccess(t *testing.T) {
 
 	const topic = "gofly.test.retry.events"
 	const group = "gofly-test-retry-group"
+	createKafkaTopics(t, ctx, brokerAddr, topic)
 
 	attempts := make([]int, 0, 2)
 	received := make(chan mq.Message, 1)
@@ -179,4 +184,31 @@ func startKafka(t *testing.T, ctx context.Context) string {
 		t.Fatalf("kafka brokers = %v, want one broker", brokers)
 	}
 	return brokers[0]
+}
+
+func createKafkaTopics(t *testing.T, ctx context.Context, brokerAddr string, topics ...string) {
+	t.Helper()
+
+	host, port, err := net.SplitHostPort(brokerAddr)
+	if err != nil {
+		t.Fatalf("parse kafka broker address %q: %v", brokerAddr, err)
+	}
+	configs := make([]segmentkafka.TopicConfig, 0, len(topics))
+	for _, topic := range topics {
+		configs = append(configs, segmentkafka.TopicConfig{
+			Topic:             topic,
+			NumPartitions:     1,
+			ReplicationFactor: 1,
+		})
+	}
+	client := &segmentkafka.Client{Addr: segmentkafka.TCP(net.JoinHostPort(host, port))}
+	response, err := client.CreateTopics(ctx, &segmentkafka.CreateTopicsRequest{Topics: configs})
+	if err != nil {
+		t.Fatalf("create kafka topics %v: %v", topics, err)
+	}
+	for topic, topicErr := range response.Errors {
+		if topicErr != nil {
+			t.Fatalf("create kafka topic %q: %v", topic, topicErr)
+		}
+	}
 }

@@ -6,7 +6,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -127,11 +129,17 @@ func startNacos(t *testing.T, ctx context.Context) (string, uint64, uint64) {
 }
 
 func publishNacosConfig(ctx context.Context, address, dataID, group, content string) error {
-	url := fmt.Sprintf("http://%s/nacos/v1/cs/configs?dataId=%s&group=%s&content=%s", address, dataID, group, content)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	form := url.Values{
+		"content": {content},
+		"dataId":  {dataID},
+		"group":   {group},
+	}
+	endpoint := fmt.Sprintf("http://%s/nacos/v1/cs/configs", address)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return err
 	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err

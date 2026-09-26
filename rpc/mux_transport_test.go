@@ -402,7 +402,7 @@ func TestExperimentalMuxTransportFragmentBackpressureWaitsForWindowUpdate(t *tes
 		clientConn,
 		WithExperimentalMuxMaxFrameBytes(96),
 		WithExperimentalMuxMaxMessageBytes(2048),
-		WithExperimentalMuxReceiveQueueSize(1),
+		WithExperimentalMuxReceiveQueueSize(2),
 		WithExperimentalMuxConnectionWindow(1),
 	)
 	defer client.Close()

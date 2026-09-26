@@ -72,7 +72,7 @@ func (s *transcodeUploadServer) upload(stream stdgrpc.ServerStream) error {
 			break
 		}
 		if err != nil {
-			if errors.Is(stream.Context().Err(), context.Canceled) && s.canceled != nil {
+			if grpcServerStreamCanceled(stream.Context(), err) && s.canceled != nil {
 				s.once.Do(func() { close(s.canceled) })
 			}
 			return err
@@ -118,7 +118,7 @@ func (s *transcodeUploadServer) chat(stream stdgrpc.ServerStream) error {
 			return nil
 		}
 		if err != nil {
-			if errors.Is(stream.Context().Err(), context.Canceled) && s.chatCanceled != nil {
+			if grpcServerStreamCanceled(stream.Context(), err) && s.chatCanceled != nil {
 				s.chatCancels.Add(1)
 				s.chatOnce.Do(func() { close(s.chatCanceled) })
 			}
@@ -139,6 +139,10 @@ func (s *transcodeUploadServer) chat(stream stdgrpc.ServerStream) error {
 			return err
 		}
 	}
+}
+
+func grpcServerStreamCanceled(ctx context.Context, err error) bool {
+	return errors.Is(ctx.Err(), context.Canceled) || status.Code(err) == codes.Canceled
 }
 
 func transcodeUploadHandler(server any, stream stdgrpc.ServerStream) error {

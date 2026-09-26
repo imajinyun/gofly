@@ -11,6 +11,9 @@ on:
 permissions:
   contents: read
 
+env:
+  GOLANGCI_LINT_VERSION: v2.12.2
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -191,7 +194,7 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a
         with:
-          version: v2.12.2
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
 
   platform-smoke:
     name: platform smoke (${{ matrix.os }})
@@ -711,6 +714,16 @@ jobs:
           go-version-file: go.mod
           check-latest: true
           cache: true
+
+      - name: Install pinned governance linter
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          install-only: true
+          skip-cache: true
+
+      - name: Verify governance linter
+        run: golangci-lint version
 
       - name: Set up protoc
         uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b

@@ -1062,11 +1062,17 @@ func TestAdminDiagnostics(t *testing.T) {
 		refillDiagnosis.Diagnosis.Mux.Manager.RefillProfile.MaxDeferredFragments != 2 ||
 		refillDiagnosis.Diagnosis.Mux.Manager.RefillProfile.LastFlowControlEvent != "fragment_window_refill" ||
 		len(refillDiagnosis.Diagnosis.Mux.Manager.RefillProfiles) != 1 ||
+		refillDiagnosis.Diagnosis.Mux.Manager.RefillProfiles[0].Endpoint == "" ||
 		refillDiagnosis.Diagnosis.Mux.Manager.RefillProfiles[0].ConnectionID == "" ||
+		refillDiagnosis.Diagnosis.Mux.Manager.RefillProfiles[0].PoolSlot != 1 ||
 		len(refillDiagnosis.Diagnosis.Mux.Events) == 0 ||
 		refillDiagnosis.Diagnosis.Mux.Events[0].Event != "fragment_window_refill" {
 		t.Fatalf("mTLS refill diagnosis = %+v, want generated refillProfile admin evidence", refillDiagnosis.Diagnosis.Mux.Manager)
 	}
+	refillProfile := refillDiagnosis.Diagnosis.Mux.Manager.RefillProfiles[0]
+	refillDiagnosis.Endpoint = refillProfile.Endpoint
+	refillDiagnosis.ConnectionID = refillProfile.ConnectionID
+	refillDiagnosis.PoolSlot = refillProfile.PoolSlot
 	mtlsRefillTraceCtx, mtlsRefillSpan := mtlsProvider.Tracer("generated-rpc-admin-smoke").Start(context.Background(), "mux-refill-profile-diagnosis", oteltrace.WithSpanKind(oteltrace.SpanKindInternal))
 	mtlsClient.ObserveMuxDiagnosis(mtlsRefillTraceCtx, refillDiagnosis)
 	mtlsRefillSpan.End()

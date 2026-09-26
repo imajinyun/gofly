@@ -1897,7 +1897,7 @@ func TestWithRateLimitLimitsRouteOnly(t *testing.T) {
 }
 
 func TestWithMaxConcurrencyRejectsOverloadedRoute(t *testing.T) {
-	entered := make(chan struct{})
+	entered := make(chan struct{}, 1)
 	release := make(chan struct{})
 	s := MustNewServer(Config{})
 	s.AddRoute(Route{Method: http.MethodGet, Path: "/limited", Handler: func(ctx *Context) {

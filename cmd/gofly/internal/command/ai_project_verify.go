@@ -2,6 +2,7 @@ package command
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -45,14 +46,19 @@ func aiProjectVerificationDirWritable(dir string) bool {
 	if !filepath.IsAbs(dir) {
 		return false
 	}
-	// Probe an existing caller-supplied directory without creating it or changing
-	// permissions. CreateTemp uses an exclusive random filename within that root.
-	probe, err := os.CreateTemp(dir, ".gofly-verify-write-*")
+	// Keep both operations on one directory handle even if its path is replaced.
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = root.Close() }()
+	name := ".gofly-verify-write-" + rand.Text()
+	probe, err := root.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return false
 	}
 	closeErr := probe.Close()
-	removeErr := os.Remove(probe.Name())
+	removeErr := root.Remove(name)
 	return closeErr == nil && removeErr == nil
 }
 

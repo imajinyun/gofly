@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -2910,6 +2911,25 @@ func TestAIProjectVerificationCacheLifecycle(t *testing.T) {
 	closeErr := target.Close()
 	if err := errors.Join(copyErr, closeErr); err != nil {
 		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name     string
+		identity string
+	}{
+		{name: "missing helper identity"},
+		{name: "wrong helper identity", identity: executable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Even a regressed dispatcher can run no tests with this argument.
+			// This verifies fail-closed behavior without recreating recursive helpers.
+			cmd := exec.CommandContext(t.Context(), filepath.Join(binDir, goName), "-test.run=^$")
+			cmd.Env = aiProjectVerificationEnvValue(os.Environ(), "GOFLY_AI_VERIFY_TEST_EXECUTABLE", tc.identity)
+			out, err := cmd.CombinedOutput()
+			var exitErr *exec.ExitError
+			if !errors.As(err, &exitErr) || exitErr.ExitCode() != 6 {
+				t.Fatalf("helper with %s: error=%v output=%s, want exit 6", tc.name, err, out)
+			}
+		})
 	}
 	// Environment changes deliberately keep this test and its subtests serial.
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))

@@ -402,7 +402,7 @@ func TestExperimentalMuxTransportFragmentBackpressureWaitsForWindowUpdate(t *tes
 		clientConn,
 		WithExperimentalMuxMaxFrameBytes(96),
 		WithExperimentalMuxMaxMessageBytes(2048),
-		WithExperimentalMuxReceiveQueueSize(2),
+		WithExperimentalMuxReceiveQueueSize(1),
 		WithExperimentalMuxConnectionWindow(1),
 	)
 	defer client.Close()
@@ -505,7 +505,7 @@ func TestExperimentalMuxTransportFragmentCreditWaitTimeout(t *testing.T) {
 		clientConn,
 		WithExperimentalMuxMaxFrameBytes(96),
 		WithExperimentalMuxMaxMessageBytes(2048),
-		WithExperimentalMuxReceiveQueueSize(1),
+		WithExperimentalMuxReceiveQueueSize(2),
 		WithExperimentalMuxConnectionWindow(1),
 		WithExperimentalMuxCreditWaitTimeout(time.Millisecond),
 	)

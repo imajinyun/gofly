@@ -183,14 +183,21 @@ func TestHTTPClientCallRawReturnsRPCError(t *testing.T) {
 }
 
 func TestHTTPClientSingleflightDeduplicatesConcurrentCalls(t *testing.T) {
+	const workers = 12
+	var ready sync.WaitGroup
+	ready.Add(workers)
+	start := make(chan struct{})
 	var calls atomic.Int64
+	entered := make(chan struct{}, 1)
 	gate := make(chan struct{})
 	s := NewServer()
 	if err := s.RegisterService(ServiceDesc{Name: "greeter", Methods: []MethodDesc{{
 		Name:       "SayHello",
 		NewRequest: func() any { return new(helloRequest) },
 		Handler: func(ctx context.Context, req any) (any, error) {
-			calls.Add(1)
+			if calls.Add(1) == 1 {
+				entered <- struct{}{}
+			}
 			<-gate
 			return helloResponse{Message: "hello " + req.(*helloRequest).Name}, nil
 		},
@@ -200,6 +207,13 @@ func TestHTTPClientSingleflightDeduplicatesConcurrentCalls(t *testing.T) {
 	ts := httptest.NewServer(s)
 	defer ts.Close()
 	c, err := NewClient(ts.URL,
+		WithClientMiddleware(func(next endpoint.Endpoint) endpoint.Endpoint {
+			return func(ctx context.Context, request any) (any, error) {
+				ready.Done()
+				<-start
+				return next(ctx, request)
+			}
+		}),
 		WithClientSingleflightKey(func(ctx context.Context, method string, request any) (string, error) {
 			return method + ":" + request.(helloRequest).Name, nil
 		}),
@@ -208,7 +222,6 @@ func TestHTTPClientSingleflightDeduplicatesConcurrentCalls(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	const workers = 12
 	var wg sync.WaitGroup
 	responses := make(chan helloResponse, workers)
 	for i := 0; i < workers; i++ {
@@ -223,7 +236,13 @@ func TestHTTPClientSingleflightDeduplicatesConcurrentCalls(t *testing.T) {
 			responses <- resp
 		}()
 	}
-	time.Sleep(10 * time.Millisecond)
+	ready.Wait()
+	close(start)
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("singleflight leader did not reach the server")
+	}
 	close(gate)
 	wg.Wait()
 	close(responses)

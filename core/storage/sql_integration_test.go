@@ -97,7 +97,10 @@ func startPostgres(t *testing.T, ctx context.Context) string {
 			"POSTGRES_USER":     "gofly",
 			"POSTGRES_DB":       "gofly",
 		},
-		WaitingFor: wait.ForListeningPort("5432/tcp").WithStartupTimeout(2 * time.Minute),
+		WaitingFor: wait.ForLog("database system is ready to accept connections").
+			WithPollInterval(100 * time.Millisecond).
+			WithOccurrence(2).
+			WithStartupTimeout(2 * time.Minute),
 	}
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{ContainerRequest: req, Started: true})
 	if err != nil {

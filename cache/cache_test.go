@@ -591,24 +591,26 @@ func TestCacheNotFoundError(t *testing.T) {
 }
 
 func TestCacheLookupStaleNegativeAndExpired(t *testing.T) {
-	c := New[string](WithDefaultTTL[string](10*time.Millisecond), WithStaleWhileRevalidate[string](20*time.Millisecond))
-	c.Set("fresh", "v")
-	time.Sleep(5 * time.Millisecond)
-	if _, state, ok := c.lookup("fresh", time.Now()); !ok || state != "fresh" {
-		t.Fatalf("fresh lookup = %v, %v, want true, fresh", state, ok)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		c := New[string](WithDefaultTTL[string](10*time.Millisecond), WithStaleWhileRevalidate[string](20*time.Millisecond))
+		c.Set("fresh", "v")
+		time.Sleep(5 * time.Millisecond)
+		if _, state, ok := c.lookup("fresh", time.Now()); !ok || state != "fresh" {
+			t.Fatalf("fresh lookup = %v, %v, want true, fresh", state, ok)
+		}
 
-	c.Set("stale", "v")
-	time.Sleep(15 * time.Millisecond)
-	if _, state, ok := c.lookup("stale", time.Now()); !ok || state != "stale" {
-		t.Fatalf("stale lookup = %v, %v, want true, stale", state, ok)
-	}
+		c.Set("stale", "v")
+		time.Sleep(10 * time.Millisecond)
+		if _, state, ok := c.lookup("stale", time.Now()); !ok || state != "stale" {
+			t.Fatalf("stale lookup = %v, %v, want true, stale", state, ok)
+		}
 
-	c.Set("expired", "v")
-	time.Sleep(35 * time.Millisecond)
-	if _, state, ok := c.lookup("expired", time.Now()); ok || state != "" {
-		t.Fatalf("expired lookup = %v, %v, want false, empty", state, ok)
-	}
+		c.Set("expired", "v")
+		time.Sleep(30 * time.Millisecond)
+		if _, state, ok := c.lookup("expired", time.Now()); ok || state != "" {
+			t.Fatalf("expired lookup = %v, %v, want false, empty", state, ok)
+		}
+	})
 }
 
 func TestCacheFirstLoader(t *testing.T) {

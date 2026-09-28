@@ -1684,9 +1684,9 @@ func TestDefaultGRPCStreamingLifecycle(t *testing.T) {
 					if err := stream.RecvMsg(&emptypb.Empty{}); err != nil {
 						t.Fatal(err)
 					}
-					if err := stream.RecvMsg(&emptypb.Empty{}); err != io.EOF {
-						t.Fatalf("terminal receive = %v", err)
-					}
+				}
+				if err := stream.RecvMsg(&emptypb.Empty{}); err != io.EOF {
+					t.Fatalf("terminal receive = %v", err)
 				}
 			}
 		})

@@ -1397,7 +1397,9 @@ func TestAdminDiagnostics(t *testing.T) {
 	flowCfg.Protocol = "gofly-mux/generated-flow-control-test"
 	flowCfg.ConnectionWindow = 1
 	flowCfg.ReceiveQueueSize = 2
-	flowCfg.CreditWaitTimeout = time.Millisecond
+	// Keep the first data frame outside a scheduler-sized timeout while the
+	// second frame still proves connection-credit exhaustion deterministically.
+	flowCfg.CreditWaitTimeout = 50 * time.Millisecond
 	flowClient := rpc.NewExperimentalMuxCandidateClientAdapter(flowClientConn, flowCfg)
 	flowServer := rpc.NewExperimentalMuxCandidateServerAdapter(flowServerConn, flowCfg)
 	defer flowClient.Close()

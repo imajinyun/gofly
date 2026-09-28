@@ -2143,7 +2143,7 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		`event=\"write_timeout\"`,
 		`event=\"credit_wait_timeout\"`,
 		`event=\"connection_window_exhausted\"`,
-		`flowCfg.CreditWaitTimeout = time.Millisecond`,
+		`flowCfg.CreditWaitTimeout = 50 * time.Millisecond`,
 		`writeTimeoutCfg.WriteTimeout = time.Millisecond`,
 		"type generatedTimeoutWriteConn struct",
 		`frame_codec=\"binary\",payload_codec=\"identity\",downgraded=\"false\"`,

@@ -855,6 +855,7 @@ func TestAdminDiagnostics(t *testing.T) {
 	if diagnosis := candidateClient.RuntimeSnapshot().Diagnosis.Mux.Manager; !diagnosis.Candidate.Enabled || diagnosis.Candidate.Protocol != "gofly-mux/generated-candidate-test" || diagnosis.Candidate.FrameCodec != "binary" || diagnosis.Candidate.FragmentStreamWindowUpdatePolicy != "on_receive" || diagnosis.Candidate.FragmentConnectionWindowUpdatePolicy != "on_receive" || diagnosis.Candidate.FragmentStreamWindowRefillRatio != 0.5 || diagnosis.Candidate.FragmentConnectionWindowRefillRatio != 0.25 || diagnosis.Candidate.FragmentMaxDeferredFragments != 2 || diagnosis.Candidate.FragmentWindowPolicyRiskMode != "warn" || !diagnosis.Candidate.FragmentWindowPolicyRiskWarning || !diagnosis.Candidate.FragmentWindowPolicyRisk || diagnosis.Candidate.FragmentEstimatedMaxFragments <= diagnosis.Candidate.ConnectionWindow || len(diagnosis.Endpoints) != 1 || !diagnosis.Endpoints[0].Adapter.Candidate.Enabled || diagnosis.Endpoints[0].Adapter.Transport.ConnectionWindow != 3 || diagnosis.Endpoints[0].Adapter.Transport.FragmentStreamWindowUpdatePolicy != "on_receive" || diagnosis.Endpoints[0].Adapter.Transport.FragmentConnectionWindowUpdatePolicy != "on_receive" || diagnosis.Endpoints[0].Adapter.Transport.FragmentStreamWindowRefillRatio != 0.5 || diagnosis.Endpoints[0].Adapter.Transport.FragmentConnectionWindowRefillRatio != 0.25 || diagnosis.Endpoints[0].Adapter.Transport.FragmentMaxDeferredFragments != 2 || diagnosis.Endpoints[0].Adapter.Transport.FragmentWindowPolicyRiskMode != "warn" || !diagnosis.Endpoints[0].Adapter.Transport.FragmentWindowPolicyRisk || diagnosis.Endpoints[0].Adapter.Transport.FragmentWindowPolicyRiskReason == "" {
 		t.Fatalf("candidate manager diagnosis = %+v, want generated candidate mux evidence", diagnosis)
 	}
+	waitMuxManagerStreamsClosed(t, candidateClient)
 	if err := candidateManager.Drain(context.Background(), "generated_shutdown"); err != nil {
 		t.Fatal(err)
 	}
@@ -1592,6 +1593,21 @@ func TestAdminDiagnostics(t *testing.T) {
 	stopMux()
 	if err := <-muxDone; err != nil {
 		t.Fatalf("mux server stopped with error: %v", err)
+	}
+}
+
+func waitMuxManagerStreamsClosed(t *testing.T, client *rpc.HTTPClient) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for {
+		diagnosis := client.RuntimeSnapshot().Diagnosis.Mux.Manager
+		if len(diagnosis.Endpoints) == 1 && diagnosis.Endpoints[0].Adapter.Transport.ActiveStreams == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("mux stream did not reach terminal state: %+v", diagnosis.Endpoints)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 

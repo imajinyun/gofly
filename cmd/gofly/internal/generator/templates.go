@@ -3676,11 +3676,14 @@ func TestGeneratedProductionServiceSmoke(t *testing.T) {
 		t.Skip("generated service smoke test disabled by GOFLY_SKIP_GENERATED_SMOKE")
 	}
 	repo := generatedProjectRoot(t)
-	addresses := reserveLocalAddrs(t, 3)
-	restAddr, rpcAddr, adminAddr := addresses[0], addresses[1], addresses[2]
-	rewriteSmokeConfig(t, repo, restAddr, rpcAddr, adminAddr)
 	assertInvalidRequestEnvelope(t)
-	controlPlane := runGeneratedControlPlaneSmoke(t, repo, restAddr, adminAddr)
+	buildCtx, cancelBuild := context.WithTimeout(t.Context(), 45*time.Second)
+	binary := generatedServiceBinary(t, buildCtx, repo)
+	cancelBuild()
+	reservation := reserveLocalAddrs(t, 4)
+	restAddr, rpcAddr, muxAddr, adminAddr := reservation.addresses[0], reservation.addresses[1], reservation.addresses[2], reservation.addresses[3]
+	rewriteSmokeConfig(t, repo, restAddr, rpcAddr, muxAddr, adminAddr)
+	controlPlane := runGeneratedControlPlaneSmoke(t, binary, repo, restAddr, adminAddr, reservation)
 	metadata, ok := controlPlane["metadata"].(map[string]any)
 	if !ok || metadata["generated.project"] != "available" || metadata["generated.project.runtime"] != "service,rest,rpc,governance,discovery" {
 		t.Fatalf("control-plane metadata = %#v, want generated project runtime markers", metadata)
@@ -3691,24 +3694,25 @@ func TestGeneratedProductionServiceSmoke(t *testing.T) {
 	assertControlPlaneResilience(t, controlPlane)
 	assertControlPlaneMuxOperatorHistory(t, controlPlane)
 
-	recommendedAddresses := reserveLocalAddrs(t, 3)
-	recommendedRestAddr, recommendedRPCAddr, recommendedAdminAddr := recommendedAddresses[0], recommendedAddresses[1], recommendedAddresses[2]
-	restoreRecommendedSmokeConfig(t, repo, recommendedRestAddr, recommendedRPCAddr, recommendedAdminAddr)
-	recommendedControlPlane := runGeneratedControlPlaneSmoke(t, repo, recommendedRestAddr, recommendedAdminAddr)
+	recommendedReservation := reserveLocalAddrs(t, 4)
+	recommendedRestAddr, recommendedRPCAddr, recommendedMuxAddr, recommendedAdminAddr := recommendedReservation.addresses[0], recommendedReservation.addresses[1], recommendedReservation.addresses[2], recommendedReservation.addresses[3]
+	restoreRecommendedSmokeConfig(t, repo, recommendedRestAddr, recommendedRPCAddr, recommendedMuxAddr, recommendedAdminAddr)
+	recommendedControlPlane := runGeneratedControlPlaneSmoke(t, binary, repo, recommendedRestAddr, recommendedAdminAddr, recommendedReservation)
 	assertControlPlaneMuxConfigWarningsCleared(t, recommendedControlPlane)
 }
 
-func runGeneratedControlPlaneSmoke(t *testing.T, repo string, restAddr string, adminAddr string) map[string]any {
+func runGeneratedControlPlaneSmoke(t *testing.T, binary string, repo string, restAddr string, adminAddr string, reservation *localAddrReservation) map[string]any {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, generatedServiceBinary(t, ctx, repo))
+	cmd := exec.CommandContext(ctx, binary)
 	cmd.Dir = repo
 	cmd.Env = append(os.Environ(), "GOFLAGS=-count=1")
 	cmd.WaitDelay = 3 * time.Second
 	output := strings.Builder{}
 	cmd.Stdout = &output
 	cmd.Stderr = &output
+	reservation.Release()
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start generated service: %v", err)
 	}
@@ -3753,37 +3757,47 @@ func generatedProjectRoot(t *testing.T) string {
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 }
 
-func reserveLocalAddrs(t *testing.T, count int) []string {
+type localAddrReservation struct {
+	addresses []string
+	listeners []net.Listener
+}
+
+func reserveLocalAddrs(t *testing.T, count int) *localAddrReservation {
 	t.Helper()
-	listeners := make([]net.Listener, 0, count)
-	defer func() {
-		for _, listener := range listeners {
-			_ = listener.Close()
-		}
-	}()
-	addresses := make([]string, 0, count)
+	reservation := &localAddrReservation{
+		addresses: make([]string, 0, count),
+		listeners: make([]net.Listener, 0, count),
+	}
+	t.Cleanup(reservation.Release)
 	for range count {
 		listener, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatalf("reserve local port: %v", err)
 		}
-		listeners = append(listeners, listener)
-		addresses = append(addresses, listener.Addr().String())
+		reservation.listeners = append(reservation.listeners, listener)
+		reservation.addresses = append(reservation.addresses, listener.Addr().String())
 	}
-	return addresses
+	return reservation
 }
 
-func rewriteSmokeConfig(t *testing.T, repo string, restAddr string, rpcAddr string, adminAddr string) {
+func (r *localAddrReservation) Release() {
+	for _, listener := range r.listeners {
+		_ = listener.Close()
+	}
+	r.listeners = nil
+}
+
+func rewriteSmokeConfig(t *testing.T, repo string, restAddr string, rpcAddr string, muxAddr string, adminAddr string) {
 	t.Helper()
-	rewriteSmokeConfigWithOperatorHistory(t, repo, restAddr, rpcAddr, adminAddr, 4096, 8388608)
+	rewriteSmokeConfigWithOperatorHistory(t, repo, restAddr, rpcAddr, muxAddr, adminAddr, 4096, 8388608)
 }
 
-func restoreRecommendedSmokeConfig(t *testing.T, repo string, restAddr string, rpcAddr string, adminAddr string) {
+func restoreRecommendedSmokeConfig(t *testing.T, repo string, restAddr string, rpcAddr string, muxAddr string, adminAddr string) {
 	t.Helper()
-	rewriteSmokeConfigWithOperatorHistory(t, repo, restAddr, rpcAddr, adminAddr, 16, 65536)
+	rewriteSmokeConfigWithOperatorHistory(t, repo, restAddr, rpcAddr, muxAddr, adminAddr, 16, 65536)
 }
 
-func rewriteSmokeConfigWithOperatorHistory(t *testing.T, repo string, restAddr string, rpcAddr string, adminAddr string, maxActions int, maxSizeBytes int) {
+func rewriteSmokeConfigWithOperatorHistory(t *testing.T, repo string, restAddr string, rpcAddr string, muxAddr string, adminAddr string, maxActions int, maxSizeBytes int) {
 	t.Helper()
 	path := filepath.Join(repo, "etc", "{{.Name}}.json")
 	data, err := os.ReadFile(path)
@@ -3812,6 +3826,7 @@ func rewriteSmokeConfigWithOperatorHistory(t *testing.T, repo string, restAddr s
 	rpcConfig["advertise"] = "http://" + rpcAddr
 	muxConfig := jsonObject(t, rpcConfig, "mux")
 	muxConfig["enabled"] = true
+	muxConfig["addr"] = muxAddr
 	logConfig := jsonObject(t, muxConfig, "log")
 	logConfig["enabled"] = true
 	logConfig["exportEvents"] = true

@@ -1033,7 +1033,9 @@ func TestGatewayNativeGRPCTranscoding(t *testing.T) {
 	})
 	t.Run("route deadline bounds gRPC stream", func(t *testing.T) {
 		deadlineRoute := route
-		deadlineRoute.Timeout = 10 * time.Millisecond
+		// Allow connection setup, headers, and the first SSE message to complete
+		// before exercising the route deadline on the established stream.
+		deadlineRoute.Timeout = 250 * time.Millisecond
 		deadlineGateway, err := New([]Route{deadlineRoute}, WithDescriptors(descriptor), WithTranscoderFactory(factory))
 		if err != nil {
 			t.Fatal(err)

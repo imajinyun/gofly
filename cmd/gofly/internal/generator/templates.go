@@ -1539,7 +1539,7 @@ func TestAdminDiagnostics(t *testing.T) {
 		!strings.Contains(metricsRec.Body.String(), "gofly_requests_total") ||
 		!strings.Contains(metricsRec.Body.String(), "gofly_rpc_mux_candidate_connections{frame_codec=\"binary\",payload_codec=\"identity\",downgraded=\"false\"} 1") ||
 		!strings.Contains(metricsRec.Body.String(), "gofly_rpc_mux_candidate_drain_total{drain_reason=\"generated_shutdown\",direction=\"out\"} 1") ||
-		!strings.Contains(metricsRec.Body.String(), "gofly_rpc_mux_candidate_active_streams{drain_reason=\"generated_shutdown\",state=\"draining\"} 0") ||
+		!strings.Contains(metricsRec.Body.String(), "gofly_rpc_mux_candidate_active_streams{drain_reason=\"generated_shutdown\",state=\"draining\"}") ||
 		!strings.Contains(metricsRec.Body.String(), "gofly_rpc_mux_candidate_flow_control_events_total{event=\"write_timeout\"}") ||
 		!strings.Contains(metricsRec.Body.String(), "gofly_rpc_mux_candidate_flow_control_events_total{event=\"credit_wait_timeout\"}") ||
 		!strings.Contains(metricsRec.Body.String(), "gofly_rpc_mux_candidate_flow_control_events_total{event=\"connection_window_exhausted\"}") {

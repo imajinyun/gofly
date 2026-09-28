@@ -99,7 +99,7 @@ for marker in (
     'mtlsRefillTraceAttrs["rpc.mux.manager.refill_profile.max_deferred_fragments"].AsInt64() != 2',
     'mtlsRefillTraceAttrs["rpc.mux.manager.refill_profile.last_flow_control_event"].AsString() != "fragment_window_refill"',
     'mtlsRefillTraceAttrs["rpc.mux.event.flow_control.count"].AsInt64() < 1',
-    "restoreRecommendedSmokeConfig(t, repo, recommendedRestAddr, recommendedRPCAddr, recommendedAdminAddr)",
+    "restoreRecommendedSmokeConfig(t, repo, recommendedRestAddr, recommendedRPCAddr, recommendedMuxAddr, recommendedAdminAddr)",
     "assertControlPlaneMuxConfigWarningsCleared(t, recommendedControlPlane)",
     "assertControlPlaneSchemaChecksumConfig(t, configs)",
     '"\\"negotiated_protocol\\":\\"gofly-mux/generated-mtls-test\\""',

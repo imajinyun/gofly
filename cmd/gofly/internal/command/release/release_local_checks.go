@@ -359,7 +359,7 @@ func releaseGeneratedRPCMuxRetrySmokeCheck() (releaseCheckItem, []string) {
 		`refillDiagnosis.Endpoint = refillProfile.Endpoint`,
 		`refillDiagnosis.ConnectionID = refillProfile.ConnectionID`,
 		`refillDiagnosis.PoolSlot = refillProfile.PoolSlot`,
-		`restoreRecommendedSmokeConfig(t, repo, recommendedRestAddr, recommendedRPCAddr, recommendedAdminAddr)`,
+		`restoreRecommendedSmokeConfig(t, repo, recommendedRestAddr, recommendedRPCAddr, recommendedMuxAddr, recommendedAdminAddr)`,
 		`assertControlPlaneMuxConfigWarningsCleared(t, recommendedControlPlane)`,
 		`assertControlPlaneSchemaChecksumConfig(t, configs)`,
 		`"\"negotiated_protocol\":\"gofly-mux/generated-mtls-test\""`,

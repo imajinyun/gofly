@@ -1063,7 +1063,7 @@ func TestGovernanceClientStreamLifecycle(t *testing.T) {
 			defer cancel()
 			inner := &fakeClientStream{ctx: ctx, sendErr: tc.sendErr}
 			released := 0
-			stream := &governanceClientStream{ClientStream: inner, cancel: cancel, release: func() { released++ }}
+			stream := &governanceClientStream{ClientStream: inner, cancel: cancel, release: func() { released++ }, serverStreams: true}
 			if err := stream.CloseSend(); err != nil {
 				t.Fatal(err)
 			}
@@ -1086,6 +1086,18 @@ func TestGovernanceClientStreamLifecycle(t *testing.T) {
 			}
 		})
 	}
+	t.Run("client streaming response releases after terminal status", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		inner := &fakeClientStream{ctx: ctx, recvErrs: []error{nil, io.EOF}}
+		released := 0
+		stream := &governanceClientStream{ClientStream: inner, cancel: cancel, release: func() { released++ }}
+		if err := stream.RecvMsg(&emptypb.Empty{}); err != nil {
+			t.Fatalf("receive client-streaming response: %v", err)
+		}
+		if inner.recvCalls != 2 || ctx.Err() != context.Canceled || released != 1 {
+			t.Fatalf("terminal response recvCalls=%d canceled=%v released=%d", inner.recvCalls, ctx.Err(), released)
+		}
+	})
 	t.Run("cancellation without receive", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -1684,9 +1696,9 @@ func TestDefaultGRPCStreamingLifecycle(t *testing.T) {
 					if err := stream.RecvMsg(&emptypb.Empty{}); err != nil {
 						t.Fatal(err)
 					}
-				}
-				if err := stream.RecvMsg(&emptypb.Empty{}); err != io.EOF {
-					t.Fatalf("terminal receive = %v", err)
+					if err := stream.RecvMsg(&emptypb.Empty{}); err != io.EOF {
+						t.Fatalf("terminal receive = %v", err)
+					}
 				}
 			}
 		})
@@ -1899,6 +1911,8 @@ type fakeClientStream struct {
 	stdgrpc.ClientStream
 	sendErr      error
 	recvErr      error
+	recvErrs     []error
+	recvCalls    int
 	closeSendErr error
 	headerErr    error
 	ctx          context.Context
@@ -1910,15 +1924,22 @@ func (f *fakeClientStream) Context() context.Context {
 	}
 	return context.Background()
 }
-func (f *fakeClientStream) SendMsg(m any) error          { return f.sendErr }
-func (f *fakeClientStream) RecvMsg(m any) error          { return f.recvErr }
+func (f *fakeClientStream) SendMsg(m any) error { return f.sendErr }
+func (f *fakeClientStream) RecvMsg(m any) error {
+	if f.recvCalls < len(f.recvErrs) {
+		err := f.recvErrs[f.recvCalls]
+		f.recvCalls++
+		return err
+	}
+	return f.recvErr
+}
 func (f *fakeClientStream) CloseSend() error             { return f.closeSendErr }
 func (f *fakeClientStream) Header() (metadata.MD, error) { return nil, f.headerErr }
 func (f *fakeClientStream) Trailer() metadata.MD         { return nil }
 
 func TestGovernanceClientStreamRecvMsgAndSendMsg(t *testing.T) {
 	inner := &fakeClientStream{}
-	cs := &governanceClientStream{ClientStream: inner, cancel: func() {}, release: func() {}}
+	cs := &governanceClientStream{ClientStream: inner, cancel: func() {}, release: func() {}, serverStreams: true}
 	if err := cs.SendMsg(&struct{}{}); err != nil {
 		t.Fatalf("SendMsg error: %v", err)
 	}

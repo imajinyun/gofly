@@ -18,7 +18,9 @@ import (
 	coreretry "github.com/imajinyun/gofly/core/retry"
 
 	stdgrpc "google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 type GovernanceOption func(*governanceOptions)
@@ -224,7 +226,13 @@ func GovernanceStreamClientInterceptor(rules *governance.RuleSet, opts ...Govern
 		if err != nil {
 			return nil, grpcGovernanceError(err)
 		}
-		wrapped := &governanceClientStream{ClientStream: stream, cancel: cancel, release: releaseConcurrency, settleBreaker: settleBreaker}
+		wrapped := &governanceClientStream{
+			ClientStream:  stream,
+			cancel:        cancel,
+			release:       releaseConcurrency,
+			settleBreaker: settleBreaker,
+			serverStreams: desc.ServerStreams,
+		}
 		streamOwnsCleanup = true
 		context.AfterFunc(ctx, func() { wrapped.finish(ctx.Err()) })
 		return wrapped, nil
@@ -243,6 +251,7 @@ type governanceClientStream struct {
 	cancel        context.CancelFunc
 	release       func()
 	settleBreaker func(error)
+	serverStreams bool
 	once          sync.Once
 }
 
@@ -276,12 +285,29 @@ func (s *governanceClientStream) Header() (metadata.MD, error) {
 
 func (s *governanceClientStream) RecvMsg(m any) error {
 	err := s.ClientStream.RecvMsg(m)
-	// A successful receive is a message, not a terminal stream signal. Newer
-	// grpc-go versions perform an internal follow-up receive for client-streaming
-	// RPCs to collect trailers, so canceling here can race that receive.
 	if err != nil {
-		s.finish(err)
+		if errors.Is(err, io.EOF) {
+			s.finish(nil)
+		} else {
+			s.finish(err)
+		}
+		return err
 	}
+	if s.serverStreams {
+		return nil
+	}
+
+	// Match grpc-go's clientStreamWrapper contract for unary-response streams:
+	// consume the terminal status before releasing governance state.
+	err = s.ClientStream.RecvMsg(m)
+	if errors.Is(err, io.EOF) {
+		s.finish(nil)
+		return nil
+	}
+	if err == nil {
+		err = status.Error(codes.Internal, "cardinality violation: expected EOF for non-server-streaming RPC")
+	}
+	s.finish(err)
 	return err
 }
 

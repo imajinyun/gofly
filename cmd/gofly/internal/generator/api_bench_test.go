@@ -728,6 +728,7 @@ func assertAPIPerformanceFeatureCoverage(
 		field := apiPerformanceField(request, name)
 		if field == nil {
 			tb.Fatalf("PerformanceRequest missing field %q", name)
+			continue
 		}
 		if field.Type != want.typ || !strings.Contains(field.Tag, want.tag) {
 			tb.Fatalf("PerformanceRequest.%s = type %q tag %q, want type %q containing %q", name, field.Type, field.Tag, want.typ, want.tag)

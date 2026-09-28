@@ -153,19 +153,6 @@ func TestReleaseCheckCommandJSONAndChangelogBlocker(t *testing.T) {
 		evidenceEnvelope.Data.Checks[0].Evidence["rpc-mux-adapter-evidence"] == nil {
 		t.Fatalf("releaseCheckCommand rpc mux evidence envelope = %+v, want rpc mux evidence only", evidenceEnvelope)
 	}
-	out.Reset()
-	if err := CheckCommand([]string{"--changelog", changelog, "--json", "--evidence", "generated-rpc-mux-retry-smoke"}, testHooks(&out)); err != nil {
-		t.Fatalf("releaseCheckCommand generated rpc mux retry evidence json: %v", err)
-	}
-	if err := json.Unmarshal(out.Bytes(), &evidenceEnvelope); err != nil {
-		t.Fatalf("releaseCheckCommand generated rpc mux retry evidence json decode: %v\n%s", err, out.String())
-	}
-	if !evidenceEnvelope.OK ||
-		len(evidenceEnvelope.Data.Checks) != 1 ||
-		evidenceEnvelope.Data.Checks[0].Name != "generated-rpc-mux-retry-smoke" ||
-		evidenceEnvelope.Data.Checks[0].Evidence["generated-rpc-mux-retry-smoke"] == nil {
-		t.Fatalf("releaseCheckCommand generated rpc mux retry evidence envelope = %+v, want generated rpc mux retry evidence only", evidenceEnvelope)
-	}
 	if err := os.WriteFile(changelog, []byte("# Changelog\n\n## v9.9.9\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

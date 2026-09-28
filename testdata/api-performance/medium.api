@@ -1,0 +1,1458 @@
+syntax = "v1"
+
+import (
+	"types/common.api"
+)
+
+type (
+	PerformanceRequest {
+		RequestID string                 `header:"X-Request-ID"`
+		TenantID  string                 `header:"X-Tenant-ID" validate:"required"`
+		ID        string                 `path:"id" validate:"required"`
+		Query     string                 `form:"q,optional" validate:"omitempty,min=1,max=128"`
+		Page      PageRequest            `json:"page"`
+		Payload   *Payload               `json:"payload,optional" validate:"omitempty"`
+		Items     []*LineItem            `json:"items,optional" validate:"omitempty,min=1"`
+		Labels    map[string]string      `json:"labels,optional"`
+		Buckets   map[string][]*LineItem `json:"buckets,optional"`
+		Audit     *AuditMetadata         `json:"audit,optional"`
+	}
+	PerformanceResponse {
+		Item   *Payload            `json:"item,optional"`
+		Items  []Payload           `json:"items"`
+		Lookup map[string]*Payload `json:"lookup"`
+		Page   PageResponse        `json:"page"`
+		Error  *ErrorEnvelope      `json:"error,optional"`
+	}
+)
+
+@server (
+	prefix:     /api/v1/public
+	group:      public
+	jwt:        Auth
+	middleware: Auth
+)
+service performance-api {
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0001
+	get /resources/r0001/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0005
+	delete /resources/r0005/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0009
+	patch /resources/r0009/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0013
+	put /resources/r0013/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0017
+	post /resources/r0017/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0021
+	get /resources/r0021/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0025
+	delete /resources/r0025/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0029
+	patch /resources/r0029/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0033
+	put /resources/r0033/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0037
+	post /resources/r0037/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0041
+	get /resources/r0041/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0045
+	delete /resources/r0045/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0049
+	patch /resources/r0049/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0053
+	put /resources/r0053/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0057
+	post /resources/r0057/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0061
+	get /resources/r0061/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0065
+	delete /resources/r0065/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0069
+	patch /resources/r0069/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0073
+	put /resources/r0073/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0077
+	post /resources/r0077/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0081
+	get /resources/r0081/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0085
+	delete /resources/r0085/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0089
+	patch /resources/r0089/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0093
+	put /resources/r0093/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0097
+	post /resources/r0097/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0101
+	get /resources/r0101/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0105
+	delete /resources/r0105/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0109
+	patch /resources/r0109/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0113
+	put /resources/r0113/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0117
+	post /resources/r0117/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0121
+	get /resources/r0121/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0125
+	delete /resources/r0125/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0129
+	patch /resources/r0129/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0133
+	put /resources/r0133/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0137
+	post /resources/r0137/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0141
+	get /resources/r0141/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0145
+	delete /resources/r0145/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0149
+	patch /resources/r0149/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0153
+	put /resources/r0153/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0157
+	post /resources/r0157/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0161
+	get /resources/r0161/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0165
+	delete /resources/r0165/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0169
+	patch /resources/r0169/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0173
+	put /resources/r0173/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0177
+	post /resources/r0177/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0181
+	get /resources/r0181/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0185
+	delete /resources/r0185/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0189
+	patch /resources/r0189/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0193
+	put /resources/r0193/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0197
+	post /resources/r0197/:id (PerformanceRequest) returns (PerformanceResponse)
+}
+@server (
+	prefix:     /api/v1/admin
+	group:      admin
+	jwt:        AdminAuth
+	middleware: Auth
+)
+service performance-api {
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0002
+	post /resources/r0002/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0006
+	get /resources/r0006/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0010
+	delete /resources/r0010/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0014
+	patch /resources/r0014/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0018
+	put /resources/r0018/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0022
+	post /resources/r0022/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0026
+	get /resources/r0026/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0030
+	delete /resources/r0030/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0034
+	patch /resources/r0034/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0038
+	put /resources/r0038/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0042
+	post /resources/r0042/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0046
+	get /resources/r0046/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0050
+	delete /resources/r0050/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0054
+	patch /resources/r0054/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0058
+	put /resources/r0058/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0062
+	post /resources/r0062/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0066
+	get /resources/r0066/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0070
+	delete /resources/r0070/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0074
+	patch /resources/r0074/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0078
+	put /resources/r0078/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0082
+	post /resources/r0082/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0086
+	get /resources/r0086/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0090
+	delete /resources/r0090/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0094
+	patch /resources/r0094/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0098
+	put /resources/r0098/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0102
+	post /resources/r0102/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0106
+	get /resources/r0106/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0110
+	delete /resources/r0110/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0114
+	patch /resources/r0114/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0118
+	put /resources/r0118/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0122
+	post /resources/r0122/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0126
+	get /resources/r0126/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0130
+	delete /resources/r0130/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0134
+	patch /resources/r0134/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0138
+	put /resources/r0138/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0142
+	post /resources/r0142/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0146
+	get /resources/r0146/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0150
+	delete /resources/r0150/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0154
+	patch /resources/r0154/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0158
+	put /resources/r0158/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0162
+	post /resources/r0162/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0166
+	get /resources/r0166/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0170
+	delete /resources/r0170/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0174
+	patch /resources/r0174/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0178
+	put /resources/r0178/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0182
+	post /resources/r0182/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0186
+	get /resources/r0186/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0190
+	delete /resources/r0190/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0194
+	patch /resources/r0194/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0198
+	put /resources/r0198/:id (PerformanceRequest) returns (PerformanceResponse)
+}
+
+@server (
+	prefix:     /api/v1/partner
+	group:      partner
+	jwt:        PartnerAuth
+	middleware: Auth
+)
+service performance-api {
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0003
+	put /resources/r0003/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0007
+	post /resources/r0007/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0011
+	get /resources/r0011/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0015
+	delete /resources/r0015/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0019
+	patch /resources/r0019/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0023
+	put /resources/r0023/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0027
+	post /resources/r0027/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0031
+	get /resources/r0031/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0035
+	delete /resources/r0035/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0039
+	patch /resources/r0039/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0043
+	put /resources/r0043/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0047
+	post /resources/r0047/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0051
+	get /resources/r0051/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0055
+	delete /resources/r0055/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0059
+	patch /resources/r0059/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0063
+	put /resources/r0063/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0067
+	post /resources/r0067/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0071
+	get /resources/r0071/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0075
+	delete /resources/r0075/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0079
+	patch /resources/r0079/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0083
+	put /resources/r0083/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0087
+	post /resources/r0087/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0091
+	get /resources/r0091/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0095
+	delete /resources/r0095/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0099
+	patch /resources/r0099/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0103
+	put /resources/r0103/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0107
+	post /resources/r0107/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0111
+	get /resources/r0111/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0115
+	delete /resources/r0115/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0119
+	patch /resources/r0119/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0123
+	put /resources/r0123/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0127
+	post /resources/r0127/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0131
+	get /resources/r0131/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0135
+	delete /resources/r0135/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0139
+	patch /resources/r0139/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0143
+	put /resources/r0143/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0147
+	post /resources/r0147/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0151
+	get /resources/r0151/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0155
+	delete /resources/r0155/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0159
+	patch /resources/r0159/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0163
+	put /resources/r0163/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0167
+	post /resources/r0167/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0171
+	get /resources/r0171/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0175
+	delete /resources/r0175/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0179
+	patch /resources/r0179/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0183
+	put /resources/r0183/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0187
+	post /resources/r0187/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0191
+	get /resources/r0191/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0195
+	delete /resources/r0195/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0199
+	patch /resources/r0199/:id (PerformanceRequest) returns (PerformanceResponse)
+}
+
+@server (
+	prefix:     /api/v1/internal
+	group:      internal
+	jwt:        InternalAuth
+	middleware: Auth
+)
+service performance-api {
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0004
+	patch /resources/r0004/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0008
+	put /resources/r0008/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0012
+	post /resources/r0012/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0016
+	get /resources/r0016/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0020
+	delete /resources/r0020/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0024
+	patch /resources/r0024/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0028
+	put /resources/r0028/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0032
+	post /resources/r0032/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0036
+	get /resources/r0036/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0040
+	delete /resources/r0040/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0044
+	patch /resources/r0044/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0048
+	put /resources/r0048/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0052
+	post /resources/r0052/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0056
+	get /resources/r0056/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0060
+	delete /resources/r0060/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0064
+	patch /resources/r0064/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0068
+	put /resources/r0068/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0072
+	post /resources/r0072/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0076
+	get /resources/r0076/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0080
+	delete /resources/r0080/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0084
+	patch /resources/r0084/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0088
+	put /resources/r0088/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0092
+	post /resources/r0092/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0096
+	get /resources/r0096/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0100
+	delete /resources/r0100/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0104
+	patch /resources/r0104/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0108
+	put /resources/r0108/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0112
+	post /resources/r0112/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0116
+	get /resources/r0116/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0120
+	delete /resources/r0120/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0124
+	patch /resources/r0124/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0128
+	put /resources/r0128/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0132
+	post /resources/r0132/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0136
+	get /resources/r0136/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0140
+	delete /resources/r0140/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0144
+	patch /resources/r0144/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0148
+	put /resources/r0148/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0152
+	post /resources/r0152/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0156
+	get /resources/r0156/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0160
+	delete /resources/r0160/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0164
+	patch /resources/r0164/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0168
+	put /resources/r0168/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0172
+	post /resources/r0172/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0176
+	get /resources/r0176/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0180
+	delete /resources/r0180/:id (PerformanceRequest)
+
+	@doc (
+		respCode:  "202"
+		responses: "202-Accepted<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0184
+	patch /resources/r0184/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-Updated<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0188
+	put /resources/r0188/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "201"
+		responses: "201-Created<br>400-Invalid request<br>401-Unauthorized<br>409-Resource conflict"
+	)
+	@handler route0192
+	post /resources/r0192/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "200"
+		responses: "200-OK<br>400-Invalid request<br>404-Resource not found"
+	)
+	@handler route0196
+	get /resources/r0196/:id (PerformanceRequest) returns (PerformanceResponse)
+
+	@doc (
+		respCode:  "204"
+		responses: "204-Deleted<br>400-Invalid request<br>401-Unauthorized<br>404-Resource not found"
+	)
+	@handler route0200
+	delete /resources/r0200/:id (PerformanceRequest)
+}

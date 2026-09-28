@@ -1,0 +1,26 @@
+syntax = "v1"
+
+type (
+	AuditMetadata {
+		RequestID string `header:"X-Request-ID"`
+		TraceID   string `header:"X-Trace-ID,optional"`
+		ActorID   int64  `json:"actorId"`
+	}
+	Money {
+		Currency string `json:"currency" validate:"required,len=3"`
+		Units    int64  `json:"units"`
+		Nanos    int32  `json:"nanos"`
+	}
+	LineItem {
+		SKU      string `json:"sku" validate:"required"`
+		Quantity int64  `json:"quantity" validate:"required,min=1"`
+		Price    *Money `json:"price" validate:"required"`
+	}
+	Payload {
+		Name       string            `json:"name" validate:"required,min=1,max=128"`
+		Enabled    bool              `json:"enabled"`
+		Amount     Money             `json:"amount"`
+		Lines      []*LineItem       `json:"lines,optional"`
+		Attributes map[string]string `json:"attributes,optional"`
+	}
+)

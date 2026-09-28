@@ -1,0 +1,19 @@
+syntax = "v1"
+
+import "nested/metadata.api"
+
+type (
+	PageRequest {
+		Cursor string `form:"cursor,optional"`
+		Limit  int    `form:"limit,optional" validate:"omitempty,min=1,max=100"`
+	}
+	PageResponse {
+		NextCursor string `json:"nextCursor,optional"`
+		HasMore    bool   `json:"hasMore"`
+	}
+	ErrorEnvelope {
+		Code    string              `json:"code"`
+		Message string              `json:"message"`
+		Details map[string][]string `json:"details,optional"`
+	}
+)

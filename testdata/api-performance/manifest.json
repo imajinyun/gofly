@@ -1,0 +1,32 @@
+{
+  "schema": "gofly.api_performance_fixtures.v1",
+  "fixtures": [
+    {
+      "name": "small",
+      "file": "small.api",
+      "routeCount": 20,
+      "typeCount": 9,
+      "importCount": 2,
+      "sha256": "2e67f1b747bc5adcff6bed908f7e3b7850b86150342c8e1bd849d0076778362b",
+      "expectedGeneratedFileCount": 24
+    },
+    {
+      "name": "medium",
+      "file": "medium.api",
+      "routeCount": 200,
+      "typeCount": 9,
+      "importCount": 2,
+      "sha256": "45df99f9576c6706dde1506b95e21c61ff2907f09e37d20280cf5e2a8020e514",
+      "expectedGeneratedFileCount": 204
+    },
+    {
+      "name": "large",
+      "file": "large.api",
+      "routeCount": 1000,
+      "typeCount": 9,
+      "importCount": 2,
+      "sha256": "a84d34fe4fadc4146d29a3065d06c464c991e75572939cb7c73d89b0fd00af24",
+      "expectedGeneratedFileCount": 1004
+    }
+  ]
+}

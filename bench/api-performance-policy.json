@@ -1,0 +1,141 @@
+{
+  "schema": "gofly.api_performance_policy.v2",
+  "acceptanceGate": "make api-performance-check",
+  "oracle": {
+    "repository": "zeromicro/go-zero",
+    "commit": "84c92d710b9f2ae11c3cbcee242cea40eec42e70",
+    "toolPath": "tools/goctl",
+    "checkoutEnvironment": "GOZERO_ROOT"
+  },
+  "measurement": {
+    "defaultSamples": 10,
+    "minimumPublishableSamples": 10,
+    "ordering": "alternating",
+    "sameRunner": true,
+    "sameGoToolchain": true,
+    "prebuildEachBinaryOnce": true,
+    "singleSampleMode": "smoke-only-non-publishable",
+    "commandTimeoutSeconds": 180,
+    "benchmarkTimeoutSeconds": 1800,
+    "outputLimitBytes": 16384
+  },
+  "fixture": {
+    "manifest": "testdata/api-performance/manifest.json",
+    "schema": "gofly.api_performance_fixtures.v1",
+    "digest": "sha256",
+    "pathPolicy": "All manifest paths must be slash-separated local paths below the repository root and must not cross symlinks."
+  },
+  "surfaces": [
+    {
+      "id": "parse-format",
+      "classification": "unsupported",
+      "latencyMode": "report-only",
+      "unsupportedReason": "gofly formats one explicit API file while pinned goctl traverses and rewrites a directory, and neither CLI exposes the same parse-only boundary.",
+      "commands": {}
+    },
+    {
+      "id": "rest-generation",
+      "classification": "potential-comparable",
+      "latencyMode": "report-only",
+      "equivalence": "Both prebuilt CLIs may generate Go REST output from the same copied .api fixture and the same fresh minimal go.mod scaffold; a runtime preflight must downgrade this row to unsupported if either parser or generation boundary differs.",
+      "freshOutput": {
+        "required": true,
+        "preexistingFiles": ["go.mod"],
+        "goModule": "example.com/gofly-api-performance"
+      },
+      "commands": {
+        "gofly": ["{binary}", "api", "go", "--api", "{fixture}", "--dir", "{output_dir}", "--style", "go_zero"],
+        "goctl": ["{binary}", "api", "go", "--api", "{fixture}", "--dir", "{output_dir}", "--style", "gozero"]
+      }
+    },
+    {
+      "id": "openapi-documentation",
+      "classification": "unsupported",
+      "latencyMode": "report-only",
+      "unsupportedReason": "gofly emits OpenAPI 3.0.3 while pinned goctl exposes a Swagger command that emits Swagger 2.0, so the document-generation contracts are not equivalent.",
+      "commands": {}
+    },
+    {
+      "id": "openapi-v3",
+      "classification": "unsupported",
+      "latencyMode": "report-only",
+      "unsupportedReason": "Pinned goctl has no OpenAPI v3 generator or output flag equivalent to gofly OpenAPI 3.0.3 export.",
+      "commands": {}
+    }
+  ],
+  "crossFrameworkLatency": {
+    "mode": "report-only",
+    "blocking": false,
+    "statistic": "median",
+    "unit": "nanoseconds",
+    "reason": "Shared hosted runners are noisy, and unlike-framework process latency is not a release blocker during initial governance."
+  },
+  "goflyBenchmarks": {
+    "framework": "gofly",
+    "mode": "publishable-when-complete",
+    "minimumSamples": 10,
+    "package": "./cmd/gofly/internal/generator",
+    "benchmark": "^BenchmarkAPI(Parse|Generate|OpenAPIExport|OpenAPIImport|ClientGenerate)$",
+    "expectedRowCount": 27,
+    "clientLanguages": ["javascript", "typescript", "java", "kotlin", "dart"]
+  },
+  "goflyAllocation": {
+    "framework": "gofly",
+    "mode": "blocking-when-available",
+    "minimumSamples": 10,
+    "metrics": ["B/op", "allocs/op"],
+    "missingMetricClassification": "unsupported",
+    "package": "./cmd/gofly/internal/generator",
+    "benchmark": "^BenchmarkAPIGenerate$",
+    "budgets": [
+      {
+        "fixture": "small",
+        "maxBytesPerOp": 780000,
+        "maxAllocsPerOp": 16500
+      },
+      {
+        "fixture": "medium",
+        "maxBytesPerOp": 5350000,
+        "maxAllocsPerOp": 115000
+      },
+      {
+        "fixture": "large",
+        "maxBytesPerOp": 25700000,
+        "maxAllocsPerOp": 552000
+      }
+    ]
+  },
+  "evidence": {
+    "trackedPath": "bench/api-performance-evidence.json",
+    "requiredFields": [
+      "sha",
+      "goVersion",
+      "os",
+      "arch",
+      "cpu",
+      "fixtureDigest",
+      "argv",
+      "sampleCount",
+      "median",
+      "allocatedBytesPerOp",
+      "allocsPerOp",
+      "inputBytesPerOp",
+      "outputBytesPerOp",
+      "filesPerOp",
+      "exitCode",
+      "classification"
+    ]
+  },
+  "failureModes": [
+    "Reject a mutable or mismatched goctl oracle revision.",
+    "Reject absolute, parent-traversing, or symlink-crossing fixture paths.",
+    "Build gofly and goctl once per run and execute commands without a shell.",
+    "Downgrade REST generation to unsupported when either CLI rejects the fixture or the fresh scaffold boundaries differ.",
+    "Fail on any admitted REST command non-zero exit without swallowing output.",
+    "Keep unsupported surfaces out of benchmark execution and classify them explicitly.",
+    "Reject publishable evidence with fewer than ten alternating samples.",
+    "Allow exactly one sample only in non-publishable smoke mode.",
+    "Require exactly 27 gofly benchmark rows with at least ten samples for publishable evidence.",
+    "Keep cross-framework latency report-only while allowing explicit gofly REST-generation allocation budgets to block."
+  ]
+}

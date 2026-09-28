@@ -149,6 +149,10 @@ bench-evidence: ## Write benchmark evidence from bench/baseline.txt
 bench-evidence-check: perf-governance-check rpc-boundary-check bench-publish-check ## Validate tracked benchmark baseline and budget data
 	bash $(SCRIPTS_DIR)/benchstat.sh --check-evidence
 
+.PHONY: api-performance-check
+api-performance-check: ## Compare API REST generation against the pinned goctl oracle and write evidence
+	sh $(SCRIPTS_DIR)/check-api-performance.sh
+
 .PHONY: bench-publish-check
 bench-publish-check: ## Validate the benchmark publishing manifest contract
 	sh $(SCRIPTS_DIR)/check-benchmark-publishing.sh

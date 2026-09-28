@@ -793,6 +793,14 @@ jobs:
           path: _benchmark-base
           persist-credentials: false
 
+      - name: Check out pinned go-zero API performance oracle
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: zeromicro/go-zero
+          ref: 84c92d710b9f2ae11c3cbcee242cea40eec42e70
+          path: _reference/gozero
+          persist-credentials: false
+
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
@@ -858,6 +866,12 @@ jobs:
             CURRENT_FILE="$RUNNER_TEMP/benchmark-current.txt" \
             BENCH_MIN_SAMPLES=5 bash bin/scripts/benchstat.sh --trend
 
+      - name: API performance evidence gate
+        env:
+          GOZERO_ROOT: ${{ github.workspace }}/_reference/gozero
+          API_PERFORMANCE_EVIDENCE: ${{ runner.temp }}/api-performance-evidence.json
+        run: make api-performance-check
+
       - name: Upload benchmark artifacts
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -869,6 +883,7 @@ jobs:
             bench/summary.md
             ${{ runner.temp }}/benchmark-base.txt
             ${{ runner.temp }}/benchmark-current.txt
+            ${{ runner.temp }}/api-performance-evidence.json
           if-no-files-found: error
 
       - name: Fuzz smoke — api parser

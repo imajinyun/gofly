@@ -3660,9 +3660,8 @@ func TestGeneratedProductionServiceSmoke(t *testing.T) {
 		t.Skip("generated service smoke test disabled by GOFLY_SKIP_GENERATED_SMOKE")
 	}
 	repo := generatedProjectRoot(t)
-	restAddr := reserveLocalAddr(t)
-	rpcAddr := reserveLocalAddr(t)
-	adminAddr := reserveLocalAddr(t)
+	addresses := reserveLocalAddrs(t, 3)
+	restAddr, rpcAddr, adminAddr := addresses[0], addresses[1], addresses[2]
 	rewriteSmokeConfig(t, repo, restAddr, rpcAddr, adminAddr)
 	assertInvalidRequestEnvelope(t)
 	controlPlane := runGeneratedControlPlaneSmoke(t, repo, restAddr, adminAddr)
@@ -3676,9 +3675,8 @@ func TestGeneratedProductionServiceSmoke(t *testing.T) {
 	assertControlPlaneResilience(t, controlPlane)
 	assertControlPlaneMuxOperatorHistory(t, controlPlane)
 
-	recommendedRestAddr := reserveLocalAddr(t)
-	recommendedRPCAddr := reserveLocalAddr(t)
-	recommendedAdminAddr := reserveLocalAddr(t)
+	recommendedAddresses := reserveLocalAddrs(t, 3)
+	recommendedRestAddr, recommendedRPCAddr, recommendedAdminAddr := recommendedAddresses[0], recommendedAddresses[1], recommendedAddresses[2]
 	restoreRecommendedSmokeConfig(t, repo, recommendedRestAddr, recommendedRPCAddr, recommendedAdminAddr)
 	recommendedControlPlane := runGeneratedControlPlaneSmoke(t, repo, recommendedRestAddr, recommendedAdminAddr)
 	assertControlPlaneMuxConfigWarningsCleared(t, recommendedControlPlane)
@@ -3739,14 +3737,24 @@ func generatedProjectRoot(t *testing.T) string {
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 }
 
-func reserveLocalAddr(t *testing.T) string {
+func reserveLocalAddrs(t *testing.T, count int) []string {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("reserve local port: %v", err)
+	listeners := make([]net.Listener, 0, count)
+	defer func() {
+		for _, listener := range listeners {
+			_ = listener.Close()
+		}
+	}()
+	addresses := make([]string, 0, count)
+	for range count {
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("reserve local port: %v", err)
+		}
+		listeners = append(listeners, listener)
+		addresses = append(addresses, listener.Addr().String())
 	}
-	defer func() { _ = ln.Close() }()
-	return ln.Addr().String()
+	return addresses
 }
 
 func rewriteSmokeConfig(t *testing.T, repo string, restAddr string, rpcAddr string, adminAddr string) {

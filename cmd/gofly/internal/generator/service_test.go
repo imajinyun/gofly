@@ -260,6 +260,7 @@ func TestGenerateService(t *testing.T) {
 	}
 	for _, want := range []string{
 		"func TestGeneratedProductionServiceSmoke(t *testing.T)",
+		"addresses := reserveLocalAddrs(t, 3)",
 		`exec.CommandContext(ctx, generatedServiceBinary(t, ctx, repo))`,
 		`func generatedServiceBinary(t *testing.T, ctx context.Context, repo string) string`,
 		`exec.CommandContext(ctx, "go", "build", "-o", binary, "./cmd/hello")`,
@@ -1532,6 +1533,7 @@ func TestGoldenPathProductionServiceLayoutContract(t *testing.T) {
 	}
 	for _, marker := range []string{
 		"TestGeneratedProductionServiceSmoke",
+		"reserveLocalAddrs(t, 3)",
 		"/healthz",
 		"/admin/control-plane",
 		"assertControlPlaneResilience",

@@ -118,21 +118,41 @@ import (
     "strings"
     "testing"
 
+    "github.com/imajinyun/gofly/core/auth"
+    "github.com/imajinyun/gofly/core/observability/trace"
     "example.com/catalog/internal/svc"
     "github.com/imajinyun/gofly/rest"
 )
 
 func TestSemanticRuntime(t *testing.T) {
-    server := rest.MustNewServer(rest.Config{Name: "semantic", DisableDefaultMiddlewares: true})
+    server := rest.MustNewServer(rest.Config{Name: "semantic", Preset: rest.PresetStandard})
+    token, err := auth.SignJWT(auth.JWTClaims{Subject: "catalog"}, []byte("semantic-secret"))
+    if err != nil { t.Fatalf("SignJWT: %v", err) }
     stx := &svc.ServiceContext{Middlewares: map[string]rest.Middleware{
         "Auth": func(next http.Handler) http.Handler { return next },
+    }, JWTValidators: map[string]auth.Validator{
+        "Auth": auth.JWTValidator([]byte("semantic-secret"), auth.JWTOptions{}),
     }}
     RegisterRoutes(server, stx)
+
+    missing := httptest.NewRequest(http.MethodPost, "/api/v1/items/item-0?dryRun=true", strings.NewReader(` + "`" + `{"item":{"sku":"SKU-0"}}` + "`" + `))
+    missing.Header.Set("Content-Type", "application/json")
+    missing.Header.Set("X-Tenant-ID", "tenant-0")
+    missing.Header.Set("X-Request-ID", "request-0")
+    missingRec := httptest.NewRecorder()
+    server.Handler().ServeHTTP(missingRec, missing)
+    if missingRec.Code != http.StatusUnauthorized || !strings.Contains(missingRec.Body.String(), "unauthenticated") {
+        t.Fatalf("missing auth status=%d body=%s", missingRec.Code, missingRec.Body.String())
+    }
+    if missingRec.Header().Get(rest.RequestIDHeader) != "request-0" || missingRec.Header().Get(trace.TraceParentHeader) == "" {
+        t.Fatalf("missing auth correlation headers = %#v", missingRec.Header())
+    }
 
     create := httptest.NewRequest(http.MethodPost, "/api/v1/items/item-1?dryRun=true", strings.NewReader(` + "`" + `{"item":{"sku":"SKU-1"}}` + "`" + `))
     create.Header.Set("Content-Type", "application/json")
     create.Header.Set("X-Tenant-ID", "tenant-1")
     create.Header.Set("X-Request-ID", "request-1")
+    create.Header.Set(auth.AuthorizationHeader, auth.BearerValue(token))
     createRec := httptest.NewRecorder()
     server.Handler().ServeHTTP(createRec, create)
     if createRec.Code != http.StatusCreated {
@@ -143,6 +163,7 @@ func TestSemanticRuntime(t *testing.T) {
     deleteReq.Header.Set("Content-Type", "application/json")
     deleteReq.Header.Set("X-Tenant-ID", "tenant-2")
     deleteReq.Header.Set("X-Request-ID", "request-2")
+    deleteReq.Header.Set(auth.AuthorizationHeader, auth.BearerValue(token))
     deleteRec := httptest.NewRecorder()
     server.Handler().ServeHTTP(deleteRec, deleteReq)
     if deleteRec.Code != http.StatusNoContent || deleteRec.Body.Len() != 0 {
@@ -153,10 +174,14 @@ func TestSemanticRuntime(t *testing.T) {
     invalid.Header.Set("Content-Type", "application/json")
     invalid.Header.Set("X-Tenant-ID", "tenant-3")
     invalid.Header.Set("X-Request-ID", "request-3")
+    invalid.Header.Set(auth.AuthorizationHeader, auth.BearerValue(token))
     invalidRec := httptest.NewRecorder()
     server.Handler().ServeHTTP(invalidRec, invalid)
     if invalidRec.Code != http.StatusBadRequest || !strings.Contains(invalidRec.Body.String(), "invalid_argument") {
         t.Fatalf("invalid status=%d body=%s", invalidRec.Code, invalidRec.Body.String())
+    }
+    if invalidRec.Header().Get(rest.RequestIDHeader) != "request-3" || invalidRec.Header().Get(trace.TraceParentHeader) == "" {
+        t.Fatalf("invalid request correlation headers = %#v", invalidRec.Header())
     }
 }
 `

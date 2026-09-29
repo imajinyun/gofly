@@ -334,7 +334,7 @@ func TestFormatAPIGoctlSemanticRoundTrip(t *testing.T) {
 		`import "types/common.api"`,
 		`Labels map[string][]string`,
 		`Item *Item`,
-		`@server(group: catalog middleware: Auth prefix: /api/v1)`,
+		`@server(group: catalog jwt: Auth middleware: Auth prefix: /api/v1)`,
 		`delete /items/:id (CreateRequest)`,
 	} {
 		if !strings.Contains(formatted, want) {

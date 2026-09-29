@@ -196,6 +196,10 @@ func TimeoutMiddleware(timeout time.Duration) Middleware {
 				tw.flushTo(w)
 			case <-ctx.Done():
 				tw.markTimedOut()
+				if ctx.Err() == context.Canceled {
+					writeError(w, coreerrors.HTTPStatus(coreerrors.CodeCanceled), coreerrors.CodeCanceled, "request canceled")
+					return
+				}
 				writeError(w, http.StatusGatewayTimeout, coreerrors.CodeDeadlineExceeded, "request timeout")
 			}
 		})

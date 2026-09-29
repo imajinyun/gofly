@@ -17,19 +17,27 @@
     {"id":"route-local-server","status":"enhanced","implementation":"cmd/gofly/internal/generator/idl_model.go","test":"cmd/gofly/internal/generator/api_parser_goctl_test.go","gate":"make api-semantic-parity-check","rollback":"Preserve service-level annotations and reject route-local overrides."},
     {"id":"request-less-route","status":"supported","implementation":"cmd/gofly/internal/generator/api_parser.go","test":"cmd/gofly/internal/generator/api_semantic_replay_test.go","gate":"make api-semantic-parity-check","rollback":"Keep request-bearing routes available while request-less generation is disabled."},
     {"id":"response-less-route","status":"enhanced","implementation":"cmd/gofly/internal/generator/api_codegen.go","test":"cmd/gofly/internal/generator/api_semantic_replay_test.go","gate":"make api-semantic-parity-check","rollback":"Fall back to HTTP 200 empty responses only with an explicit compatibility note."},
+    {"id":"runtime-jwt-auth","status":"enhanced","implementation":"rest/middleware.go","test":"rest/runtime_semantics_test.go; cmd/gofly/internal/generator/api_semantic_replay_test.go","gate":"make api-semantic-parity-check","oracle":"Pinned goctl accepts and generates the @server jwt route annotation; gofly additionally guarantees a stable 401 unauthenticated envelope and request/trace correlation.","rollback":"Reject the generated JWT route when no validator is configured rather than bypassing authentication."},
+    {"id":"runtime-error-envelope","status":"enhanced","implementation":"rest/response.go","test":"rest/runtime_semantics_test.go","gate":"make api-semantic-parity-check","oracle":"Pinned goctl generation is used for route and binding compatibility only; it does not establish byte-for-byte parity for gofly's unified JSON error envelope.","rollback":"Preserve status and coded errors while reverting only the correlation fields if a compatibility issue is demonstrated."},
+    {"id":"runtime-cancellation-and-deadline","status":"enhanced","implementation":"rest/middleware.go; rest/client.go","test":"rest/runtime_semantics_test.go","gate":"make api-semantic-parity-check","oracle":"Pinned goctl annotations are accepted for route generation; gofly deliberately distinguishes canceled requests (499/canceled) from handler and downstream deadlines (504/deadline_exceeded).","rollback":"Keep context propagation and revert only the explicit cancellation response mapping after compatibility review."},
     {"id":"type-alias","status":"intentional-gap","implementation":"cmd/gofly/internal/generator/api_parser.go","test":"cmd/gofly/internal/generator/api_parser_goctl_test.go","gate":"make api-semantic-parity-check","rollback":"Continue returning the stable unsupported alias error until the reference parser supports aliases."},
     {"id":"comment-preservation","status":"intentional-gap","implementation":"cmd/gofly/internal/generator/api_parser.go","test":"cmd/gofly/internal/generator/api_parser_goctl_test.go","gate":"make api-semantic-parity-check","rollback":"Do not claim comment fidelity; semantic formatting remains the supported boundary."}
   ],
   "runtimeEvidence": {
     "profiles": ["gofly-ai", "gozero-compatible"],
     "bindings": ["path", "query", "header", "json-body"],
-    "statuses": [200, 201, 204],
+    "statuses": [200, 201, 204, 400, 401, 404, 499, 500, 504],
     "errorEnvelope": "rest.ErrorResponse invalid_argument",
-    "fixture": "testdata/goctl-api-semantic/contract.api"
+    "fixture": "testdata/goctl-api-semantic/contract.api",
+    "runtimeExpectations": "testdata/goctl-api-semantic/expectations.json#runtimeSemantics",
+    "assertions": ["status", "stable-error-envelope", "request-id", "trace-id", "body-shape", "context-cancellation"],
+    "excludedAssertions": ["log-timing", "implementation-only-fields"],
+    "oracleBoundary": "The optional GOZERO_ROOT run proves pinned goctl grammar and generated-route acceptance. Runtime envelope, correlation, cancellation, and timeout behavior are deliberate gofly enhancements, not a claim of byte-for-byte goctl runtime parity."
   },
   "intentionalDifferences": [
     "Pinned goctl emits HTTP 200 for successful response-less routes; gofly preserves documented respCode values.",
     "gofly supports route-local @server as an enhancement; the pinned goctl execution path requires @handler inside services.",
-    "Generated directory layout remains gofly-native."
+    "Generated directory layout remains gofly-native.",
+    "gofly uses one stable JSON error envelope with request and trace correlation for authentication, validation, typed business errors, panic recovery, and timeouts. This is a deliberate gofly enhancement; the pinned goctl generator is used as a route and binding oracle, not as evidence of byte-for-byte runtime error-envelope parity."
   ]
 }

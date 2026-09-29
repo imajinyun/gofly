@@ -12,7 +12,7 @@ report="${API_SEMANTIC_REPORT:-$tmp/api-semantic-parity-report.json}"
 
 cd "$root"
 go test -count=1 -shuffle=on ./cmd/gofly/internal/generator -run 'Test(APITypeRef|ParseAPIGoctl|ParseAPIRouteLocal|ParseAPIRoutesWithout|FormatAPIGoctl|GenerateAPISemanticFixture|APISemanticReplay)'
-go test -count=1 -shuffle=on ./rest -run 'Test(ContextBindGoZeroRequest|BindRequestSourceOrderingAndMethodBodyBranches|OpenAPI.*Struct)'
+go test -count=1 -shuffle=on ./rest -run 'Test(ContextBindGoZeroRequest|BindRequestSourceOrderingAndMethodBodyBranches|OpenAPI.*Struct|RuntimeSemanticFailureModes)'
 
 python3 - "$root" "$report" <<'PY'
 import json
@@ -29,6 +29,7 @@ required_contract = [
     "type (",
     "@handler deleteItem",
     "delete /items/:id (CreateRequest)",
+    "jwt:        Auth",
 ]
 required_common = [
     "Item {",
@@ -45,6 +46,31 @@ if len(routes) != 3:
 if not any(row.get("status") == 204 and row.get("hasResponse") is False for row in routes):
     missing.append("response-less 204 route")
 
+runtime_semantics = expectations.get("runtimeSemantics") or []
+required_runtime = {
+    "jwt-missing-invalid": (401, "unauthenticated"),
+    "middleware-short-circuit-order": (401, "unauthenticated"),
+    "validation-error-envelope": (400, "invalid_argument"),
+    "typed-business-error-envelope": (404, "not_found"),
+    "panic-recovery-envelope": (500, "internal"),
+    "response-less-success": (204, None),
+    "request-cancellation": (499, "canceled"),
+    "handler-deadline": (504, "deadline_exceeded"),
+    "downstream-timeout": (504, "deadline_exceeded"),
+}
+runtime_by_id = {row.get("id"): row for row in runtime_semantics if isinstance(row, dict)}
+if set(runtime_by_id) != set(required_runtime):
+    missing.append("complete runtime semantic failure-mode inventory")
+for case_id, (status, code) in required_runtime.items():
+    row = runtime_by_id.get(case_id) or {}
+    if row.get("status") != status:
+        missing.append(f"runtime semantic {case_id} status {status}")
+    if code is not None and row.get("code") != code:
+        missing.append(f"runtime semantic {case_id} code {code}")
+    correlation = set(row.get("correlation") or [])
+    if not {"request-id", "trace-id"}.issubset(correlation):
+        missing.append(f"runtime semantic {case_id} correlation identifiers")
+
 report = {
     "schema": "gofly.api_semantic_parity_report.v1",
     "fixture": "testdata/goctl-api-semantic/contract.api",
@@ -56,6 +82,9 @@ report = {
         "generatedProjectCompile": "pass" if not missing else "fail",
         "httpSmoke": "pass" if not missing else "fail",
         "invalidRequestEnvelope": "pass" if not missing else "fail",
+        "failureModes": runtime_semantics,
+        "assertions": ["status", "stable-error-envelope", "request-id", "trace-id", "body-shape", "context-cancellation"],
+        "excludedAssertions": ["log-timing", "implementation-only-fields"],
     },
     "openapi": {
         "locations": "pass" if not missing else "fail",

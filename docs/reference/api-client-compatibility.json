@@ -1,0 +1,60 @@
+{
+  "schema": "gofly.api_client_compatibility.v1",
+  "status": "blocking-contract",
+  "acceptanceGate": "make api-client-compatibility-check",
+  "fixtureManifest": "testdata/api-client-compatibility/manifest.json",
+  "languages": ["javascript", "typescript", "java", "kotlin", "dart"],
+  "classification": {
+    "apiCompatibility": ["compatible", "breaking"],
+    "sourceCompatibility": ["compatible", "breaking"],
+    "semanticCoverage": ["represented", "not-represented"]
+  },
+  "policy": {
+    "allFiveLanguagesMustGenerateForEveryFixturePair": true,
+    "repeatGenerationMustBeByteDeterministic": true,
+    "compatiblePairsMustPassAvailableToolchains": true,
+    "unacknowledgedBreakingPairsMustFail": true,
+    "missingLocalToolchainsRemainReportOnlyUnlessRequired": true,
+    "generatedOutputMustStayInsideTemporaryWorkRoot": true
+  },
+  "failureModes": [
+    {
+      "id": "missing-or-escaping-fixture",
+      "invariant": "Each base and target path is relative to testdata/api-client-compatibility and resolves to a regular file below that root.",
+      "rollbackOrEscalation": "Reject the fixture update; do not permit the compatibility gate to read arbitrary API definitions."
+    },
+    {
+      "id": "non-deterministic-client-output",
+      "invariant": "Two generations of the same language and API fixture must have the same SHA-256 digest.",
+      "rollbackOrEscalation": "Block the generator change and retain the last deterministic renderer."
+    },
+    {
+      "id": "lost-public-client-surface",
+      "invariant": "The computed target client surface must match the expected per-language compatibility classification.",
+      "rollbackOrEscalation": "Classify the removal as source-breaking and preserve an explicit migration path."
+    },
+    {
+      "id": "unacknowledged-breaking-change",
+      "invariant": "Every breaking API pair requires a non-empty acknowledgement id and reason.",
+      "rollbackOrEscalation": "Fail the gate until the API owner records a versioning decision or reverts the breaking fixture."
+    },
+    {
+      "id": "toolchain-regression-on-compatible-change",
+      "invariant": "Base and target outputs for compatible pairs pass every available selected language toolchain; required mode turns unavailable into failure.",
+      "rollbackOrEscalation": "Revert the client renderer regression while retaining the fixture and report evidence."
+    }
+  ],
+  "intentionalLimits": [
+    {
+      "surface": "go-zero options enum values",
+      "classification": "not-represented",
+      "reason": "Current JavaScript, TypeScript, Java, Kotlin, and Dart renderers expose options-constrained fields as scalar values, so enum changes remain API compatibility decisions even when the generated source surface is unchanged."
+    },
+    {
+      "surface": "success status-code and server JWT requirement",
+      "classification": "not-represented",
+      "reason": "Current clients accept the 2xx family and do not synthesize authentication credentials; source compatibility does not imply runtime API compatibility."
+    }
+  ],
+  "rollback": "Remove api-client-compatibility-check from aggregate API contract gates and revert its fixtures and report contract together; retain api-client-generation-check and api-client-toolchain-check."
+}

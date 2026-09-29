@@ -99,38 +99,61 @@ def detect_tool(language: str, root: pathlib.Path) -> tuple[str | None, dict[str
     return resolved, version
 
 
-def generate(root: pathlib.Path, work: pathlib.Path, language: str) -> tuple[pathlib.Path, dict[str, object]]:
+def generate(
+    root: pathlib.Path,
+    work: pathlib.Path,
+    language: str,
+    api_file: pathlib.Path,
+    gofly_bin: str | None,
+    base_url: str,
+) -> tuple[pathlib.Path, dict[str, object]]:
     output = work / "generated" / language
     output.mkdir(parents=True, exist_ok=True)
-    result = run(
+    command = [gofly_bin] if gofly_bin else [os.environ.get("GO", "go"), "run", "./cmd/gofly"]
+    command.extend(
         [
-            os.environ.get("GO", "go"),
-            "run",
-            "./cmd/gofly",
             "api",
             "client",
             "--file",
-            str(root / "testdata/goctl-api-semantic/contract.api"),
+            str(api_file),
             "--dir",
             str(output),
             "--language",
             language,
             "--base-url",
-            "http://127.0.0.1:18080",
-        ],
+            base_url,
+        ]
+    )
+    result = run(
+        command,
         cwd=root,
     )
     return output, result
 
 
+def generated_client_file(output: pathlib.Path, language: str) -> pathlib.Path:
+    files = [path for path in output.rglob("*") if path.is_file()]
+    if len(files) != 1:
+        raise ValueError(f"expected one generated {language} client file, got {len(files)}")
+    return files[0]
+
+
 def verify_javascript(root: pathlib.Path, output: pathlib.Path, tool: str) -> dict[str, object]:
-    source = output / "contract_client.js"
+    source = generated_client_file(output, "javascript")
     module = output / "contract_client.mjs"
     shutil.copyfile(source, module)
     return run([tool, str(root / "testdata/api-client-toolchain/javascript-runtime.mjs"), str(module)], cwd=output)
 
 
+def verify_javascript_syntax(output: pathlib.Path, tool: str) -> dict[str, object]:
+    source = generated_client_file(output, "javascript")
+    module = output / "generated_client_syntax.mjs"
+    shutil.copyfile(source, module)
+    return run([tool, "--check", str(module)], cwd=output)
+
+
 def verify_typescript(output: pathlib.Path, tool: str) -> dict[str, object]:
+    source = generated_client_file(output, "typescript")
     return run(
         [
             tool,
@@ -144,13 +167,14 @@ def verify_typescript(output: pathlib.Path, tool: str) -> dict[str, object]:
             "bundler",
             "--lib",
             "ES2022,DOM",
-            str(output / "contract_client.ts"),
+            str(source),
         ],
         cwd=output,
     )
 
 
 def verify_java(root: pathlib.Path, work: pathlib.Path, output: pathlib.Path, tool: str) -> dict[str, object]:
+    source = generated_client_file(output, "java")
     classes = work / "classes" / "java"
     classes.mkdir(parents=True, exist_ok=True)
     return run(
@@ -159,13 +183,14 @@ def verify_java(root: pathlib.Path, work: pathlib.Path, output: pathlib.Path, to
             "-d",
             str(classes),
             str(root / "testdata/api-client-toolchain/java/com/fasterxml/jackson/databind/ObjectMapper.java"),
-            str(output / "APIClient.java"),
+            str(source),
         ],
         cwd=output,
     )
 
 
 def verify_kotlin(root: pathlib.Path, work: pathlib.Path, output: pathlib.Path, tool: str) -> dict[str, object]:
+    source = generated_client_file(output, "kotlin")
     artifact = work / "classes" / "kotlin.jar"
     artifact.parent.mkdir(parents=True, exist_ok=True)
     return run(
@@ -173,7 +198,7 @@ def verify_kotlin(root: pathlib.Path, work: pathlib.Path, output: pathlib.Path, 
             tool,
             str(root / "testdata/api-client-toolchain/kotlin/Serialization.kt"),
             str(root / "testdata/api-client-toolchain/kotlin/Json.kt"),
-            str(output / "APIClient.kt"),
+            str(source),
             "-d",
             str(artifact),
         ],
@@ -182,9 +207,10 @@ def verify_kotlin(root: pathlib.Path, work: pathlib.Path, output: pathlib.Path, 
 
 
 def verify_dart(root: pathlib.Path, work: pathlib.Path, output: pathlib.Path, tool: str) -> dict[str, object]:
+    source = generated_client_file(output, "dart")
     project = work / "dart-project"
     (project / "lib").mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(output / "contract_client.dart", project / "lib/generated_client.dart")
+    shutil.copyfile(source, project / "lib/generated_client.dart")
     pubspec = (
         "name: gofly_api_client_check\n"
         "environment:\n  sdk: '>=3.9.0 <4.0.0'\n"
@@ -215,8 +241,17 @@ def verify_dart(root: pathlib.Path, work: pathlib.Path, output: pathlib.Path, to
     return analyze
 
 
-def verify(language: str, root: pathlib.Path, work: pathlib.Path, output: pathlib.Path, tool: str) -> dict[str, object]:
+def verify(
+    language: str,
+    root: pathlib.Path,
+    work: pathlib.Path,
+    output: pathlib.Path,
+    tool: str,
+    verification_profile: str,
+) -> dict[str, object]:
     if language == "javascript":
+        if verification_profile == "syntax":
+            return verify_javascript_syntax(output, tool)
         return verify_javascript(root, output, tool)
     if language == "typescript":
         return verify_typescript(output, tool)
@@ -282,11 +317,16 @@ def main() -> int:
     parser.add_argument("--report", required=True, type=pathlib.Path)
     parser.add_argument("--language", default="all")
     parser.add_argument("--required", default="false")
+    parser.add_argument("--api-file", type=pathlib.Path)
+    parser.add_argument("--gofly-bin")
+    parser.add_argument("--base-url", default="http://127.0.0.1:18080")
+    parser.add_argument("--verification-profile", choices=("semantic", "syntax"), default="semantic")
     args = parser.parse_args()
 
     root = args.root.resolve()
     work = args.work.resolve()
     report_path = args.report.resolve()
+    api_file = (args.api_file or (root / "testdata/goctl-api-semantic/contract.api")).resolve()
     try:
         required = parse_bool(args.required)
     except ValueError as error:
@@ -314,10 +354,12 @@ def main() -> int:
         return 2
 
     contract_errors = validate_contract(root)
+    if not api_file.is_file():
+        contract_errors.append(f"API client fixture is missing: {api_file}")
     if contract_errors:
         report = {
             "schema": "gofly.api_client_toolchain_report.v1",
-            "fixture": "testdata/goctl-api-semantic/contract.api",
+            "fixture": str(api_file),
             "required": required,
             "selected": selected,
             "status": "fail",
@@ -342,7 +384,7 @@ def main() -> int:
             "evidence": contract_row["evidence"],
         }
         try:
-            output, generation = generate(root, work, language)
+            output, generation = generate(root, work, language, api_file, args.gofly_bin, args.base_url)
         except OSError as error:
             output = work / "generated" / language
             generation = {
@@ -381,7 +423,7 @@ def main() -> int:
             results.append(entry)
             continue
         try:
-            verification = verify(language, root, work, output, tool)
+            verification = verify(language, root, work, output, tool, args.verification_profile)
         except (OSError, ValueError) as error:
             verification = {
                 "command": [],
@@ -403,8 +445,9 @@ def main() -> int:
     report = {
         "schema": "gofly.api_client_toolchain_report.v1",
         "contract": "docs/reference/api-client-toolchains.json",
-        "fixture": "testdata/goctl-api-semantic/contract.api",
+        "fixture": str(api_file),
         "required": required,
+        "verificationProfile": args.verification_profile,
         "selected": selected,
         "status": status,
         "results": results,

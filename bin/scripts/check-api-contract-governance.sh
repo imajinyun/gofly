@@ -30,8 +30,11 @@ required_checks = read_text(root / "docs" / "reference" / "ci-required-check-evi
 cli_contracts = read_text(root / "docs" / "reference" / "cli-json-contracts.md")
 openapi_script = read_text(root / "bin" / "scripts" / "check-openapi-validation-envelope.sh")
 rpc_script = read_text(root / "bin" / "scripts" / "check-rpc-boundary.sh")
+client_compatibility_script = read_text(root / "bin" / "scripts" / "check-api-client-compatibility.sh")
 openapi_manifest = read_text(root / "docs" / "reference" / "openapi-invalid-request-smoke.json")
 rpc_manifest = read_text(root / "docs" / "reference" / "rpc-tier1-evidence.json")
+client_compatibility_manifest = read_text(root / "docs" / "reference" / "api-client-compatibility.json")
+client_compatibility_fixtures = read_text(root / "testdata" / "api-client-compatibility" / "manifest.json")
 
 try:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -50,7 +53,7 @@ target = re.search(
 require(target is not None, "Makefile target api-contract-check is missing")
 deps = target.group("deps") if target else ""
 body = target.group("body") if target else ""
-for dep in ("api-semantic-parity-check", "api-client-toolchain-check", "openapi-validation-check", "openapi-roundtrip-check", "rpc-boundary-check"):
+for dep in ("api-semantic-parity-check", "api-client-toolchain-check", "api-client-compatibility-check", "openapi-validation-check", "openapi-roundtrip-check", "rpc-boundary-check"):
     require(dep in deps, f"api-contract-check must depend on {dep}")
 require(
     "check-api-contract-governance.sh" in body,
@@ -95,7 +98,7 @@ for needle in (
 require(manifest.get("schema") == "gofly.api_contract_governance.v1", "api contract governance schema mismatch")
 require(manifest.get("aiflowTask") == "GOFLY-GOV-10R3-07", "api contract governance aiflowTask mismatch")
 require(manifest.get("acceptanceGate") == "make api-contract-check", "api contract governance acceptanceGate mismatch")
-require(set(manifest.get("childGates") or []) == {"make api-semantic-parity-check", "make api-client-toolchain-check", "make openapi-validation-check", "make openapi-roundtrip-check", "make rpc-boundary-check"}, "api contract governance childGates mismatch")
+require(set(manifest.get("childGates") or []) == {"make api-semantic-parity-check", "make api-client-toolchain-check", "make api-client-compatibility-check", "make openapi-validation-check", "make openapi-roundtrip-check", "make rpc-boundary-check"}, "api contract governance childGates mismatch")
 aggregate_gates = set(manifest.get("aggregateGates") or [])
 for gate in ("make api-contract-governance-check", "make docs-check", "make contract-docs-check"):
     require(gate in aggregate_gates, f"api contract governance aggregateGates missing {gate}")
@@ -111,6 +114,7 @@ for key in (
     "goZeroPathParametersMustUseRuntimeServeMuxSyntax",
     "generatedClientsMustPreserveFieldLocations",
     "generatedClientsMustPassLanguageToolchains",
+    "generatedClientCompatibilityMustBeVersionedAndBlocking",
     "documentedSuccessStatusMustMatchRuntimeResponse",
     "apiSemanticParityMustCompileAndRunBothProfiles",
     "openapiImportExportRoundTripMustBeBlocking",
@@ -124,6 +128,7 @@ for key in (
 surface_ids = {item.get("id") for item in manifest.get("surfaces") or [] if isinstance(item, dict)}
 required_surfaces = {
     "api-client-toolchain-verification",
+    "api-client-versioned-compatibility",
     "api-semantic-parity",
     "openapi-import-export-roundtrip",
     "rest-openapi-validation-envelope",
@@ -159,6 +164,12 @@ for item in manifest.get("surfaces") or []:
 
 for needle in ("gofly.openapi_invalid_request_smoke.v1", "rest.ErrorResponse", "generated-service-invalid-request"):
     require(needle in openapi_manifest, f"openapi invalid request smoke missing {needle!r}")
+for needle in ("gofly.api_client_compatibility.v1", "unacknowledgedBreakingPairsMustFail", "not-represented"):
+    require(needle in client_compatibility_manifest, f"api client compatibility contract missing {needle!r}")
+for needle in ("optional-field-addition", "enum-value-removal", "auth-requirement-change"):
+    require(needle in client_compatibility_fixtures, f"api client compatibility fixtures missing {needle!r}")
+for needle in ("gofly.api_client_compatibility_report.v1", "sourceCompatibility", "acknowledged"):
+    require(needle in client_compatibility_script, f"api client compatibility gate missing {needle!r}")
 for needle in ("gofly.rpc_tier1_evidence.v1", "rpc-release-train-missing", "rpc-budget-report-only"):
     require(needle in rpc_manifest, f"rpc tier1 evidence missing {needle!r}")
 for needle in ("contract-check", "contract / api+rpc (check + breaking)", "stable-surface and API/RPC contract checks must remain release-blocking"):

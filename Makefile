@@ -322,6 +322,10 @@ api-client-generation-check: ## Validate multi-language API client generation fi
 api-client-toolchain-check: ## Compile or execute generated API clients with available language toolchains
 	sh $(SCRIPTS_DIR)/check-api-client-toolchains.sh
 
+.PHONY: api-client-compatibility-check
+api-client-compatibility-check: ## Verify versioned generated API client compatibility contracts
+	sh $(SCRIPTS_DIR)/check-api-client-compatibility.sh
+
 .PHONY: api-semantic-parity-check
 api-semantic-parity-check: ## Validate goctl API grammar, generated profiles, runtime binding, and OpenAPI semantics
 	sh $(SCRIPTS_DIR)/check-api-semantic-parity.sh
@@ -478,7 +482,7 @@ openapi-roundtrip-check: ## Verify OpenAPI import, generated service, and export
 	sh $(SCRIPTS_DIR)/check-openapi-roundtrip.sh
 
 .PHONY: api-contract-check
-api-contract-check: api-semantic-parity-check api-client-toolchain-check openapi-validation-check openapi-roundtrip-check rpc-boundary-check ## Validate REST/OpenAPI and RPC boundary contracts
+api-contract-check: api-semantic-parity-check api-client-toolchain-check api-client-compatibility-check openapi-validation-check openapi-roundtrip-check rpc-boundary-check ## Validate REST/OpenAPI and RPC boundary contracts
 	sh $(SCRIPTS_DIR)/check-api-contract-governance.sh
 
 .PHONY: api-contract-governance-check

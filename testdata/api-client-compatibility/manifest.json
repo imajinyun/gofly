@@ -1,0 +1,168 @@
+{
+  "schema": "gofly.api_client_compatibility_fixtures.v1",
+  "languages": ["javascript", "typescript", "java", "kotlin", "dart"],
+  "failureModes": [
+    "fixture-pair-is-missing-or-escapes-its-root",
+    "generated-client-is-not-byte-deterministic",
+    "base-public-client-surface-is-lost-in-target-output",
+    "compatible-change-fails-an-available-language-toolchain",
+    "breaking-api-change-has-no-explicit-acknowledgement",
+    "source-compatible-client-hides-an-unrepresented-api-semantics-change"
+  ],
+  "cases": [
+    {
+      "id": "optional-field-addition",
+      "base": "optional-field-addition/base.api",
+      "target": "optional-field-addition/target.api",
+      "change": "optional-field-addition",
+      "apiCompatibility": "compatible",
+      "sourceCompatibility": {
+        "javascript": "compatible",
+        "typescript": "compatible",
+        "java": "compatible",
+        "kotlin": "compatible",
+        "dart": "compatible"
+      },
+      "semanticCoverage": "represented",
+      "assertions": ["Nickname", "json:\"nickname,optional\""],
+      "toolchainValidation": "base-and-target"
+    },
+    {
+      "id": "required-field-addition",
+      "base": "required-field-addition/base.api",
+      "target": "required-field-addition/target.api",
+      "change": "required-field-addition",
+      "apiCompatibility": "breaking",
+      "sourceCompatibility": {
+        "javascript": "compatible",
+        "typescript": "compatible",
+        "java": "compatible",
+        "kotlin": "compatible",
+        "dart": "compatible"
+      },
+      "semanticCoverage": "represented",
+      "assertions": ["Priority", "json:\"priority\""],
+      "acknowledgement": {
+        "id": "API-CLIENT-COMPAT-REQUIRED-FIELD",
+        "reason": "Servers reject requests produced by an older client when the newly added request field is required."
+      }
+    },
+    {
+      "id": "field-rename-removal",
+      "base": "field-rename-removal/base.api",
+      "target": "field-rename-removal/target.api",
+      "change": "field-rename-removal",
+      "apiCompatibility": "breaking",
+      "sourceCompatibility": {
+        "javascript": "compatible",
+        "typescript": "breaking",
+        "java": "breaking",
+        "kotlin": "breaking",
+        "dart": "breaking"
+      },
+      "semanticCoverage": "represented",
+      "assertions": ["LegacyName", "DisplayName"],
+      "acknowledgement": {
+        "id": "API-CLIENT-COMPAT-FIELD-RENAME",
+        "reason": "Removing the legacy wire field changes typed client request models and drops the old payload key."
+      }
+    },
+    {
+      "id": "enum-value-addition",
+      "base": "enum-value-addition/base.api",
+      "target": "enum-value-addition/target.api",
+      "change": "enum-value-addition",
+      "apiCompatibility": "compatible",
+      "sourceCompatibility": {
+        "javascript": "compatible",
+        "typescript": "compatible",
+        "java": "compatible",
+        "kotlin": "compatible",
+        "dart": "compatible"
+      },
+      "semanticCoverage": "not-represented",
+      "assertions": ["options=[active,disabled]", "options=[active,disabled,paused]"],
+      "toolchainValidation": "base-and-target"
+    },
+    {
+      "id": "enum-value-removal",
+      "base": "enum-value-removal/base.api",
+      "target": "enum-value-removal/target.api",
+      "change": "enum-value-removal",
+      "apiCompatibility": "breaking",
+      "sourceCompatibility": {
+        "javascript": "compatible",
+        "typescript": "compatible",
+        "java": "compatible",
+        "kotlin": "compatible",
+        "dart": "compatible"
+      },
+      "semanticCoverage": "not-represented",
+      "assertions": ["options=[active,disabled]", "options=[active]"],
+      "acknowledgement": {
+        "id": "API-CLIENT-COMPAT-ENUM-REMOVAL",
+        "reason": "The client renderers expose this go-zero options constraint as a scalar, so a removed accepted value is API-breaking even though generated source remains unchanged."
+      }
+    },
+    {
+      "id": "status-code-change",
+      "base": "status-code-change/base.api",
+      "target": "status-code-change/target.api",
+      "change": "status-code-change",
+      "apiCompatibility": "breaking",
+      "sourceCompatibility": {
+        "javascript": "compatible",
+        "typescript": "compatible",
+        "java": "compatible",
+        "kotlin": "compatible",
+        "dart": "compatible"
+      },
+      "semanticCoverage": "not-represented",
+      "assertions": ["respCode: \"200\"", "respCode: \"201\""],
+      "acknowledgement": {
+        "id": "API-CLIENT-COMPAT-STATUS-CODE",
+        "reason": "A documented successful status-code transition is API-breaking even when current generated clients accept the whole 2xx family."
+      }
+    },
+    {
+      "id": "path-change",
+      "base": "path-change/base.api",
+      "target": "path-change/target.api",
+      "change": "path-change",
+      "apiCompatibility": "breaking",
+      "sourceCompatibility": {
+        "javascript": "compatible",
+        "typescript": "breaking",
+        "java": "breaking",
+        "kotlin": "breaking",
+        "dart": "breaking"
+      },
+      "semanticCoverage": "represented",
+      "assertions": ["/widgets/:id", "/widgets/:widgetId", "path:\"widgetId\""],
+      "acknowledgement": {
+        "id": "API-CLIENT-COMPAT-PATH",
+        "reason": "The generated method name survives, but an existing deployed client still calls the former HTTP path."
+      }
+    },
+    {
+      "id": "auth-requirement-change",
+      "base": "auth-requirement-change/base.api",
+      "target": "auth-requirement-change/target.api",
+      "change": "auth-requirement-change",
+      "apiCompatibility": "breaking",
+      "sourceCompatibility": {
+        "javascript": "compatible",
+        "typescript": "compatible",
+        "java": "compatible",
+        "kotlin": "compatible",
+        "dart": "compatible"
+      },
+      "semanticCoverage": "not-represented",
+      "assertions": ["@server(prefix: /api/v1)", "jwt: required"],
+      "acknowledgement": {
+        "id": "API-CLIENT-COMPAT-AUTH",
+        "reason": "Adding a JWT requirement changes runtime admission while current generated clients have no auth configuration surface."
+      }
+    }
+  ]
+}

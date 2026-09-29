@@ -5,6 +5,7 @@
   "childGates": [
     "make api-semantic-parity-check",
     "make api-client-toolchain-check",
+    "make api-client-compatibility-check",
     "make openapi-validation-check",
     "make openapi-roundtrip-check",
     "make rpc-boundary-check"
@@ -32,6 +33,7 @@
     "goZeroPathParametersMustUseRuntimeServeMuxSyntax": true,
     "generatedClientsMustPreserveFieldLocations": true,
     "generatedClientsMustPassLanguageToolchains": true,
+    "generatedClientCompatibilityMustBeVersionedAndBlocking": true,
     "documentedSuccessStatusMustMatchRuntimeResponse": true,
     "apiSemanticParityMustCompileAndRunBothProfiles": true,
     "openapiImportExportRoundTripMustBeBlocking": true,
@@ -66,6 +68,37 @@
           "contains": [
             "API_CLIENT_TOOLCHAIN_REQUIRED",
             "API_CLIENT_TOOLCHAIN_REPORT"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "api-client-versioned-compatibility",
+      "risk": "A generated client can compile while a versioned API change removes a typed public field or changes a runtime contract that the renderer does not represent.",
+      "gate": "make api-client-compatibility-check",
+      "evidenceRefs": [
+        {
+          "path": "docs/reference/api-client-compatibility.json",
+          "contains": [
+            "gofly.api_client_compatibility.v1",
+            "unacknowledgedBreakingPairsMustFail",
+            "not-represented"
+          ]
+        },
+        {
+          "path": "testdata/api-client-compatibility/manifest.json",
+          "contains": [
+            "optional-field-addition",
+            "enum-value-removal",
+            "auth-requirement-change"
+          ]
+        },
+        {
+          "path": "bin/scripts/check-api-client-compatibility.sh",
+          "contains": [
+            "gofly.api_client_compatibility_report.v1",
+            "sourceCompatibility",
+            "acknowledged"
           ]
         }
       ]

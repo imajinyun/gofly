@@ -107,8 +107,16 @@ func TestOpenAPIConversionContractBoundaries(t *testing.T) {
 		t.Fatalf("response name = %q", got)
 	}
 	request, ok := openAPIRequestMessage("CreateUserRequest", operation, components)
-	if !ok || len(request.Fields) != 4 {
+	request = openAPIRequestMessageWithParameterTags(request, operation.Parameters)
+	if !ok || len(request.Fields) != 5 {
 		t.Fatalf("merged request = %+v, %t", request, ok)
+	}
+	tags := map[string]string{}
+	for _, field := range request.Fields {
+		tags[field.Name] = field.Tag
+	}
+	if tags["Id"] != `path:"id"` || tags["Filter"] != `form:"filter,optional"` || tags["Tenant"] != `header:"tenant,optional"` {
+		t.Fatalf("OpenAPI parameter binding tags = %#v", tags)
 	}
 	if _, ok := openAPIRequestMessage("", operation, components); ok {
 		t.Fatal("empty request name should not produce a message")

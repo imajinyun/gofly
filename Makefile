@@ -473,8 +473,12 @@ plugin-external-governance-check: ## Validate plugin external process, download,
 openapi-validation-check: ## Validate OpenAPI, binding, validation, and error envelope contracts
 	$(GO) test $(TESTFLAGS) ./rest/... ./cmd/gofly/internal/generator -run 'Test.*OpenAPI|Test.*Validation|Test.*Error'
 
+.PHONY: openapi-roundtrip-check
+openapi-roundtrip-check: ## Verify OpenAPI import, generated service, and export round-trip evidence
+	sh $(SCRIPTS_DIR)/check-openapi-roundtrip.sh
+
 .PHONY: api-contract-check
-api-contract-check: api-semantic-parity-check api-client-toolchain-check openapi-validation-check rpc-boundary-check ## Validate REST/OpenAPI and RPC boundary contracts
+api-contract-check: api-semantic-parity-check api-client-toolchain-check openapi-validation-check openapi-roundtrip-check rpc-boundary-check ## Validate REST/OpenAPI and RPC boundary contracts
 	sh $(SCRIPTS_DIR)/check-api-contract-governance.sh
 
 .PHONY: api-contract-governance-check

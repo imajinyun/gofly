@@ -1,0 +1,14 @@
+{
+  "schema": "gofly.openapi_roundtrip_fixture.v1",
+  "source": ["roundtrip.json", "roundtrip.yaml"],
+  "referencePolicy": {
+    "allowed": ["#/components/schemas/Widget", "#/components/parameters/WidgetID"],
+    "rejected": ["https://example.invalid/widget.json#/Widget", "../outside.yaml#/Widget"]
+  },
+  "classification": {
+    "preserved": ["paths:/widgets/{id}:get", "paths:/widgets/{id}:delete", "paths:/widgets:post", "path-parameter:id", "query-parameter:verbose", "header-parameter:X-Tenant-ID", "response:204"],
+    "normalized-compatible": ["OpenAPI required markers become gofly validation tags", "component references become named gofly IDL messages"],
+    "unsupported": ["securitySchemes", "enum-values", "additionalProperties maps"],
+    "breaking": []
+  }
+}

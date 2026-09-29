@@ -443,6 +443,9 @@ func GenerateAPIFromOpenAPI(opts APIImportOptions) error {
 	if err != nil {
 		return fmt.Errorf("read openapi file: %w", err)
 	}
+	if err := validateOpenAPIReferenceBoundary(content); err != nil {
+		return err
+	}
 	doc, err := parseOpenAPIToIDL(content, opts.Service)
 	if err != nil {
 		return err
@@ -1404,7 +1407,8 @@ type openAPIRequestBody struct {
 }
 
 type openAPIResponse struct {
-	Content map[string]openAPIMediaType `json:"content" yaml:"content"`
+	Description string                      `json:"description" yaml:"description"`
+	Content     map[string]openAPIMediaType `json:"content" yaml:"content"`
 }
 
 type openAPIMediaType struct {
@@ -1415,6 +1419,7 @@ type openAPISpecSchema struct {
 	Ref        string                       `json:"$ref" yaml:"$ref"`
 	Type       string                       `json:"type" yaml:"type"`
 	Format     string                       `json:"format" yaml:"format"`
+	Required   []string                     `json:"required" yaml:"required"`
 	Properties map[string]openAPISpecSchema `json:"properties" yaml:"properties"`
 	Items      *openAPISpecSchema           `json:"items" yaml:"items"`
 }
@@ -1466,6 +1471,7 @@ func parseOpenAPIToIDL(content []byte, serviceName string) (IDLDocument, error) 
 			handler := openAPIOperationName(method, path, operation)
 			request := openAPIRequestName(handler, operation)
 			if msg, ok := openAPIRequestMessage(request, operation, components); ok {
+				msg = openAPIRequestMessageWithParameterTags(msg, operation.Parameters)
 				messageByName[exportName(msg.Name)] = msg
 			}
 			response := openAPIResponseName(handler, operation)
@@ -1473,10 +1479,7 @@ func parseOpenAPIToIDL(content []byte, serviceName string) (IDLDocument, error) 
 				messageByName[response] = openAPISchemaToMessage(response, schema, components)
 			}
 			if response == "" {
-				response = "EmptyResponse"
-				if _, ok := messageByName[response]; !ok {
-					messageByName[response] = IDLMessage{Name: response}
-				}
+				response = ""
 			}
 			doc.Services[0].Methods = append(doc.Services[0].Methods, IDLMethod{
 				Name:       handler,
@@ -1485,6 +1488,7 @@ func parseOpenAPIToIDL(content []byte, serviceName string) (IDLDocument, error) 
 				Response:   response,
 				HTTPMethod: strings.ToUpper(method),
 				HTTPPath:   path,
+				Doc:        openAPIOperationDoc(operation),
 			})
 		}
 	}
@@ -1510,6 +1514,69 @@ func unmarshalOpenAPI(content []byte, spec *openAPIDocument) error {
 	}
 	if err := yaml.Unmarshal(trimmed, spec); err != nil {
 		return fmt.Errorf("parse openapi yaml: %w", err)
+	}
+	return nil
+}
+
+// validateOpenAPIReferenceBoundary rejects external documents before the
+// importer interprets the OpenAPI payload. Import is deliberately a single
+// file operation: allowing HTTP(S), absolute paths, or parent traversal here
+// would silently expand it into a network or filesystem traversal feature.
+// Local document references remain supported through JSON Pointer values.
+func validateOpenAPIReferenceBoundary(content []byte) error {
+	trimmed := bytes.TrimSpace(content)
+	if len(trimmed) == 0 {
+		return errors.New("openapi source file is empty")
+	}
+	var raw any
+	if trimmed[0] == '{' || trimmed[0] == '[' {
+		if err := json.Unmarshal(trimmed, &raw); err != nil {
+			return fmt.Errorf("parse openapi json: %w", err)
+		}
+	} else if err := yaml.Unmarshal(trimmed, &raw); err != nil {
+		return fmt.Errorf("parse openapi yaml: %w", err)
+	}
+	return validateOpenAPIReferenceValue(raw)
+}
+
+func validateOpenAPIReferenceValue(value any) error {
+	switch current := value.(type) {
+	case map[string]any:
+		for key, nested := range current {
+			if key == "$ref" {
+				if err := validateOpenAPIReference(nested); err != nil {
+					return err
+				}
+			}
+			if err := validateOpenAPIReferenceValue(nested); err != nil {
+				return err
+			}
+		}
+	case map[any]any:
+		for key, nested := range current {
+			if keyText, ok := key.(string); ok && keyText == "$ref" {
+				if err := validateOpenAPIReference(nested); err != nil {
+					return err
+				}
+			}
+			if err := validateOpenAPIReferenceValue(nested); err != nil {
+				return err
+			}
+		}
+	case []any:
+		for _, nested := range current {
+			if err := validateOpenAPIReferenceValue(nested); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateOpenAPIReference(value any) error {
+	ref, ok := value.(string)
+	if !ok || !strings.HasPrefix(strings.TrimSpace(ref), "#/") {
+		return fmt.Errorf("only local OpenAPI references are supported: %q", ref)
 	}
 	return nil
 }
@@ -1570,9 +1637,17 @@ func openAPISchemaToMessage(name string, schema openAPISpecSchema, components ma
 		schema = components[name]
 	}
 	msg := IDLMessage{Name: exportName(name)}
+	required := make(map[string]struct{}, len(schema.Required))
+	for _, fieldName := range schema.Required {
+		required[fieldName] = struct{}{}
+	}
 	for _, fieldName := range sortedSchemaNames(schema.Properties) {
 		field := schema.Properties[fieldName]
-		msg.Fields = append(msg.Fields, IDLField{Name: exportName(fieldName), Type: openAPISchemaType(field, components)})
+		tag := fmt.Sprintf("json:%q", fieldName)
+		if _, ok := required[fieldName]; !ok {
+			tag = fmt.Sprintf("json:%q", fieldName+",omitempty")
+		}
+		msg.Fields = append(msg.Fields, IDLField{Name: exportName(fieldName), Type: openAPISchemaType(field, components), Tag: tag})
 	}
 	return msg
 }
@@ -1694,11 +1769,47 @@ func openAPIMediaSchema(content map[string]openAPIMediaType) (openAPISpecSchema,
 
 func hasOpenAPIRequestParams(params []openAPIParameter) bool {
 	for _, param := range params {
-		if param.In == "path" || param.In == "query" {
+		if param.In == "path" || param.In == "query" || param.In == "header" {
 			return true
 		}
 	}
 	return false
+}
+
+func openAPIOperationDoc(operation openAPIOperation) map[string]string {
+	type responseEntry struct {
+		code        int
+		description string
+	}
+	entries := make([]responseEntry, 0, len(operation.Responses))
+	for rawCode, response := range operation.Responses {
+		code, err := strconv.Atoi(strings.TrimSpace(rawCode))
+		if err != nil || code < 100 || code > 599 {
+			continue
+		}
+		entries = append(entries, responseEntry{code: code, description: strings.TrimSpace(response.Description)})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].code < entries[j].code })
+	doc := map[string]string{}
+	var errors []string
+	for _, entry := range entries {
+		if entry.code >= http.StatusOK && entry.code < http.StatusMultipleChoices {
+			if _, exists := doc["respcode"]; !exists {
+				doc["respcode"] = strconv.Itoa(entry.code)
+			}
+			continue
+		}
+		if entry.code >= http.StatusBadRequest && entry.description != "" {
+			errors = append(errors, fmt.Sprintf("%d - %s", entry.code, entry.description))
+		}
+	}
+	if len(errors) > 0 {
+		doc["responses"] = strings.Join(errors, "<br>")
+	}
+	if len(doc) == 0 {
+		return nil
+	}
+	return doc
 }
 
 func openAPIRequestMessage(name string, operation openAPIOperation, components map[string]openAPISpecSchema) (IDLMessage, bool) {
@@ -1739,12 +1850,51 @@ func openAPIRequestMessage(name string, operation openAPIOperation, components m
 func openAPIParamsSchema(params []openAPIParameter) openAPISpecSchema {
 	props := map[string]openAPISpecSchema{}
 	for _, param := range params {
-		if param.In != "path" && param.In != "query" {
+		if param.In != "path" && param.In != "query" && param.In != "header" {
 			continue
 		}
 		props[param.Name] = param.Schema
 	}
 	return openAPISpecSchema{Type: "object", Properties: props}
+}
+
+// openAPIRequestMessageWithParameterTags preserves the binding location of
+// parameters that OpenAPI keeps outside request bodies. Without these tags a
+// generated service treats path and header values as JSON fields, which both
+// breaks runtime binding and changes the re-exported OpenAPI contract.
+func openAPIRequestMessageWithParameterTags(message IDLMessage, params []openAPIParameter) IDLMessage {
+	byName := make(map[string]openAPIParameter, len(params))
+	for _, param := range params {
+		name := strings.TrimSpace(param.Name)
+		if name == "" {
+			continue
+		}
+		byName[exportName(name)] = param
+	}
+	for index := range message.Fields {
+		param, ok := byName[exportName(message.Fields[index].Name)]
+		if !ok {
+			continue
+		}
+		name := strings.TrimSpace(param.Name)
+		switch strings.ToLower(strings.TrimSpace(param.In)) {
+		case "path":
+			message.Fields[index].Tag = fmt.Sprintf("path:%q", name)
+		case "query":
+			if param.Required {
+				message.Fields[index].Tag = fmt.Sprintf("form:%q", name)
+			} else {
+				message.Fields[index].Tag = fmt.Sprintf("form:%q", name+",optional")
+			}
+		case "header":
+			if param.Required {
+				message.Fields[index].Tag = fmt.Sprintf("header:%q", name)
+			} else {
+				message.Fields[index].Tag = fmt.Sprintf("header:%q", name+",optional")
+			}
+		}
+	}
+	return message
 }
 
 func openAPIPathItemParameters(item openAPIPathItem, components map[string]openAPIParameter) []openAPIParameter {

@@ -1,0 +1,11 @@
+openapi: 3.0.3
+info:
+  title: Widget YAML API
+  version: 1.0.0
+paths:
+  /health:
+    get:
+      operationId: health
+      responses:
+        "204":
+          description: Healthy

@@ -1,0 +1,34 @@
+{
+  "schema": "gofly.openapi_roundtrip.v1",
+  "status": "blocking",
+  "acceptanceGate": "make openapi-roundtrip-check",
+  "pipeline": [
+    "OpenAPI 3 JSON or YAML",
+    "gofly API IDL",
+    "gozero-compatible generated service",
+    "generated service route smoke",
+    "OpenAPI 3 export"
+  ],
+  "fixtures": {
+    "root": "testdata/openapi-roundtrip",
+    "positive": ["roundtrip.json", "roundtrip.yaml"],
+    "rejectedReferences": ["remote-ref.json", "escape-ref.yaml"]
+  },
+  "referencePolicy": {
+    "localJSONPointerOnly": true,
+    "rejected": ["remote HTTP(S) references", "absolute filesystem references", "parent-directory traversal"],
+    "futureExtensionPolicy": "External references require a separately approved checksum-pinned downloader with size limits, timeouts, and temporary-file cleanup."
+  },
+  "classification": {
+    "preserved": ["route paths and methods", "path/query/header parameter locations", "JSON and YAML input", "response-less routes", "component schema references"],
+    "normalizedCompatible": ["OpenAPI required markers become gofly validation tags", "operation IDs are exported as Go identifiers"],
+    "unsupported": ["security schemes", "enum value sets", "additionalProperties map schemas"],
+    "breaking": []
+  },
+  "verification": {
+    "test": "TestOpenAPIRoundTripContract",
+    "generatedModule": "go mod tidy && go test ./...",
+    "runtimeSmoke": "generated routes bind path, query, and required header values",
+    "rollback": "Remove the round-trip gate and revert the importer changes together; do not accept external references as a compatibility workaround."
+  }
+}

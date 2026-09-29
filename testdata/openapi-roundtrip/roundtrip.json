@@ -1,0 +1,41 @@
+{
+  "openapi": "3.0.3",
+  "info": {"title": "Widget API", "version": "1.0.0"},
+  "paths": {
+    "/widgets/{id}": {
+      "get": {
+        "operationId": "getWidget",
+        "security": [{"BearerAuth": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/WidgetID"},
+          {"name": "verbose", "in": "query", "schema": {"type": "boolean"}},
+          {"name": "X-Tenant-ID", "in": "header", "required": true, "schema": {"type": "string"}}
+        ],
+        "responses": {
+          "200": {"description": "Widget", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Widget"}}}},
+          "404": {"description": "Not found"}
+        }
+      },
+      "delete": {
+        "operationId": "deleteWidget",
+        "parameters": [{"$ref": "#/components/parameters/WidgetID"}],
+        "responses": {"204": {"description": "Deleted"}}
+      }
+    },
+    "/widgets": {
+      "post": {
+        "operationId": "createWidget",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateWidgetRequest"}}}},
+        "responses": {"201": {"description": "Created", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Widget"}}}}}
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {"BearerAuth": {"type": "http", "scheme": "bearer"}},
+    "parameters": {"WidgetID": {"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}},
+    "schemas": {
+      "CreateWidgetRequest": {"type": "object", "required": ["name"], "properties": {"name": {"type": "string", "enum": ["basic", "premium"]}, "labels": {"type": "array", "items": {"type": "string"}}, "attributes": {"type": "object", "additionalProperties": {"type": "string"}}}},
+      "Widget": {"type": "object", "required": ["id", "name"], "properties": {"id": {"type": "string"}, "name": {"type": "string"}, "labels": {"type": "array", "items": {"type": "string"}}, "attributes": {"type": "object", "additionalProperties": {"type": "string"}}}}
+    }
+  }
+}

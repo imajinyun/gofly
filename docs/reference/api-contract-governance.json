@@ -6,6 +6,7 @@
     "make api-semantic-parity-check",
     "make api-client-toolchain-check",
     "make openapi-validation-check",
+    "make openapi-roundtrip-check",
     "make rpc-boundary-check"
   ],
   "aggregateGates": [
@@ -19,6 +20,8 @@
     "rpc/admin.go",
     "cmd/gofly/internal/generator/templates.go",
     "cmd/gofly/internal/generator/idl_test.go",
+    "cmd/gofly/internal/generator/openapi_roundtrip_test.go",
+    "cmd/gofly/internal/generator/api_codegen.go",
     "cmd/gofly/internal/command/rpc_descriptor_command.go",
     "cmd/gofly/internal/command/release/release.go"
   ],
@@ -31,6 +34,7 @@
     "generatedClientsMustPassLanguageToolchains": true,
     "documentedSuccessStatusMustMatchRuntimeResponse": true,
     "apiSemanticParityMustCompileAndRunBothProfiles": true,
+    "openapiImportExportRoundTripMustBeBlocking": true,
     "rpcTier1PromotionRequiresReleaseTrainEvidence": true,
     "rpcLatencyRemainsReportOnlyUntilBudgetPromotion": true,
     "gatewayAndDescriptorContractsUseAggregateGate": true,
@@ -85,6 +89,28 @@
             "gofly.api_semantic_parity_report.v1",
             "APISemanticReplay",
             "GOZERO_ROOT"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "openapi-import-export-roundtrip",
+      "risk": "OpenAPI import can appear successful while losing request binding locations or accepting external reference traversal.",
+      "gate": "make openapi-roundtrip-check",
+      "evidenceRefs": [
+        {
+          "path": "docs/reference/openapi-roundtrip.json",
+          "contains": [
+            "gofly.openapi_roundtrip.v1",
+            "localJSONPointerOnly",
+            "generated service route smoke"
+          ]
+        },
+        {
+          "path": "bin/scripts/check-openapi-roundtrip.sh",
+          "contains": [
+            "gofly.openapi_roundtrip_report.v1",
+            "TestOpenAPIRoundTripContract"
           ]
         }
       ]

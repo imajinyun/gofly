@@ -1935,7 +1935,8 @@ func TestWithoutMaxConcurrencyDisablesGlobalRouteLimit(t *testing.T) {
 		MaxConcurrency:       true,
 		MaxConcurrencyConfig: MaxConcurrencyConfig{Limit: 1},
 	}})
-	entered := make(chan struct{})
+	// Preserve the entry notification even if the handler runs before the receiver.
+	entered := make(chan struct{}, 1)
 	release := make(chan struct{})
 	s.AddRoute(Route{Method: http.MethodGet, Path: "/limited", Handler: func(ctx *Context) {
 		select {

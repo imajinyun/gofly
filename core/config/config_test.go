@@ -317,7 +317,7 @@ func TestManagerWatchProviderUsesCallerInterval(t *testing.T) {
 		}
 	}()
 	time.Sleep(2 * time.Millisecond)
-	if err := os.WriteFile(path, []byte(`{"name":"provider-watch"}`), 0o644); err != nil {
+	if err := writeConfigAtomically(path, []byte(`{"name":"provider-watch"}`)); err != nil {
 		t.Fatal(err)
 	}
 	select {

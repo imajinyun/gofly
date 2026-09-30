@@ -50,8 +50,8 @@
       "status": "report-only",
       "gate": "make goctl-oracle-replay-check",
       "contract": "docs/reference/goctl-oracle-replay.json",
-      "summary": "Real goctl output is compared against gofly output with version metadata and failure classes; layout differences and goctl generation errors remain report-only.",
-      "reportOnlyClasses": ["goctl-generation-error", "report-only-layout-difference", "report-only-compatible-difference", "report-only-unknown"]
+      "summary": "A pinned goctl checkout enables dual generation, module compilation, HTTP smoke, and classified migration proof; an unavailable external checkout remains an explicit non-accepting report-only result.",
+      "reportOnlyClasses": ["external-source-unavailable", "layout-difference", "model-layout-difference", "config-layout-difference"]
     },
     {
       "id": "real-project-replay",
@@ -92,7 +92,7 @@
     "Run make goctl-surface-drift-check to review report-only goctl command-surface drift before release notes are written.",
     "Run make goctl-generator-compat-check for generator, API flag, RPC protoc, model parity, API client toolchains, and zRPC compatibility.",
     "Run make goctl-real-project-replay-check before promoting migration compatibility claims.",
-    "Treat oracle replay layout differences as report-only unless a future contract promotes byte-for-byte layout parity."
+    "Run the pinned oracle command before accepting a migration claim; treat classified layout differences as evidence rather than byte-for-byte parity."
   ],
   "claimPolicy": {
     "allowed": "Docs and release notes may claim go-zero-compatible behavior and configuration migration coverage only for stages with blocking gates or explicit report-only labels.",

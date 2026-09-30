@@ -1,0 +1,55 @@
+syntax = "v1"
+
+import "types/common.api"
+
+type CreateInventoryRequest {
+	SKU         string    `json:"sku"`
+	WarehouseID int64     `json:"warehouseId"`
+	Available   int64     `json:"available"`
+	Meta        AuditMeta `json:"meta"`
+}
+
+type CreateInventoryResponse {
+	ID      int64 `json:"id"`
+	Version int64 `json:"version"`
+}
+
+type GetInventoryRequest {
+	ID        int64  `path:"id"`
+	RequestID string `header:"X-Request-ID,optional"`
+}
+
+type GetInventoryResponse {
+	ID        int64  `json:"id"`
+	SKU       string `json:"sku"`
+	Available int64  `json:"available"`
+	Version   int64  `json:"version"`
+}
+
+type ListInventoryRequest {
+	Page        PageRequest `form:"page,optional"`
+	WarehouseID int64       `form:"warehouseId,optional"`
+}
+
+type ListInventoryResponse {
+	Items []GetInventoryResponse `json:"items"`
+	Page  PageResponse           `json:"page"`
+}
+
+@server (
+	group:      inventory
+	prefix:     /api/v1
+	jwt:        Auth
+	middleware: AuthInterceptor
+)
+service inventory-api {
+	@handler createInventory
+	post /inventory (CreateInventoryRequest) returns (CreateInventoryResponse)
+
+	@handler getInventory
+	get /inventory/:id (GetInventoryRequest) returns (GetInventoryResponse)
+
+	@handler listInventory
+	get /inventory (ListInventoryRequest) returns (ListInventoryResponse)
+}
+

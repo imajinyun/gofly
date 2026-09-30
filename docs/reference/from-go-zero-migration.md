@@ -76,12 +76,23 @@ gofly-compatible generated surface. It is not a full goctl replacement.
    make goctl-model-parity-replay-check
    make api-client-toolchain-check
    make goctl-generator-compat-check
+   GOZERO_ROOT=/path/to/pinned/go-zero \
+     GOCTL_ORACLE_REPORT=/tmp/gofly-goctl-migration-proof.json \
+     make goctl-oracle-replay-check
    make goctl-real-project-replay-check
    ```
 
-7. Keep the original go-zero process routable until those gates and the
+7. Inspect the pinned-oracle report before switching traffic. It must contain
+   `"accepted": true`, two accepted fixtures, deterministic output, successful
+   dual-module compilation, the declared HTTP smoke result, and classified
+   route/type/config/layout differences. A contract-only run without
+   `GOZERO_ROOT` deliberately reports `"accepted": false`; it validates
+   metadata but is not migration proof.
+
+8. Keep the original go-zero process routable until those gates and the
    generated module `go test ./...` pass. Rollback by discarding the generated
-   directory and pinning the previous gozero-compatible generator behavior.
+   directory, retaining `/tmp/gofly-goctl-migration-proof.json` with the failed
+   condition, and pinning the previous gozero-compatible generator behavior.
 
 Semantic parity means equivalent routes, binding sources, type shapes, status
 codes, and stable error envelopes. It does not imply byte-identical goctl
@@ -93,6 +104,45 @@ enhancement rather than hidden as parity.
 Time-box: steps 1-2 should take a few minutes; steps 3-6 depend on contract
 size but should complete inside thirty minutes for a single API plus one
 model package.
+
+## Pinned Oracle Migration Proof
+
+`make goctl-oracle-replay-check` validates the replay contract without an
+external checkout so documentation and offline contributors can inspect the
+same fixtures. A real migration acceptance requires an explicitly pinned
+go-zero checkout at commit
+`84c92d710b9f2ae11c3cbcee242cea40eec42e70` (`goctl 1.10.2`):
+
+```sh
+git clone https://github.com/zeromicro/go-zero.git /tmp/go-zero
+git -C /tmp/go-zero checkout 84c92d710b9f2ae11c3cbcee242cea40eec42e70
+
+GOZERO_ROOT=/tmp/go-zero \
+  GOCTL_ORACLE_REPORT=/tmp/gofly-goctl-migration-proof.json \
+  make goctl-oracle-replay-check
+
+python3 - <<'PY'
+import json
+report = json.load(open("/tmp/gofly-goctl-migration-proof.json"))
+assert report["accepted"], report
+assert report["summary"]["passed"] == 2, report["summary"]
+PY
+```
+
+The proof uses two deliberately bounded service shapes: a CRUD service with
+path/query/header binding, and an imported-type service with a server group,
+JWT middleware, and a MySQL model. For both it runs pinned `goctl` and gofly
+generation twice, compiles both generated modules, starts each generated
+runtime on loopback, sends the declared HTTP request, and classifies file-set
+differences. The accepted categories include native layout and model-layout
+differences; they are evidence of an intentional migration boundary, not a
+claim of byte-for-byte goctl output.
+
+If any condition fails, retain the source go-zero service as the traffic
+target, discard the generated migration directory, attach the JSON report to
+the review, and fix or explicitly narrow the unsupported surface before a new
+attempt. Do not reuse an oracle report created from a different go-zero commit
+or with changed fixture SHA-256 digests.
 
 ## Recommended Path
 

@@ -108,6 +108,9 @@ for source in (
     "testdata/goctl-replay/userservice/replay.json",
     "testdata/goctl-replay/taskservice/replay.json",
     "testdata/goctl-replay/nativeorderservice/replay.json",
+    "testdata/goctl-replay/sources.json",
+    "testdata/goctl-replay/migration/userservice/replay.json",
+    "testdata/goctl-replay/migration/inventoryservice/replay.json",
 ):
     require(source in source_of_truth, f"sourceOfTruth missing {source!r}")
     require((root / source).exists(), f"sourceOfTruth path is missing: {source}")
@@ -238,6 +241,35 @@ for field in ("goTest", "repeatReplay", "rootDependencyPolicy"):
 require("go test ./..." in str(smoke.get("goTest")), "smoke.goTest must run generated module tests")
 require("go.mod" in str(smoke.get("rootDependencyPolicy")), "smoke.rootDependencyPolicy must mention go.mod")
 
+migration_proof = manifest.get("migrationProof") or {}
+require(migration_proof.get("sourceManifest") == "testdata/goctl-replay/sources.json", "migrationProof.sourceManifest mismatch")
+require(len(str(migration_proof.get("sourcePolicy") or "").split()) >= 12, "migrationProof.sourcePolicy must be actionable")
+require(migration_proof.get("minimumFixtures") == 2, "migrationProof.minimumFixtures must be 2")
+migration_fixtures = migration_proof.get("fixtures") or []
+require(len(migration_fixtures) == migration_proof.get("minimumFixtures"), "migrationProof fixture count mismatch")
+sources_path = root / str(migration_proof.get("sourceManifest") or "")
+sources = json.loads(sources_path.read_text(encoding="utf-8")) if sources_path.is_file() else {}
+require(sources.get("schema") == "gofly.goctl_migration_replay_sources.v1", "migration proof sources schema mismatch")
+provenance = sources.get("provenance") or {}
+require(provenance.get("origin") == "https://github.com/zeromicro/go-zero.git", "migration proof source origin mismatch")
+require(provenance.get("pinnedCommit") == "84c92d710b9f2ae11c3cbcee242cea40eec42e70", "migration proof pinned commit mismatch")
+require(len(sources.get("failureModeInventory") or []) >= 7, "migration proof failure-mode inventory is incomplete")
+source_fixture_ids = {item.get("id") for item in sources.get("fixtures") or []}
+for entry in migration_fixtures:
+    fixture_id = entry.get("id")
+    require(fixture_id in source_fixture_ids, f"migration proof fixture {fixture_id!r} missing from sources")
+    manifest_rel = entry.get("manifest")
+    require(manifest_rel in source_of_truth, f"migration proof fixture {fixture_id}: manifest missing from sourceOfTruth")
+    fixture_path = root / str(manifest_rel or "")
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8")) if fixture_path.is_file() else {}
+    require(fixture.get("schema") == "gofly.goctl_migration_proof_fixture.v1", f"migration proof fixture {fixture_id}: schema mismatch")
+    require(fixture.get("id") == fixture_id, f"migration proof fixture {fixture_id}: id mismatch")
+    require(bool(fixture.get("supportedSurface")) and bool(fixture.get("excludedSurface")), f"migration proof fixture {fixture_id}: scope boundaries are required")
+    require(bool(fixture.get("rollback")), f"migration proof fixture {fixture_id}: rollback is required")
+    require(len(entry.get("requiredEvidence") or []) >= 5, f"migration proof fixture {fixture_id}: required evidence is incomplete")
+require("pinned oracle report" in str(migration_proof.get("acceptance") or "").lower(), "migrationProof.acceptance must require a pinned oracle report")
+require("discard the generated migration directory" in str(migration_proof.get("rollback") or "").lower(), "migrationProof.rollback must be actionable")
+
 release_gates = set(manifest.get("releaseGates") or [])
 require(release_gates == required_gates, f"releaseGates drifted: missing={sorted(required_gates - release_gates)} extra={sorted(release_gates - required_gates)}")
 for gate in release_gates:
@@ -245,7 +277,7 @@ for gate in release_gates:
 
 status = manifest.get("status") or {}
 require(status.get("goctlCommandSurface") == "unchanged", "status.goctlCommandSurface must remain unchanged")
-require(status.get("oracleReplay") == "report-only-real-goctl-vs-gofly", "status.oracleReplay mismatch")
+require(status.get("oracleReplay") == "pinned-dual-runtime-migration-proof-with-contract-only-fallback", "status.oracleReplay mismatch")
 require(status.get("fixtureMatrixDepth") == "five-fixture-transitive-import-crud-admin-query-model", "status.fixtureMatrixDepth mismatch")
 require(status.get("modelCacheTemplateDepth") == "covered-by-three-fixture-replay-matrix", "status.modelCacheTemplateDepth mismatch")
 require(status.get("modelParityReplay") == "migration-critical-options-covered-by-goctl-model-parity-replay", "status.modelParityReplay mismatch")

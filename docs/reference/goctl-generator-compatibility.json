@@ -154,8 +154,8 @@
       "gate": "make goctl-oracle-replay-check",
       "implementation": ["docs/reference/goctl-oracle-replay.json"],
       "tests": ["bin/scripts/check-goctl-oracle-replay.sh"],
-      "evidence": ["same-contract", "layout-difference", "model-layout-difference", "goctlAvailable"],
-      "rollbackNote": "Rollback by keeping oracle replay in report-only mode and preserving gofly-only replay gates until goctl output comparison stabilizes."
+      "evidence": ["pinned-dual-runtime-migration-proof", "sourceDigest", "httpSmoke", "model-layout-difference"],
+      "rollbackNote": "Rollback by retaining the source go-zero service, discarding the generated migration directory, and reviewing the pinned oracle JSON before any traffic switch."
     },
     {
       "id": "goctl-compatibility-report",

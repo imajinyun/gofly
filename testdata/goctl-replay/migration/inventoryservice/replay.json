@@ -1,0 +1,26 @@
+{
+  "schema": "gofly.goctl_migration_proof_fixture.v1",
+  "id": "inventoryservice-grouped-import-auth-migration-proof",
+  "module": "example.com/migration/inventoryservice",
+  "serviceName": "inventory-api",
+  "profile": "gozero-compatible",
+  "style": "minimal",
+  "api": "inventory.api",
+  "config": "etc/inventory-api.yaml",
+  "ddl": "model/inventory.sql",
+  "cache": true,
+  "expectedRoutes": [
+    "POST /api/v1/inventory",
+    "GET /api/v1/inventory/{id}",
+    "GET /api/v1/inventory"
+  ],
+  "expectedTypes": [
+    "AuditMeta",
+    "CreateInventoryRequest",
+    "ListInventoryResponse"
+  ],
+  "expectedConfigKeys": ["Name", "Host", "Port"],
+  "supportedSurface": ["api-import", "service-group", "JWT-auth", "declared-middleware", "typed-error-envelope", "mysql-model", "cache-template"],
+  "excludedSurface": ["multi-service-file", "route-local-server-overrides"],
+  "rollback": "Keep the source go-zero service active and discard the generated directory if compile, HTTP smoke, or contract classification fails."
+}

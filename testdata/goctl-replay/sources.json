@@ -1,0 +1,110 @@
+{
+  "schema": "gofly.goctl_migration_replay_sources.v1",
+  "provenance": {
+    "origin": "https://github.com/zeromicro/go-zero.git",
+    "goctlModule": "tools/goctl",
+    "pinnedCommit": "84c92d710b9f2ae11c3cbcee242cea40eec42e70",
+    "goctlVersion": "1.10.2",
+    "checkoutPolicy": "GOZERO_ROOT must resolve to this exact commit before a migration-proof replay runs. The oracle never fetches, mutates, or trusts an unpinned checkout.",
+    "runtimePolicy": "Generated goctl projects replace github.com/zeromicro/go-zero with the checked-out pinned source during proof compilation."
+  },
+  "failureModeInventory": [
+    {
+      "id": "unpinned-goctl-source",
+      "invariant": "The goctl checkout commit equals provenance.pinnedCommit.",
+      "blocking": true
+    },
+    {
+      "id": "fixture-source-drift",
+      "invariant": "Every migration fixture file matches its recorded SHA-256 and aggregate source digest.",
+      "blocking": true
+    },
+    {
+      "id": "dual-generation-failure",
+      "invariant": "Pinned goctl and gofly both generate API and model output from each fixture.",
+      "blocking": true
+    },
+    {
+      "id": "generated-module-does-not-compile",
+      "invariant": "Both generated modules pass go mod tidy and go test ./... with isolated temporary caches.",
+      "blocking": true
+    },
+    {
+      "id": "http-contract-route-missing",
+      "invariant": "The declared HTTP smoke route returns the expected status on both generated runtimes.",
+      "blocking": true
+    },
+    {
+      "id": "route-type-or-config-drift",
+      "invariant": "Required route, type, and configuration evidence is present on both generated sides.",
+      "blocking": true
+    },
+    {
+      "id": "unclassified-generated-diff",
+      "invariant": "Every file-set difference is recorded as a route, type, config, layout, model-layout, or compatible-addition classification.",
+      "blocking": true
+    }
+  ],
+  "fixtures": [
+    {
+      "id": "userservice-crud-migration-proof",
+      "directory": "testdata/goctl-replay/migration/userservice",
+      "sourceDigest": "431e33bbcad616f330582be65a6f96c07058814cb7c22e71900d88ef3886c57d",
+      "files": [
+        {
+          "path": "etc/user-api.yaml",
+          "sha256": "d363b1292037eec2a9c2318b0c15f9c5b681a08ee97c472611862faf4e7e2fd1"
+        },
+        {
+          "path": "model/user.sql",
+          "sha256": "0fcdebdd61d3d7c8d8c5c86048e1eb32c50774014df195021404efe7af253e7d"
+        },
+        {
+          "path": "replay.json",
+          "sha256": "ab18493468822c3b2c087aed8cc9006d069d307f8a058c5b6f90c6d400b472be"
+        },
+        {
+          "path": "user.api",
+          "sha256": "413910688e626c999e8ec73e1c8038126b854a28c550715e7995e9121f78abb2"
+        }
+      ],
+      "httpSmoke": {
+        "method": "GET",
+        "path": "/api/v1/users?status=active&limit=2",
+        "expectStatus": 200
+      }
+    },
+    {
+      "id": "inventoryservice-grouped-import-auth-migration-proof",
+      "directory": "testdata/goctl-replay/migration/inventoryservice",
+      "sourceDigest": "deeca02b3037348ea4078e221465bcff9d2a03b1e541b4be32ef18f827149109",
+      "files": [
+        {
+          "path": "etc/inventory-api.yaml",
+          "sha256": "9362402077390ee7aed71c38382592f901f85bc03ef2d4d202fbcc871346da66"
+        },
+        {
+          "path": "inventory.api",
+          "sha256": "9567afb4933633c5ef1df8e8fbae74e3adac8a54e6631f61bbcddbaa7a4c1dc4"
+        },
+        {
+          "path": "model/inventory.sql",
+          "sha256": "f8fc7dcc19c90b94bc0ada26df668127a34bddbddf05ff1a01011be0591c410f"
+        },
+        {
+          "path": "replay.json",
+          "sha256": "5bc544e58992758ed781ddb9f181a141fdab81ed863353d5cf0252df15ec0593"
+        },
+        {
+          "path": "types/common.api",
+          "sha256": "cc2b9be645a6216ec107f60257e3c427a8c332f6b0e04555748b5dcdfcb64a90"
+        }
+      ],
+      "httpSmoke": {
+        "method": "GET",
+        "path": "/api/v1/inventory?page=1&size=2",
+        "expectStatus": 401
+      }
+    }
+  ]
+}

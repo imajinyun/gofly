@@ -1,0 +1,16 @@
+syntax = "v1"
+
+type AuditMeta {
+  RequestID string `header:"X-Request-ID,optional"`
+}
+
+type PageRequest {
+  Page int `form:"page,optional"`
+  Size int `form:"size,optional"`
+}
+
+type PageResponse {
+  Page int `json:"page"`
+  Size int `json:"size"`
+  Total int64 `json:"total"`
+}

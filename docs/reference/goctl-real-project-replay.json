@@ -11,7 +11,10 @@
     "testdata/goctl-replay/billingservice/replay.json",
     "testdata/goctl-replay/userservice/replay.json",
     "testdata/goctl-replay/taskservice/replay.json",
-    "testdata/goctl-replay/nativeorderservice/replay.json"
+    "testdata/goctl-replay/nativeorderservice/replay.json",
+    "testdata/goctl-replay/sources.json",
+    "testdata/goctl-replay/migration/userservice/replay.json",
+    "testdata/goctl-replay/migration/inventoryservice/replay.json"
   ],
   "scope": {
     "expandsCLICommandSurface": false,
@@ -265,6 +268,27 @@
     "repeatReplay": "Replay each fixture twice and compare output.",
     "rootDependencyPolicy": "Generated fixture dependencies stay in generated go.mod files; root go.mod must remain unchanged."
   },
+  "migrationProof": {
+    "sourceManifest": "testdata/goctl-replay/sources.json",
+    "sourcePolicy": "Use the pinned go-zero origin, commit, and fixture SHA-256 digests from sources.json. The replay never fetches or accepts an unpinned checkout.",
+    "minimumFixtures": 2,
+    "fixtures": [
+      {
+        "id": "userservice-crud-migration-proof",
+        "manifest": "testdata/goctl-replay/migration/userservice/replay.json",
+        "shape": "single-service CRUD routes with path, query, and header binding",
+        "requiredEvidence": ["dual-generation", "dual-compilation", "HTTP-200-smoke", "route-type-config-contract", "classified-layout-diff"]
+      },
+      {
+        "id": "inventoryservice-grouped-import-auth-migration-proof",
+        "manifest": "testdata/goctl-replay/migration/inventoryservice/replay.json",
+        "shape": "imported types, server group, JWT middleware, and MySQL model",
+        "requiredEvidence": ["dual-generation", "dual-compilation", "HTTP-401-auth-smoke", "route-type-config-contract", "classified-layout-diff"]
+      }
+    ],
+    "acceptance": "A pinned oracle report is accepted only when both fixtures are deterministic, compile on both sides, satisfy route/type/config evidence, pass the declared HTTP smoke, classify every output difference, and leave the root module unchanged.",
+    "rollback": "Keep the source go-zero service routable, discard the generated migration directory, and retain the oracle JSON report when any proof condition fails."
+  },
   "releaseGates": [
     "make goctl-oracle-replay-check",
     "make goctl-real-project-replay-check",
@@ -274,7 +298,7 @@
   ],
   "status": {
     "goctlCommandSurface": "unchanged",
-    "oracleReplay": "report-only-real-goctl-vs-gofly",
+    "oracleReplay": "pinned-dual-runtime-migration-proof-with-contract-only-fallback",
     "fixtureMatrixDepth": "five-fixture-transitive-import-crud-admin-query-model",
     "modelCacheTemplateDepth": "covered-by-three-fixture-replay-matrix",
     "modelParityReplay": "migration-critical-options-covered-by-goctl-model-parity-replay"

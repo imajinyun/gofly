@@ -1,0 +1,26 @@
+{
+  "schema": "gofly.goctl_migration_proof_fixture.v1",
+  "id": "userservice-crud-migration-proof",
+  "module": "example.com/migration/userservice",
+  "serviceName": "user-api",
+  "profile": "gozero-compatible",
+  "style": "minimal",
+  "api": "user.api",
+  "config": "etc/user-api.yaml",
+  "ddl": "model/user.sql",
+  "cache": true,
+  "expectedRoutes": [
+    "POST /api/v1/users",
+    "GET /api/v1/users/{id}",
+    "GET /api/v1/users"
+  ],
+  "expectedTypes": [
+    "CreateUserRequest",
+    "GetUserResponse",
+    "SearchUsersRequest"
+  ],
+  "expectedConfigKeys": ["Name", "Host", "Port"],
+  "supportedSurface": ["single-service", "crud-routes", "path-query-header-binding", "mysql-model", "cache-template"],
+  "excludedSurface": ["JWT-middleware", "multi-service-groups"],
+  "rollback": "Keep the source go-zero service active and discard the generated directory if compile, HTTP smoke, or contract classification fails."
+}

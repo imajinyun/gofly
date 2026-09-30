@@ -2612,7 +2612,7 @@ func TestGenerateServiceMinimalStyle(t *testing.T) {
 	for _, want := range []string{
 		`"scaffold": {"features": ["ecosystem-compat"]}`,
 		`"openapi": {"enabled": true, "title": "hello API", "version": "1.0.0"`,
-		`"trace": {"enabled": true, "sampler": "always_on"}`,
+		`"trace": {"enabled": true, "sampleRatio": 1}`,
 		`"middlewares": {"recover": true, "health": true, "requestId": true}`,
 	} {
 		if !strings.Contains(string(minimalConfigJSON), want) {

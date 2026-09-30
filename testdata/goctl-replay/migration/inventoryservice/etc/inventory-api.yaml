@@ -1,0 +1,6 @@
+Name: inventory-api
+Host: 127.0.0.1
+Port: 18082
+Auth:
+  AccessSecret: migration-proof-secret
+  AccessExpire: 3600

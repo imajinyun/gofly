@@ -1,99 +1,78 @@
 {
-  "schema": "gofly.goctl_oracle_replay.v1",
+  "schema": "gofly.goctl_oracle_replay.v2",
   "acceptanceGate": "make goctl-oracle-replay-check",
-  "mode": "report-only",
+  "mode": "pinned-dual-runtime-migration-proof",
   "externalReference": {
+    "origin": "https://github.com/zeromicro/go-zero.git",
     "path": "${GOZERO_ROOT}/tools/goctl",
     "environmentVariable": "GOZERO_ROOT",
     "pinnedCommit": "84c92d710b9f2ae11c3cbcee242cea40eec42e70",
+    "goctlVersion": "1.10.2",
     "resolutionOrder": ["GOZERO_ROOT", "../gozero", "contract-only"],
-    "optional": true,
-    "skipPolicy": "If GOZERO_ROOT is explicitly set, an invalid checkout is blocking. If it is unset and the sibling checkout is unavailable, validate this contract without running oracle replay."
+    "availabilityPolicy": "An explicitly configured GOZERO_ROOT must be a valid checkout at the exact pinned commit. Without an available pinned checkout the gate validates the tracked contract only and emits accepted=false; promotion requires the documented GOZERO_ROOT command."
   },
+  "sourceManifest": "testdata/goctl-replay/sources.json",
   "sourceOfTruth": [
     "docs/reference/goctl-oracle-replay.json",
     "docs/reference/goctl-real-project-replay.json",
-    "docs/reference/goctl-surface-drift.json",
-    "testdata/goctl-replay/orderservice/replay.json",
-    "testdata/goctl-replay/inventoryservice/replay.json",
-    "testdata/goctl-replay/billingservice/replay.json",
-    "testdata/goctl-replay/userservice/replay.json",
-    "testdata/goctl-replay/taskservice/replay.json",
-    "testdata/goctl-replay/nativeorderservice/replay.json"
+    "docs/reference/from-go-zero-migration.md",
+    "testdata/goctl-replay/sources.json",
+    "testdata/goctl-replay/migration/userservice/replay.json",
+    "testdata/goctl-replay/migration/inventoryservice/replay.json"
   ],
-  "oraclePolicy": {
-    "positioning": "The oracle compares generated contracts against real goctl output without claiming byte-for-byte replacement.",
-    "generationPolicy": "Each fixture is copied to a temporary source tree before goctl runs, because goctl may format or back up API input files.",
-    "failurePolicy": "The report fails only when gofly generation fails or required contract evidence is missing; goctl layout differences remain classified evidence."
+  "proofPolicy": {
+    "positioning": "The oracle proves a migration path against pinned real goctl output. It does not claim a byte-for-byte goctl replacement or a matching runtime layout.",
+    "generationPolicy": "Each side receives an isolated source copy and output directory. The checked-out goctl source is used both to run goctl and as the explicit generated-project dependency replacement.",
+    "compilationPolicy": "Both generated modules run go mod tidy and go test ./... with disposable build and temporary directories; generated-project dependencies remain outside the gofly root module.",
+    "httpPolicy": "Each generated runtime is started on a loopback-only temporary port and receives the same fixture-defined HTTP request. The expected status, route, type, and configuration evidence must agree before promotion.",
+    "failurePolicy": "A bad pin, digest mismatch, generation failure, compilation failure, failed HTTP smoke, missing contract evidence, or unclassified diff is blocking when a pinned oracle is available. Layout and model-layout differences are classified evidence, not byte-parity failures."
   },
-  "reportMetadata": {
-    "goVersion": "Report the local go version used to run gofly and goctl generation.",
-    "goflyCommit": "Report the current gofly git commit so oracle output is tied to an exact source revision.",
-    "gozeroCommit": "Report the sibling gozero git commit when ../gozero/tools/goctl is available.",
-    "goctlVersion": "Report goctl --version output or the failure to resolve it without making version probing release-blocking.",
-    "failureClass": "Report one normalized failureClass per fixture and a summary count for blocking and report-only outcomes."
-  },
-  "failureClassPolicy": "Only gofly-generation-error and gofly-contract-missing are blocking. goctl-generation-error, report-only-layout-difference, report-only-compatible-difference, and report-only-unknown remain report-only until the sibling gozero version and output shape are pinned in CI.",
-  "failureClasses": {
-    "blocking": [
-      "gofly-generation-error",
-      "gofly-contract-missing"
-    ],
-    "reportOnly": [
-      "goctl-generation-error",
-      "report-only-layout-difference",
-      "report-only-compatible-difference",
-      "report-only-unknown"
-    ]
-  },
-  "fixtures": [
-    "orderservice-goctl-replay",
-    "inventoryservice-imported-multigroup-replay",
-    "billingservice-transitive-import-replay",
-    "userservice-crud-query-replay",
-    "taskservice-admin-delete-replay",
-    "nativeorderservice-goctl-native-oracle"
-  ],
-  "nativeFixtures": [
-    "nativeorderservice-goctl-native-oracle"
-  ],
-  "requiredContracts": [
-    "go.mod module",
-    "internal/routes/routes.go",
-    "internal/model/types.go",
-    "internal/svc/service_context.go",
-    "model output",
-    "route registration",
-    "app files"
-  ],
   "diffCategories": [
-    "same-contract",
-    "compatible-addition",
+    "route-contract",
+    "type-contract",
+    "config-contract",
     "layout-difference",
     "model-layout-difference",
-    "generated-cache-template",
-    "missing-capability",
-    "generation-error"
+    "config-layout-difference",
+    "compatible-addition"
   ],
+  "failureClasses": {
+    "blocking": [
+      "unpinned-goctl-source",
+      "fixture-source-drift",
+      "dual-generation-failure",
+      "generated-module-does-not-compile",
+      "http-contract-route-missing",
+      "route-type-or-config-drift",
+      "unclassified-generated-diff"
+    ],
+    "reportOnly": [
+      "external-source-unavailable",
+      "layout-difference",
+      "model-layout-difference",
+      "config-layout-difference"
+    ]
+  },
   "reportFields": [
     "schema",
     "mode",
-    "goctlAvailable",
+    "accepted",
     "environment",
-    "failureClassPolicy",
+    "provenance",
     "fixtures",
     "summary"
   ],
-  "nextPromotionCriteria": [
-    "Persist oracle reports as tracked reference evidence only after output shape stabilizes.",
-    "Promote model parity rows from layout-difference to same-contract only after MySQL DDL, datasource, PostgreSQL, and Mongo coverage exists.",
-    "Make goctl generation failures blocking only after the sibling gozero version is pinned in CI.",
-    "Promote report-only-layout-difference only after byte-for-byte layout claims are intentionally supported by fixture evidence."
+  "promotionCriteria": [
+    "Run GOZERO_ROOT=/path/to/pinned/go-zero make goctl-oracle-replay-check and retain the JSON report as the migration-review artifact.",
+    "Both representative fixtures must pass dual generation, compilation, route/type/config evidence, deterministic output, and HTTP smoke.",
+    "Review classified layout differences explicitly; do not turn them into a byte-for-byte parity claim.",
+    "Keep the source go-zero service routable until the migration change has passed the rollback recipe in from-go-zero-migration.md."
   ],
-  "nativeFixturePolicy": "At least one fixture must be accepted by real goctl so oracle replay can produce concrete contract diff categories, not only generation-error evidence.",
   "releaseGates": [
     "make goctl-oracle-replay-check",
-    "make goctl-surface-drift-check",
-    "make goctl-real-project-replay-check"
+    "make goctl-real-project-replay-check",
+    "make goctl-generator-compat-check",
+    "make goctl-model-parity-replay-check",
+    "make generated-version-compat-check"
   ]
 }

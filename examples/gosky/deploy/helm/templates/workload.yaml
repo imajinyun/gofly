@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gosky
+  labels:
+    app.kubernetes.io/name: gosky
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gosky
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gosky
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /admin/metrics
+        prometheus.io/port: "9090"
+    spec:
+      containers:
+        - name: gosky
+          image: gosky:latest
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: rpc
+              containerPort: 8081
+          env:
+            - name: GOFLY_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: gosky-secret
+                  key: admin-token
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gosky
+  labels:
+    app.kubernetes.io/name: gosky
+spec:
+  selector:
+    app.kubernetes.io/name: gosky
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+    - name: rpc
+      port: 8081
+      targetPort: rpc
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gosky-config
+data:
+  app.json: |
+    {}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gosky-secret
+type: Opaque
+stringData:
+  admin-token: change-me-admin-token
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: gosky
+  labels:
+    app.kubernetes.io/name: gosky
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gosky
+  endpoints:
+    - port: http
+      path: /admin/metrics
+      interval: 30s

@@ -1,0 +1,13 @@
+{
+  "title": "gosky / Gofly Production",
+  "tags": ["gofly", "gosky", "production"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {"type": "timeseries", "title": "HTTP RPS", "targets": [{"expr": "sum(rate(http_requests_total{service=\"gosky\"}[5m]))"}]},
+    {"type": "timeseries", "title": "HTTP Error Rate", "targets": [{"expr": "sum(rate(http_requests_total{service=\"gosky\",code=~\"5..\"}[5m])) / sum(rate(http_requests_total{service=\"gosky\"}[5m]))"}]},
+    {"type": "timeseries", "title": "P99 Latency", "targets": [{"expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{service=\"gosky\"}[5m])) by (le))"}]},
+    {"type": "logs", "title": "Logs by trace_id", "targets": [{"expr": "{service=\"gosky\"} | json | trace_id != \"\""}]}
+  ]
+}

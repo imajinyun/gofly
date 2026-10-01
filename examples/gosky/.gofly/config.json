@@ -1,0 +1,20 @@
+{
+  "serviceName": "gosky",
+  "module": "github.com/imajinyun/gofly/examples/gosky",
+  "style": "production",
+  "features": [
+    "ecosystem-compat"
+  ],
+  "rpc": {
+    "transport": "grpc",
+    "profile": "gofly-ai"
+  },
+  "api": {},
+  "model": {},
+  "llm": {
+    "provider": "noop",
+    "model": "noop"
+  },
+  "goVersion": "1.27.1",
+  "generatedBy": "gofly"
+}

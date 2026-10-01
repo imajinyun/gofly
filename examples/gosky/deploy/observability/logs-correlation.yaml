@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gosky-logs-correlation
+  namespace: default
+data:
+  promtail.yaml: |
+    pipeline_stages:
+      - json:
+          expressions:
+            trace_id: trace_id
+            span_id: span_id
+            level: level
+            msg: msg
+      - labels:
+          trace_id:
+          span_id:
+          level:
+      - output:
+          source: msg
+  loki-derived-fields.yaml: |
+    derivedFields:
+      - name: TraceID
+        matcherRegex: 'trace_id=(\\w+)'
+        url: '$${__value.raw}'
+        datasourceUid: tempo

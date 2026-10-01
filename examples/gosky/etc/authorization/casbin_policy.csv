@@ -1,0 +1,18 @@
+# Development-only tenant-scoped RBAC policy. Do not add production identities
+# or secrets to this file; production persistence is a separate rollout.
+g, writer, reader, tenant:demo
+g, admin, writer, tenant:demo
+g, demo-reader, reader, tenant:demo
+g, demo-writer, writer, tenant:demo
+g, demo-admin, admin, tenant:demo
+p, reader, tenant:demo, rpc:greeter/SayHello, CALL
+p, reader, tenant:demo, rpc:greeter/Watch, STREAM
+
+# Project persistence uses BIGINT UNSIGNED tenant identifiers. Keep these
+# identities separate from the string-tenant generic RPC examples above.
+g, writer, reader, 1001
+g, admin, writer, 1001
+g, project-reader, reader, 1001
+g, project-writer, writer, 1001
+g, project-admin, admin, 1001
+p, reader, 1001, /api/v1/projects/:id, GET

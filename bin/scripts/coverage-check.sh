@@ -34,6 +34,13 @@ if [ -z "${GOTMPDIR:-}" ]; then
 fi
 
 "$go_cmd" test -p=1 $testflags -covermode=atomic -coverprofile="$profile" $pkgs
+if [ "$pkgs" = "./..." ]; then
+	# The migration runner is verified through real DB E2Es. Merge those fresh
+	# counters while preserving every baseline source block and statement count.
+	merged_profile="$tmp/coverage.migrations.out"
+	GO="$go_cmd" python3 bin/scripts/check-migration-coverage.py "$profile" "$merged_profile"
+	cp "$merged_profile" "$profile"
+fi
 module_path="$("$go_cmd" list -m)"
 sanitized_profile="$tmp/coverage.sanitized.out"
 malformed_file="$tmp/coverage.malformed-count"

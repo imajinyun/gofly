@@ -98,5 +98,8 @@ GOFLY_CACHE_DISABLED when direct source-of-truth reads are required.
 
 The `p10StorageCacheProductization` closeout records **SQL outbox**, cache stats,
 and `WritePrometheus` evidence. Rows still marked **planned**
-(`migration-runner`, `production-redis-integration`) stay out of release notes
+(`production-redis-integration`) stay out of release notes
 until they have implementation paths and tests.
+
+The CLI migration runner is documented in [Versioned SQL migrations](migrations.md);
+its checksum ledger verifies applied SQL history independently of cache behavior.

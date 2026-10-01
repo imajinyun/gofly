@@ -1,0 +1,62 @@
+replicaCount: 2
+
+image:
+  repository: gosky
+  tag: latest
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  name: ""
+
+service:
+  type: ClusterIP
+  httpPort: 8080
+  rpcPort: 8081
+
+probes:
+  readiness:
+    path: /healthz
+    initialDelaySeconds: 3
+    periodSeconds: 5
+  liveness:
+    path: /healthz
+    initialDelaySeconds: 10
+    periodSeconds: 10
+  startup:
+    path: /healthz
+    failureThreshold: 30
+    periodSeconds: 2
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 80
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+networkPolicy:
+  enabled: true
+
+config:
+  app.json: |
+    {}
+
+secret:
+  adminToken: change-me-admin-token
+
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  path: /admin/metrics

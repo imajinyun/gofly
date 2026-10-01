@@ -54,6 +54,7 @@ Tracked contracts consumed by Make gates:
 - [Control-plane contracts](reference/control-plane-contracts.md)
 - [Generated service layout](reference/generated-service-layout.md)
 - [Generated upgrade dry run](reference/generated-upgrade-dry-run.md)
+- [Versioned SQL migrations](guides/migrations.md)
 - [Model schema IR contract](reference/model-schema-ir-contract.md)
 - [Goctl generator compatibility](reference/goctl-generator-compatibility.json)
 - [API contract governance](reference/api-contract-governance.json)

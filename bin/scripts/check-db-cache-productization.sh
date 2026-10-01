@@ -18,7 +18,7 @@ expected_capabilities = {
     "redis-model-cache": "implemented",
     "model-generator-boundary": "implemented",
     "reference-app-db-cache": "implemented",
-    "migration-runner": "planned",
+    "migration-runner": "implemented",
     "production-redis-integration": "planned",
 }
 required_release_gates = {

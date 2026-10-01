@@ -139,15 +139,15 @@
     },
     {
       "id": "migration-runner",
-      "status": "planned",
-      "adopterValue": "Versioned SQL migrations that generated services can run without a third-party runner in the root module.",
-      "gate": "make db-cache-productization-check",
-      "promotionCriteria": [
-        "Dedicated migration API with up/down and checksum verification",
-        "Temporary generated-project compile test that does not pollute root go.mod",
-        "Rollback notes and a make gate that fail closed on dirty schema"
-      ],
-      "rollbackNote": "Do not advertise a migration runner in release notes until implementation and tests exist."
+      "status": "implemented",
+      "adopterValue": "The gofly CLI generates initial SQL pairs and explicitly runs MySQL/PostgreSQL migrations with golang-migrate, checksum verification and dirty-state protection.",
+      "gate": "make migration-check",
+      "implementation": ["cmd/gofly/internal/migration/runner.go", "cmd/gofly/internal/migration/history.go", "cmd/gofly/internal/command/migrate_command.go"],
+      "tests": ["cmd/gofly/internal/migration/runner_test.go", "cmd/gofly/internal/command/migrate_integration_test.go", "cmd/gofly/internal/command/migrate_command_test.go"],
+      "evidence": ["checkHistory", "safeDatabaseError", "TestMigrationDatabaseLifecycle", "TestMigrationMetadataFailureLeavesDirty"],
+      "integrationGate": "make migration-integration-check",
+      "scope": "CLI runner only; no generated-service embedded API, automatic startup hook, schema diff, drift detection or automatic baseline adoption. The root imports the pinned execution library directly.",
+      "rollbackNote": "Retain reviewed SQL and checksum history; inspect dirty state and repair explicitly before retrying. Down migrations can destroy data."
     },
     {
       "id": "production-redis-integration",

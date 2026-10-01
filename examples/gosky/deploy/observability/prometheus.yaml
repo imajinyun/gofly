@@ -1,0 +1,46 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: gosky
+  namespace: default
+  labels:
+    app.kubernetes.io/name: gosky
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gosky
+  endpoints:
+    - port: http
+      path: /admin/metrics
+      interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: gosky
+  namespace: default
+spec:
+  groups:
+    - name: gosky.slo
+      rules:
+        - alert: GoflyHighErrorRate
+          expr: sum(rate(http_requests_total{service="gosky",code=~"5.."}[5m])) / sum(rate(http_requests_total{service="gosky"}[5m])) > 0.05
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: gosky high 5xx error rate
+        - alert: GoflyHighP99Latency
+          expr: histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{service="gosky"}[5m])) by (le)) > 1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: gosky p99 latency is above 1s
+        - alert: GoflyMuxOperatorAuditSchemaViolation
+          expr: sum(rate(gofly_rpc_mux_operator_audit_schema_violation_total[5m])) by (action) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: gosky mux operator audit records violate their declared schema

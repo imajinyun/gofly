@@ -11,6 +11,7 @@ import (
 	"time"
 
 	core "github.com/imajinyun/gofly/core"
+	"github.com/imajinyun/gofly/core/metadata"
 	coreruntime "github.com/imajinyun/gofly/core/runtime"
 )
 
@@ -18,6 +19,12 @@ const experimentalMuxRouteService = "_gofly_mux"
 
 // ExperimentalMuxStreamHandler handles a stream accepted by the opt-in mux adapter.
 type ExperimentalMuxStreamHandler func(context.Context, *ExperimentalMuxStream) error
+
+// ExperimentalMuxStreamMiddleware wraps an experimental mux stream handler.
+// Middleware runs after the adapter validates the routing frame and restores
+// its request metadata into the stream context, but before the business
+// handler can read a message.
+type ExperimentalMuxStreamMiddleware func(ExperimentalMuxStreamHandler) ExperimentalMuxStreamHandler
 
 // ExperimentalMuxAdapterSnapshot reports opt-in mux adapter state.
 type ExperimentalMuxAdapterSnapshot struct {
@@ -248,6 +255,7 @@ func (a *ExperimentalMuxClientAdapter) OpenStream(ctx context.Context, method st
 	if a == nil || a.transport == nil {
 		return nil, ErrExperimentalMuxTransportClosed
 	}
+	ctx = core.Context(ctx)
 	method = normalizeExperimentalMuxMethod(method)
 	if method == "" {
 		return nil, NewError(CodeInvalidArgument, "mux stream method is required")
@@ -256,7 +264,8 @@ func (a *ExperimentalMuxClientAdapter) OpenStream(ctx context.Context, method st
 	if err != nil {
 		return nil, err
 	}
-	if err := stream.Send(ctx, Message{Service: experimentalMuxRouteService, Method: method}); err != nil {
+	md, _ := metadata.FromContext(ctx)
+	if err := stream.Send(ctx, Message{Service: experimentalMuxRouteService, Method: method, Meta: md}); err != nil {
 		_ = stream.CloseWithCode(context.Background(), CodeCanceled, "mux_route_failed")
 		return nil, err
 	}
@@ -358,6 +367,13 @@ func (a *ExperimentalMuxClientAdapter) waitCandidateDrain(ctx context.Context, r
 
 // RegisterStream registers an opt-in mux stream handler.
 func (a *ExperimentalMuxServerAdapter) RegisterStream(method string, handler ExperimentalMuxStreamHandler) error {
+	return a.RegisterStreamWithMiddlewares(method, handler)
+}
+
+// RegisterStreamWithMiddlewares registers an opt-in mux stream handler with
+// method-scoped middleware. A nil middleware is rejected at registration time
+// so an intended authorization boundary cannot silently disappear.
+func (a *ExperimentalMuxServerAdapter) RegisterStreamWithMiddlewares(method string, handler ExperimentalMuxStreamHandler, middlewares ...ExperimentalMuxStreamMiddleware) error {
 	if a == nil {
 		return ErrExperimentalMuxTransportClosed
 	}
@@ -367,6 +383,14 @@ func (a *ExperimentalMuxServerAdapter) RegisterStream(method string, handler Exp
 	}
 	if handler == nil {
 		return NewError(CodeInvalidArgument, "mux stream handler is required")
+	}
+	for _, middleware := range middlewares {
+		if middleware == nil {
+			return NewError(CodeInvalidArgument, "mux stream middleware is required")
+		}
+	}
+	for i := len(middlewares) - 1; i >= 0; i-- {
+		handler = middlewares[i](handler)
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -541,6 +565,9 @@ func (a *ExperimentalMuxServerAdapter) handleStream(ctx context.Context, stream 
 		a.rejectStream(stream, CodeInvalidArgument, "invalid mux route")
 		a.rememberError(method, NewError(CodeInvalidArgument, "invalid mux route"))
 		return
+	}
+	if len(route.Meta) > 0 {
+		ctx = metadata.NewContext(ctx, route.Meta)
 	}
 	handler := a.lookup(method)
 	if handler == nil {

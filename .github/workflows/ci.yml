@@ -52,6 +52,10 @@ jobs:
         if: matrix.go == '1.26'
         run: make test-generated-matrix
 
+      - name: gosky API/RPC reference project contract
+        if: matrix.go == '1.26'
+        run: make gosky-check
+
       - name: Generated project runtime control-plane smoke
         if: matrix.go == '1.26'
         run: make generated-control-plane-smoke

@@ -15,7 +15,7 @@ func rootCommandManifestEntries() []commandSpec {
 		{Name: "env", Short: "Inspect local toolchain environment."},
 		{Name: "completion", Short: "Emit shell completion scripts."},
 		{Name: "quickstart", Short: "Create runnable services quickly."},
-		{Name: "migrate", Aliases: []string{"migration"}, Short: "Create SQL migration files."},
+		{Name: "migrate", Aliases: []string{"migration"}, Short: "Generate and run versioned SQL migrations."},
 		{Name: "bug", Short: "Print diagnostic bug reports."},
 		{Name: "upgrade", Short: "Print or run upgrade commands."},
 		{Name: "config", Short: "Manage .gofly configuration."},

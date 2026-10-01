@@ -72,8 +72,8 @@ func For(command string) Topic {
 		return Topic{Name: command, Short: "Manage local or remote generation templates.", Usage: "gofly " + command + " [--dir|--home <template-dir>] [--remote <repo|dir>] [--branch <branch>]", Flags: []string{"--dir <dir>       template directory", "--home <dir>      template directory", "--remote <repo>   remote git repository or local template directory", "--branch <branch> remote git branch", "--category, -c    template category filter", "--name, -n        template name filter"}, Examples: []string{"gofly " + command + " --home .gofly/templates", "gofly template update --remote ./company-templates --home .gofly/templates"}}
 	case "quickstart":
 		return Topic{Name: "quickstart", Short: "Create a runnable API service quickly.", Usage: "gofly quickstart <name> --module <module> [--dir <dir>] [--style minimal|basic|production]", Flags: []string{"--name <name>          service name, also accepted as positional", "--module <module>      Go module path", "--dir <dir>            output directory", "--style <style>        scaffold style", "--api-spec             generate an .api file", "--service-type, -t     quickstart service type: mono or micro"}, Examples: []string{"gofly quickstart checkout --module example.com/checkout --t micro"}}
-	case "migrate", "migration", "migrate create", "migrate new", "migration create", "migration new":
-		return Topic{Name: command, Short: "Create SQL migration files.", Usage: "gofly migrate create <name> [--dir <dir>]", Flags: []string{"--name <name>  migration name, also accepted as positional", "--dir <dir>    migration output directory"}, Examples: []string{"gofly migrate create add-users --dir migrations"}}
+	case "migrate", "migration", "migrate create", "migrate new", "migration create", "migration new", "migrate gen", "migrate up", "migrate down", "migrate status", "migrate validate":
+		return migrateTopic(command)
 	case "bug":
 		return Topic{Name: "bug", Short: "Print diagnostic bug reports.", Usage: "gofly bug [--json]", Flags: []string{"--json  print bug report as JSON"}, Examples: []string{"gofly bug", "gofly bug --json"}}
 	case "upgrade":

@@ -79,9 +79,9 @@ func inferTopLevelRisk(name string) string {
 	switch name {
 	case "version", "env", "bug", "doctor", "feature", "completion", "complete", "release", "ai":
 		return "read"
-	case "plugin", "template", "upgrade":
+	case "plugin", "template", "upgrade", "migrate":
 		return "high"
-	case "new", "gen", "handler", "rpc", "api", "model", "docker", "kube", "quickstart", "migrate", "config", "example":
+	case "new", "gen", "handler", "rpc", "api", "model", "docker", "kube", "quickstart", "config", "example":
 		return "medium"
 	default:
 		return "medium"

@@ -103,7 +103,7 @@ func trimHelpTopicPositionals(parts []string) []string {
 			return parts[:2]
 		}
 	case "migrate", "migration":
-		if parts[1] == "create" || parts[1] == "new" {
+		if parts[1] == "create" || parts[1] == "new" || parts[1] == "gen" || parts[1] == "up" || parts[1] == "down" || parts[1] == "status" || parts[1] == "validate" {
 			return parts[:2]
 		}
 	case "complete":

@@ -81,7 +81,7 @@ var rootCommands = newCommandRegistry(
 	commandSpec{Name: "env", Short: "Inspect local toolchain environment.", Run: envCommand},
 	commandSpec{Name: "completion", Short: "Emit shell completion scripts.", Run: completionCommand},
 	commandSpec{Name: "quickstart", Short: "Create runnable services quickly.", Run: quickstartCommand},
-	commandSpec{Name: "migrate", Aliases: []string{"migration"}, Short: "Create SQL migration files.", Run: migrateCommand},
+	commandSpec{Name: "migrate", Aliases: []string{"migration"}, Short: "Generate and run versioned SQL migrations.", Run: migrateCommand},
 	commandSpec{Name: "bug", Short: "Print diagnostic bug reports.", Run: bugCommand},
 	commandSpec{Name: "upgrade", Short: "Print or run upgrade commands.", Run: upgradeCommand},
 	commandSpec{Name: "config", Short: "Manage .gofly configuration.", Run: configCommand},

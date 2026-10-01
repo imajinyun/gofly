@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	oteltrace "go.opentelemetry.io/otel/trace"
 
+	"github.com/imajinyun/gofly/core/metadata"
 	"github.com/imajinyun/gofly/core/observability/metrics"
 	"github.com/imajinyun/gofly/core/security"
 )
@@ -229,6 +231,108 @@ func TestExperimentalMuxAdapterRejectsUnknownMethod(t *testing.T) {
 	cancel()
 	if err := <-serveDone; err != nil {
 		t.Fatalf("Serve returned error after cancel: %v", err)
+	}
+}
+
+func TestExperimentalMuxAdapterPropagatesRoutingMetadataBeforeStreamMiddleware(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	client := NewExperimentalMuxClientAdapter(clientConn)
+	server := NewExperimentalMuxServerAdapter(serverConn)
+	defer client.Close()
+	defer server.Close()
+
+	var handlerCalls atomic.Int32
+	guard := func(next ExperimentalMuxStreamHandler) ExperimentalMuxStreamHandler {
+		return func(ctx context.Context, stream *ExperimentalMuxStream) error {
+			md, ok := metadata.FromContext(ctx)
+			if !ok || md.Get("authorization") == "" {
+				return NewError(CodeUnauthenticated, "missing credentials")
+			}
+			if md.Get("authorization") == "invalid" {
+				return NewError(CodeUnauthenticated, "invalid credentials")
+			}
+			if md.Get("tenant_id") != "tenant:demo" {
+				return NewError(CodePermissionDenied, "permission denied")
+			}
+			return next(ctx, stream)
+		}
+	}
+	if err := server.RegisterStreamWithMiddlewares("orders/Watch", func(ctx context.Context, stream *ExperimentalMuxStream) error {
+		handlerCalls.Add(1)
+		md, ok := metadata.FromContext(ctx)
+		if !ok || md.Get("authorization") != "allow" || md.Get("tenant_id") != "tenant:demo" || md.Get("x-request-id") != "mux-authz-test" {
+			return NewError(CodeInternal, "routing metadata was not propagated")
+		}
+		msg, err := stream.Receive(ctx)
+		if err != nil {
+			return err
+		}
+		if err := stream.Send(ctx, Message{Payload: append([]byte("allowed:"), msg.Payload...)}); err != nil {
+			return err
+		}
+		return stream.Close(ctx, "ok")
+	}, guard); err != nil {
+		t.Fatalf("RegisterStreamWithMiddlewares: %v", err)
+	}
+
+	serveCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	serveDone := make(chan error, 1)
+	go func() { serveDone <- server.Serve(serveCtx) }()
+
+	tests := []struct {
+		name      string
+		metadata  metadata.MD
+		wantCode  Code
+		wantReply string
+	}{
+		{name: "missing credentials", wantCode: CodeUnauthenticated},
+		{name: "invalid credentials", metadata: metadata.MD{"authorization": "invalid", "tenant_id": "tenant:demo"}, wantCode: CodeUnauthenticated},
+		{name: "policy denial", metadata: metadata.MD{"authorization": "allow", "tenant_id": "tenant:other"}, wantCode: CodePermissionDenied},
+		{name: "authorized stream", metadata: metadata.MD{"authorization": "allow", "tenant_id": "tenant:demo", "x-request-id": "mux-authz-test"}, wantCode: CodeOK, wantReply: "allowed:hello"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			if tt.metadata != nil {
+				ctx = metadata.NewContext(ctx, tt.metadata)
+			}
+			stream, err := client.OpenStream(ctx, "orders/Watch")
+			if err != nil {
+				t.Fatalf("OpenStream: %v", err)
+			}
+			if tt.wantCode != CodeOK {
+				if _, err := stream.Receive(muxTestTimeoutContext(t)); CodeOf(err) != tt.wantCode {
+					t.Fatalf("Receive code = %s, want %s; error=%v", CodeOf(err), tt.wantCode, err)
+				}
+				return
+			}
+			if err := stream.Send(ctx, Message{Payload: []byte("hello")}); err != nil {
+				t.Fatalf("Send: %v", err)
+			}
+			assertMuxPayload(t, stream, tt.wantReply)
+			if _, err := stream.Receive(muxTestTimeoutContext(t)); !errors.Is(err, io.EOF) {
+				t.Fatalf("terminal receive = %v, want EOF", err)
+			}
+		})
+	}
+	if got := handlerCalls.Load(); got != 1 {
+		t.Fatalf("business handler calls = %d, want exactly one authorized call", got)
+	}
+
+	cancel()
+	if err := <-serveDone; err != nil {
+		t.Fatalf("Serve returned error after cancel: %v", err)
+	}
+}
+
+func TestExperimentalMuxAdapterRejectsNilStreamMiddleware(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	_ = clientConn.Close()
+	server := NewExperimentalMuxServerAdapter(serverConn)
+	defer server.Close()
+	if err := server.RegisterStreamWithMiddlewares("orders/Watch", func(context.Context, *ExperimentalMuxStream) error { return nil }, nil); CodeOf(err) != CodeInvalidArgument {
+		t.Fatalf("RegisterStreamWithMiddlewares nil middleware error = %v, want CodeInvalidArgument", err)
 	}
 }
 

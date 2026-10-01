@@ -2,7 +2,6 @@ package command
 
 import (
 	"flag"
-	"fmt"
 	"path/filepath"
 
 	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
@@ -56,30 +55,4 @@ func quickstartCommand(args []string) error {
 		Package: "api",
 	}
 	return generator.GenerateRESTFromAPI(apiFile)
-}
-
-func migrateCommand(args []string) error {
-	if printCommandHelp("migrate", args) {
-		return nil
-	}
-	if len(args) == 0 {
-		return fmt.Errorf("%w: expected `gofly migrate create <name>`", errUsage)
-	}
-	subcommand := args[0]
-	if subcommand != "create" && subcommand != "new" {
-		return fmt.Errorf("%w: expected `gofly migrate create <name>`", errUsage)
-	}
-	leadingName, rest := splitLeadingName(args[1:])
-	fs := flag.NewFlagSet("migrate create", flag.ContinueOnError)
-	name := fs.String("name", "", "migration name")
-	dir := fs.String("dir", filepath.Join(".", "migrations"), "migration output directory")
-	remaining, err := parseInterspersedFlags(fs, rest)
-	if err != nil {
-		return err
-	}
-	if *name == "" {
-		*name = leadingName
-	}
-	fillNameFromArgs(name, remaining)
-	return generator.GenerateMigration(generator.MigrationOptions{Name: *name, Dir: *dir})
 }

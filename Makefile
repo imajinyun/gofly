@@ -104,6 +104,12 @@ test-short: ## Run fast unit tests (no race)
 test-generated-matrix: ## Verify generated project templates and service contract input matrix end-to-end
 	GOFLY_FRAMEWORK_PATH=$(CURDIR) $(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command -run 'Test(AINewGeneratedProjectVerificationMatrix|NewServiceGeneratedProjectSmokeMatrix|NewServiceContractInputMatrix)'
 
+.PHONY: gosky-check
+gosky-check: ## Verify the gosky API/RPC reference project and its authorization contract
+	$(MAKE) -C examples/gosky test
+	$(MAKE) -C examples/gosky project-schema-check
+	$(MAKE) -C examples/gosky authorization-smoke
+
 .PHONY: generated-service-layout-check
 generated-service-layout-check: ## Validate the Tier 0 generated production service layout contract
 	sh $(SCRIPTS_DIR)/check-generated-service-layout.sh
@@ -285,7 +291,7 @@ discovery-adapter-matrix-check: ## Validate gateway, RPC, and core discovery ada
 	$(GO) test $(TESTFLAGS) ./gateway -run 'TestGatewayDiscovery'
 
 .PHONY: db-cache-productization-check
-db-cache-productization-check: ## Validate DB/cache productization contract and packages
+db-cache-productization-check: migration-check ## Validate DB/cache productization contract and packages
 	sh $(SCRIPTS_DIR)/check-db-cache-productization.sh
 	$(GO) test $(TESTFLAGS) ./core/storage/... ./cache/...
 
@@ -678,3 +684,10 @@ security: security-governance-check govulncheck gosec ## Run govulncheck + gosec
 .PHONY: clean
 clean: ## Remove build and coverage artifacts
 	rm -rf $(BIN_DIR) coverage.out dist
+
+.PHONY: migration-check migration-integration-check
+migration-check: ## Validate migration generation and run the offline CLI smoke
+	GO="$(GO)" sh $(SCRIPTS_DIR)/check-migrations.sh
+
+migration-integration-check: ## Verify migrations against an explicitly supplied disposable database
+	MIGRATION_INTEGRATION=true GO="$(GO)" sh $(SCRIPTS_DIR)/check-migrations.sh

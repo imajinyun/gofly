@@ -74,8 +74,8 @@ _gofly() {
     'kube:generate Kubernetes manifests'
     'template:manage local templates'
     'quickstart:create runnable service quickly'
-    'migrate:create SQL migrations'
-    'migration:create SQL migrations'
+    'migrate:generate and run SQL migrations'
+    'migration:generate and run SQL migrations'
     'env:print and check local toolchain environment'
     'bug:print diagnostic bug report'
     'upgrade:print or execute upgrade command'
@@ -118,7 +118,7 @@ _gofly() {
 compdef _gofly gofly
 `, nil
 	case "fish":
-		return `complete -c gofly -f -a "version\tPrint version metadata\nnew\tScaffold a new service\ngen\tUnified generator\ngenerate\tUnified generator alias\nhandler\tHandler generator and completer\nrpc\tRPC file operations\napi\tAPI file operations\nmodel\tModel generation\ndocker\tGenerate Dockerfile assets\nkube\tGenerate Kubernetes manifests\ntemplate\tManage templates\nquickstart\tCreate a runnable service\nmigrate\tCreate SQL migrations\nmigration\tCreate SQL migrations alias\nenv\tCheck toolchain environment\nbug\tPrint diagnostic bug report\nupgrade\tPrint or run upgrade commands\nconfig\tManage .gofly/config.json\nfeature\tList or preview scaffold features\nplugin\tList, install or run plugins\ncompletion\tEmit shell completion scripts\ncomplete\tEmit legacy completion scripts\nrelease\tRun release readiness checks\ndoctor\tDiagnose local environment\nexample\tList or run built-in examples\nexamples\tList or run built-in examples alias\nai\tEmit AI tool manifest\ntools\tEmit AI tool manifest alias"
+		return `complete -c gofly -f -a "version\tPrint version metadata\nnew\tScaffold a new service\ngen\tUnified generator\ngenerate\tUnified generator alias\nhandler\tHandler generator and completer\nrpc\tRPC file operations\napi\tAPI file operations\nmodel\tModel generation\ndocker\tGenerate Dockerfile assets\nkube\tGenerate Kubernetes manifests\ntemplate\tManage templates\nquickstart\tCreate a runnable service\nmigrate\tGenerate and run SQL migrations\nmigration\tGenerate and run SQL migrations alias\nenv\tCheck toolchain environment\nbug\tPrint diagnostic bug report\nupgrade\tPrint or run upgrade commands\nconfig\tManage .gofly/config.json\nfeature\tList or preview scaffold features\nplugin\tList, install or run plugins\ncompletion\tEmit shell completion scripts\ncomplete\tEmit legacy completion scripts\nrelease\tRun release readiness checks\ndoctor\tDiagnose local environment\nexample\tList or run built-in examples\nexamples\tList or run built-in examples alias\nai\tEmit AI tool manifest\ntools\tEmit AI tool manifest alias"
 complete -c gofly -n '__fish_seen_subcommand_from new' -a "api\tCreate an API service\nrpc\tCreate an RPC service"
 complete -c gofly -n '__fish_seen_subcommand_from gen' -a "handler\tGenerate REST handler\nrpc\tGenerate RPC code\napi\tGenerate REST code\nrest\tGenerate REST code alias\nmiddleware\tGenerate middleware skeletons\nmodel\tGenerate model code\ngateway\tGenerate API gateway"
 complete -c gofly -n '__fish_seen_subcommand_from generate' -a "handler\tGenerate REST handler\nrpc\tGenerate RPC code\napi\tGenerate REST code\nrest\tGenerate REST code alias\nmiddleware\tGenerate middleware skeletons\nmodel\tGenerate model code\ngateway\tGenerate API gateway"

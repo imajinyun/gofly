@@ -52,8 +52,12 @@ Usage:
     template list|clean|update|revert [--dir <dir>] [--remote <repo|dir>] [--branch <branch>]
   quickstart - Create runnable services quickly.
     quickstart <name> --module <module> [--dir <dir>] [--style minimal|basic|production]
-  migrate - Create SQL migration files.
+  migrate - Generate and run versioned SQL migrations.
     migrate create <name> [--dir <dir>]
+    migrate gen <name> --from-ddl <file> --dialect mysql|postgres [--dir <dir>]
+    migrate validate [--dir <dir>] [--json]
+    migrate up|status --driver mysql|postgres [--dir <dir>]
+    migrate down --driver mysql|postgres --steps <count> [--dir <dir>]
   env - Inspect local toolchain environment.
     env [--json]
     env check [--json]

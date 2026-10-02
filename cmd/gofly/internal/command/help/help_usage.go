@@ -40,6 +40,7 @@ Usage:
     api plugin --api <service.api> --plugin <plugin> [--dir <dir>]
     api middleware <name> --dir <service-dir>
     api middleware --api <service.api> --dir <service-dir>
+    api middleware --preset <name[,name...]> --dir <service-dir>
   docker - Generate Dockerfile assets.
     docker --name <name> [--dir <dir>]
     docker <name> [--go <main-pkg>] [--exe <binary>] [--base <image>] [--output|--o <file>]
@@ -109,6 +110,7 @@ Aliases:
     api diff <old.api> <new.api> [--o <diff.json>] [--format text|markdown|json]
     api plugin --api <service.api> --plugin <plugin> [--dir <dir>]
     api middleware <name> --dir <service-dir>
+    api middleware --preset <name[,name...]> --dir <service-dir> [--dry-run] [--json]
     api ts --file <service.api> --dir <dir>
     api js --file <service.api> --dir <dir>
     api dart --file <service.api> --dir <dir>

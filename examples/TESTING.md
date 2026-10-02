@@ -34,6 +34,8 @@ The example governance gates must detect the following failures:
   behavior checks; it does not replace module-local assertions.
 - `examples-copyable-check` verifies that every catalogued module works after
   being copied outside the repository tree.
+- Middleware preset templates are compiled in a temporary module and compared
+  byte-for-byte with the maintained example implementations.
 - External-service tests use the `integration` build tag and document their
   required environment variables.
 - Fixture data belongs under `testdata/`; executable cross-module integration

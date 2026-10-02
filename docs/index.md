@@ -60,6 +60,7 @@ Tracked contracts consumed by Make gates:
 - [API contract governance](reference/api-contract-governance.json)
 - [DX support bundle](reference/dx-support-bundle.json)
 - [REST middleware profiles](reference/rest-middleware-profiles.md)
+- [Middleware preset generation](reference/middleware-presets.md)
 - [API client generation](reference/api-client-generation.md)
 - [API semantic parity](reference/api-semantic-parity.md)
 - [API client toolchain verification](reference/api-client-toolchains.md)

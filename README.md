@@ -58,7 +58,7 @@ It is designed for platform, backend, and AI-agent-assisted engineering teams wh
 | Capability area | Current surface | Existing entry points |
 | --- | --- | --- |
 | 🚀 Service scaffolding | Minimal, basic, production, REST-only, RPC-only, quickstart, AI-selected templates, and generated smoke checks | `gofly quickstart`, `gofly new service`, `gofly new api`, `gofly new rpc`, `gofly ai new` |
-| 🛠️ REST/API generation | `.api` parsing, imports, formatting, REST route generation, OpenAPI import/export, generated request/response types, route tests, go-zero-compatible API layout | `gofly api gen`, `gofly api go`, `gofly api format`, `gofly api import`, `gofly api doc`, `gofly handler gen` |
+| 🛠️ REST/API generation | `.api` parsing, imports, formatting, REST route generation, maintained middleware presets, OpenAPI import/export, generated request/response types, route tests, go-zero-compatible API layout | `gofly api gen`, `gofly api middleware --preset`, `gofly api format`, `gofly api import`, `gofly api doc`, `gofly handler gen` |
 | 📡 RPC generation | Protobuf parsing, local import resolution, multiple services, streaming descriptors, WKT mappings, gRPC adapter generation, generic handler binding, client/server stubs | `gofly rpc gen`, `gofly rpc protoc`, `gofly rpc client`, `gofly rpc server`, `gofly rpc middleware` |
 | 🧱 Generated layout | HTTP entrypoints in `internal/api/http`, RPC code in `internal/api/grpc`, application orchestration in `internal/app`, go-zero model structs in `model` and repositories in `repo` | `gofly new service`, `gofly api gen --profile gozero-compatible`, `gofly model mysql ddl --style go_zero` |
 | 🗄️ Model and storage generation | SQL DDL and datasource introspection, table filters, prefix/ignore-column handling, MySQL/PostgreSQL dialects, cache helpers, GORM style, go-zero-style `model` + `repo` split | `gofly model gen`, `gofly model mysql ddl`, `gofly model pg ddl`, `gofly model mysql datasource`, `gofly model pg datasource` |
@@ -209,6 +209,7 @@ Start at [docs/index.md](docs/index.md).
 - go-zero migration: [docs/reference/from-go-zero-migration.md](docs/reference/from-go-zero-migration.md)
 - CLI JSON: [docs/reference/cli-json-contracts.md](docs/reference/cli-json-contracts.md)
 - Control-plane: [docs/reference/control-plane-contracts.md](docs/reference/control-plane-contracts.md)
+- Middleware presets: [docs/reference/middleware-presets.md](docs/reference/middleware-presets.md)
 - Contributing: [CONTRIBUTING.md](CONTRIBUTING.md)
 - Roadmap: [ROADMAP.md](ROADMAP.md)
 - Security: [SECURITY.md](SECURITY.md)

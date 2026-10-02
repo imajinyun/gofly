@@ -258,7 +258,7 @@ func TestCommandCatalogCoversPrimaryTopics(t *testing.T) {
 		{name: "api new", topic: "api new", want: []string{"Create an API service", "--profile"}},
 		{name: "api client", topic: "api client", want: []string{"typed API client", "--language"}},
 		{name: "api plugin", topic: "api plugin", want: []string{"Run an API generation plugin", "--plugin"}},
-		{name: "api middleware", topic: "api middleware", want: []string{"Generate middleware", "--dir"}},
+		{name: "api middleware", topic: "api middleware", want: []string{"Generate middleware", "--dir", "--preset", "--list", "--dry-run"}},
 		{name: "gen api", topic: "gen api", want: []string{"Generate REST service", "--style go_zero"}},
 		{name: "gen rest", topic: "gen rest", want: []string{"Generate REST service", "--style go_zero"}},
 		{name: "gen middleware", topic: "gen middleware", want: []string{"Generate middleware", "gen middleware"}},

@@ -13,6 +13,20 @@ under `internal/`.
 Repository-level ownership and acceptance expectations are recorded in the
 [gosky reference contract](../../docs/reference/gosky-reference-project.md).
 
+## Maintained Middleware Presets
+
+The maintained middleware and helper presets are checked in under
+`internal/middleware`. Regenerate or verify the complete set from the repository
+root with:
+
+```sh
+go run ./cmd/gofly api middleware --preset all --dir examples/gosky
+```
+
+Preset generation is idempotent and does not modify routes, configuration,
+secrets, or `go.mod`. The checked-in files compile with gosky but remain opt-in
+until explicitly registered by the application.
+
 ## Tenant-Scoped Casbin Authorization
 
 The protected REST example `GET /api/v1/projects/{id}`, unary HTTP-RPC example

@@ -89,6 +89,64 @@ func writeGeneratedFileUnder(root string, name string, data []byte) error {
 	return WriteFileUnderRoot(root, target, data, generatedFileMode(name), generatedDirMode, "generated file")
 }
 
+func writeNewGeneratedFileUnder(root string, name string, data []byte) error {
+	target, err := SafeTarget(root, name, "new generated file")
+	if err != nil {
+		return err
+	}
+	if err := EnsureDirectoryUnderRoot(root, filepath.Dir(target), generatedDirMode, "new generated file"); err != nil {
+		return err
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+	relative, err := filepath.Rel(absRoot, target)
+	if err != nil {
+		return err
+	}
+	dir, err := os.OpenRoot(absRoot)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	file, err := dir.OpenFile(relative, os.O_WRONLY|os.O_CREATE|os.O_EXCL, generatedFileMode(name))
+	if err != nil {
+		return err
+	}
+	writeErr := error(nil)
+	if _, err := file.Write(data); err != nil {
+		writeErr = err
+	}
+	closeErr := file.Close()
+	if result := errors.Join(writeErr, closeErr); result != nil {
+		_ = dir.Remove(relative)
+		return result
+	}
+	return nil
+}
+
+func removeGeneratedFileUnder(root string, name string) error {
+	target, err := SafeTarget(root, name, "generated file rollback")
+	if err != nil {
+		return err
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+	relative, err := filepath.Rel(absRoot, target)
+	if err != nil {
+		return err
+	}
+	dir, err := os.OpenRoot(absRoot)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Remove(relative)
+}
+
 // SafeTarget resolves target under root and rejects root escapes plus parent symlink traversal.
 // target may be relative to root or absolute, but the resolved location must stay under root.
 func SafeTarget(root string, target string, label string) (string, error) {

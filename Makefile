@@ -451,7 +451,11 @@ migration-docs-check: ## Validate the go-zero 30-minute migration path and repla
 	sh $(SCRIPTS_DIR)/check-migration-docs.sh
 
 .PHONY: p1-growth-check
-p1-growth-check: helm-template-smoke plugin-conformance-check reference-app-smoke runtime-slo-check openapi-validation-check ## Validate growth assets through runnable gates
+p1-growth-check: helm-template-smoke plugin-conformance-check reference-app-smoke runtime-slo-check openapi-validation-check middleware-preset-check ## Validate growth assets through runnable gates
+
+.PHONY: middleware-preset-check
+middleware-preset-check: ## Validate maintained API middleware preset generation
+	$(GO) test $(TESTFLAGS) ./cmd/gofly/internal/generator ./cmd/gofly/internal/command ./cmd/gofly/internal/command/help -run 'Test(MiddlewarePreset|GenerateMiddlewarePreset|GenerateAllMiddlewarePreset|APIMiddlewarePreset|TopicCatalog)'
 
 .PHONY: helm-template-smoke
 helm-template-smoke: ## Validate Helm chart production resource coverage

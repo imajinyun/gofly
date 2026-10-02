@@ -30,7 +30,7 @@ work = pathlib.Path(sys.argv[2]).resolve()
 report_path = pathlib.Path(sys.argv[3]).resolve()
 required_raw = sys.argv[4].strip().lower()
 required = required_raw in {"1", "true", "yes", "on"}
-fixture_root = root / "testdata" / "api-client-compatibility"
+fixture_root = root / "testdata" / "api" / "client" / "compatibility"
 manifest_path = fixture_root / "manifest.json"
 contract_path = root / "docs" / "reference" / "api-client-compatibility.json"
 toolchain_runner = root / "bin" / "scripts" / "check-api-client-toolchains.py"
@@ -75,7 +75,7 @@ def relative_fixture(value, case_id, key):
     try:
         candidate.relative_to(fixture_root.resolve())
     except ValueError:
-        errors.append(f"{case_id}: {key} escapes testdata/api-client-compatibility")
+        errors.append(f"{case_id}: {key} escapes testdata/api/client/compatibility")
         return None
     if not candidate.is_file():
         errors.append(f"{case_id}: {key} fixture is missing: {value}")
@@ -273,7 +273,7 @@ status = "fail" if errors else "pass"
 payload = {
     "schema": "gofly.api_client_compatibility_report.v1",
     "contract": "docs/reference/api-client-compatibility.json",
-    "fixtureManifest": "testdata/api-client-compatibility/manifest.json",
+    "fixtureManifest": "testdata/api/client/compatibility/manifest.json",
     "requiredToolchains": required,
     "status": status,
     "results": results,

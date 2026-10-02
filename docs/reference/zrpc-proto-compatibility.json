@@ -3,8 +3,8 @@
   "status": "blocking-contract",
   "acceptanceGate": "make zrpc-proto-compatibility-check",
   "sourceOfTruth": [
-    "testdata/zrpc-proto-matrix/shop.proto",
-    "testdata/zrpc-proto-matrix/common.proto",
+    "testdata/rpc/zrpc/proto-matrix/shop.proto",
+    "testdata/rpc/zrpc/proto-matrix/common.proto",
     "cmd/gofly/internal/generator/proto_parser.go",
     "cmd/gofly/internal/generator/proto_codegen.go",
     "cmd/gofly/internal/generator/grpc_scaffold_templates.go",
@@ -17,11 +17,11 @@
     "core/discovery/etcdv3/zrpc_registrar.go",
     "cmd/gofly/internal/command/rpc_gen_command.go",
     "cmd/gofly/internal/command/rpc_protoc_command.go",
-    "testdata/zrpc-runtime-interop/go.mod",
-    "testdata/zrpc-runtime-interop/go.sum",
-    "testdata/zrpc-runtime-interop/interop_test.go",
-    "testdata/zrpc-runtime-interop/etcd_discovery_test.go",
-    "testdata/zrpc-runtime-interop/streaming_test.go"
+    "tests/integration/zrpc-interop/go.mod",
+    "tests/integration/zrpc-interop/go.sum",
+    "tests/integration/zrpc-interop/interop_test.go",
+    "tests/integration/zrpc-interop/etcd_discovery_test.go",
+    "tests/integration/zrpc-interop/streaming_test.go"
   ],
   "referenceFramework": "goctl rpc protoc / go-zero zRPC",
   "matrix": [

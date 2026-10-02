@@ -37,7 +37,7 @@ def read(path):
 
 
 manifest_path = root / "docs/reference/openapi-roundtrip.json"
-fixture_path = root / "testdata/openapi-roundtrip/expectations.json"
+fixture_path = root / "testdata/api/openapi/roundtrip/expectations.json"
 manifest = json.loads(read(manifest_path) or "{}")
 fixture = json.loads(read(fixture_path) or "{}")
 makefile = read(root / "Makefile")
@@ -51,7 +51,7 @@ require(fixture.get("schema") == "gofly.openapi_roundtrip_fixture.v1", "round-tr
 require(set((fixture.get("classification") or {}).keys()) == {"preserved", "normalized-compatible", "unsupported", "breaking"}, "fixture classification categories drifted")
 require(not (fixture.get("classification") or {}).get("breaking"), "fixture must not claim unresolved breaking differences")
 for name in ("roundtrip.json", "roundtrip.yaml", "remote-ref.json", "escape-ref.yaml"):
-    require((root / "testdata/openapi-roundtrip" / name).is_file(), f"round-trip fixture {name} is missing")
+    require((root / "testdata/api/openapi/roundtrip" / name).is_file(), f"round-trip fixture {name} is missing")
 
 target = re.search(r"^openapi-roundtrip-check:(?P<deps>[^#\n]*)", makefile, re.M)
 require(target is not None, "Makefile must expose openapi-roundtrip-check")

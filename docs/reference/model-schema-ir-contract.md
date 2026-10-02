@@ -51,7 +51,7 @@ is created.
 
 ## Replay fixture `schemaContract` section
 
-Replay fixtures under `testdata/goctl-datasource-replay/*/replay.json` carry an
+Replay fixtures under `testdata/model/goctl/datasource-replay/*/replay.json` carry an
 optional `schemaContract` object that pins the prepared IR semantics, asserted
 by `TestGoctlDatasourceReplayFixtureModelSchemaIR`. Empty fields mean
 "not asserted".

@@ -22,7 +22,7 @@ run_go_test ./rpc/grpc 'TestGRPCServerDiscoveryAndHealthLifecycle|TestDialKeepsD
 run_go_test ./core/discovery/etcdv3 'TestZRPCResolver|TestZRPCRegistrar'
 printf 'zrpc-proto-compatibility: real bidirectional zRPC runtime and etcd discovery matrix\n'
 (
-	cd "$root/testdata/zrpc-runtime-interop"
+	cd "$root/tests/integration/zrpc-interop"
 	GOCACHE="${GOCACHE:-$tmp_root/gocache}" GOTMPDIR="${GOTMPDIR:-$tmp_root/gotmp}" "$go_cmd" test -count=1 -shuffle=on -race -tags=integration ./...
 )
 
@@ -82,7 +82,7 @@ for row_id, status in expected.items():
     require(len(str(row.get("reason") or "").split()) >= 8, f"{row_id}: reason must be actionable")
     require(len(str(row.get("rollbackOrEscalation") or "").split()) >= 8, f"{row_id}: rollbackOrEscalation must be actionable")
 
-shop = read(root / "testdata/zrpc-proto-matrix/shop.proto")
+shop = read(root / "testdata/rpc/zrpc/proto-matrix/shop.proto")
 for marker in (
     'import "common.proto"',
     'import "google/protobuf/timestamp.proto"',
@@ -94,13 +94,13 @@ for marker in (
     "rpc Chat(stream ChatMessage) returns (stream ChatMessage)",
 ):
     require(marker in shop, f"shop.proto missing {marker!r}")
-common = read(root / "testdata/zrpc-proto-matrix/common.proto")
+common = read(root / "testdata/rpc/zrpc/proto-matrix/common.proto")
 for marker in ("message QuoteRequest", "message QuoteResponse"):
     require(marker in common, f"common.proto missing {marker!r}")
-interop = read(root / "testdata/zrpc-runtime-interop/interop_test.go")
+interop = read(root / "tests/integration/zrpc-interop/interop_test.go")
 for marker in ("zrpc.NewServer", "flygrpc.NewDefaultClient", "flygrpc.NewDefaultServer", "zrpc.NewClientWithTarget"):
     require(marker in interop, f"zRPC runtime interoperability fixture missing {marker!r}")
-interop_mod = read(root / "testdata/zrpc-runtime-interop/go.mod")
+interop_mod = read(root / "tests/integration/zrpc-interop/go.mod")
 root_mod = read(root / "go.mod")
 require("github.com/zeromicro/go-zero v1.10.3" in interop_mod, "zRPC runtime fixture must pin go-zero v1.10.3")
 require("github.com/zeromicro/go-zero" not in root_mod, "root module must not depend on go-zero for interoperability tests")
@@ -113,7 +113,7 @@ if root_go is not None and interop_go is not None:
         interop_go.group(1) == root_go.group(1),
         "zRPC runtime fixture Go version must match the root module",
     )
-streaming = read(root / "testdata/zrpc-runtime-interop/streaming_test.go")
+streaming = read(root / "tests/integration/zrpc-interop/streaming_test.go")
 for marker in (
     "TestZRPCServerStreamsWithGoflyClient",
     "TestGoflyServerStreamsWithZRPCClient",
@@ -124,7 +124,7 @@ for marker in (
 ):
     require(marker in streaming, f"zRPC streaming fixture missing {marker!r}")
 require("stdgrpc.NewServer(" not in streaming, "streaming fixture must use real zRPC/gofly server wrappers")
-etcd_discovery = read(root / "testdata/zrpc-runtime-interop/etcd_discovery_test.go")
+etcd_discovery = read(root / "tests/integration/zrpc-interop/etcd_discovery_test.go")
 for marker in (
     "TestGoflyServerDiscoveredByZRPCClientThroughEtcd",
     "TestZRPCServerDiscoveredByGoflyClientThroughEtcd",

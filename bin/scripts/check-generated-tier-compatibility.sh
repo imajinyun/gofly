@@ -85,7 +85,7 @@ for source in (
     "docs/reference/generated-version-compat.md",
     "docs/reference/goctl-real-project-replay.json",
     "docs/reference/goctl-generator-compatibility.json",
-    "testdata/generated-compat/matrix.json",
+    "testdata/compatibility/generated/matrix.json",
 ):
     require(source in set(manifest.get("sourceOfTruth") or []), f"sourceOfTruth missing {source!r}")
 

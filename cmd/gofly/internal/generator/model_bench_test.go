@@ -131,7 +131,7 @@ type goctlDatasourceReplayTableContract struct {
 
 func readGoctlDatasourceReplayFixture(t *testing.T, name string) goctlDatasourceReplayFixture {
 	t.Helper()
-	path := filepath.Join(repositoryRoot(t), "testdata", "goctl-datasource-replay", name, "replay.json")
+	path := filepath.Join(repositoryRoot(t), "testdata", "model", "goctl", "datasource-replay", name, "replay.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read datasource replay fixture %s: %v", name, err)

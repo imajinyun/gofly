@@ -21,15 +21,15 @@ import pathlib
 import sys
 
 root = pathlib.Path(sys.argv[1])
-matrix_path = root / "testdata/generated-compat/matrix.json"
+matrix_path = root / "testdata/compatibility/generated/matrix.json"
 required_files = [
-    root / "testdata/generated-compat/v0.1/orders.api",
-    root / "testdata/generated-compat/v0.1/greeter.proto",
-    root / "testdata/generated-compat/v0.1/service-config.json",
-    root / "testdata/generated-compat/current/orders.api",
-    root / "testdata/generated-compat/current/greeter.proto",
-    root / "testdata/generated-compat/future/orders.api",
-    root / "testdata/generated-compat/future/greeter.proto",
+    root / "testdata/compatibility/generated/v0.1/orders.api",
+    root / "testdata/compatibility/generated/v0.1/greeter.proto",
+    root / "testdata/compatibility/generated/v0.1/service-config.json",
+    root / "testdata/compatibility/generated/current/orders.api",
+    root / "testdata/compatibility/generated/current/greeter.proto",
+    root / "testdata/compatibility/generated/future/orders.api",
+    root / "testdata/compatibility/generated/future/greeter.proto",
     root / "docs/reference/generated-version-compat.md",
 ]
 
@@ -41,17 +41,17 @@ for path in required_files:
 if matrix_path.is_file():
     data = json.loads(matrix_path.read_text(encoding="utf-8"))
     if data.get("schema") != "gofly.generated_version_compat.v1":
-        missing.append("testdata/generated-compat/matrix.json: unexpected schema")
+        missing.append("testdata/compatibility/generated/matrix.json: unexpected schema")
     profiles = {item.get("profile") for item in data.get("profiles", [])}
     for profile in ("old", "current", "future"):
         if profile not in profiles:
-            missing.append(f"testdata/generated-compat/matrix.json: missing profile {profile!r}")
+            missing.append(f"testdata/compatibility/generated/matrix.json: missing profile {profile!r}")
     for item in data.get("profiles", []):
         for field in ("api", "proto", "serviceConfig", "expectedDiff", "verification"):
             if field not in item:
-                missing.append(f"testdata/generated-compat/matrix.json: profile {item.get('profile')} missing {field}")
+                missing.append(f"testdata/compatibility/generated/matrix.json: profile {item.get('profile')} missing {field}")
 else:
-    missing.append("testdata/generated-compat/matrix.json: file is missing")
+    missing.append("testdata/compatibility/generated/matrix.json: file is missing")
 
 doc = root / "docs/reference/generated-version-compat.md"
 if doc.is_file():
@@ -76,7 +76,7 @@ if missing:
 print("generated version compatibility governance ok")
 PY
 
-matrix="$root/testdata/generated-compat/matrix.json"
+matrix="$root/testdata/compatibility/generated/matrix.json"
 profiles="$tmp/profiles.txt"
 python3 - "$matrix" "$profiles" <<'PY'
 import json, pathlib, sys
@@ -113,9 +113,9 @@ run_profile() {
 	rm -rf "$profile_dir"
 	mkdir -p "$profile_dir"
 
-	api="$root/testdata/generated-compat/$api_rel"
-	proto="$root/testdata/generated-compat/$proto_rel"
-	config="$root/testdata/generated-compat/$config_rel"
+	api="$root/testdata/compatibility/generated/$api_rel"
+	proto="$root/testdata/compatibility/generated/$proto_rel"
+	config="$root/testdata/compatibility/generated/$config_rel"
 	first_config="$profile_dir/first-service-config.json"
 	second_config="$profile_dir/second-service-config.json"
 	cp "$config" "$first_config"

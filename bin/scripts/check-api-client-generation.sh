@@ -20,7 +20,7 @@ run_go_test() {
 run_go_test ./cmd/gofly/internal/generator 'Test(GenerateAPIClientPathAndQueryParams|GeneratedAPIClientsPreserveRequestContracts|GeneratedClientsPreserveFieldLocationsAndWireNames)'
 run_go_test ./cmd/gofly/internal/command 'TestExecuteAPIClientGeneration'
 
-api_file="$root/testdata/api-client-matrix/shop.api"
+api_file="$root/testdata/api/client/matrix/shop.api"
 for lang in typescript javascript dart java kotlin; do
 	(
 		cd "$root"
@@ -58,7 +58,7 @@ for marker in (
     "java",
     "kotlin",
     "make api-client-generation-check",
-    "testdata/api-client-matrix/shop.api",
+    "testdata/api/client/matrix/shop.api",
 ):
     require(marker in doc, f"api client generation doc missing {marker!r}")
 

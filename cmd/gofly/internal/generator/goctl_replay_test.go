@@ -31,7 +31,7 @@ type goctlReplayFixture struct {
 }
 
 func TestGoctlRealProjectFixtureReplay(t *testing.T) {
-	fixtureRoot := filepath.Join(repositoryRoot(t), "testdata", "goctl-replay")
+	fixtureRoot := filepath.Join(repositoryRoot(t), "testdata", "migration", "goctl-replay")
 	for _, fixtureDir := range goctlReplayFixtureDirs(t, fixtureRoot) {
 		fixture := readGoctlReplayFixture(t, fixtureDir)
 		if fixture.NativeOracle {

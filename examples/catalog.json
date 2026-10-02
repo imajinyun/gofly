@@ -1,0 +1,167 @@
+{
+  "schema": "gofly.examples_catalog.v1",
+  "examples": [
+    {
+      "name": "ai-governed-service",
+      "path": "examples/ai-first/ai-governed-service",
+      "kind": "recipe",
+      "cli": true,
+      "description": "AI-first service contract and control-plane example"
+    },
+    {
+      "name": "k8s",
+      "path": "examples/deploy/k8s",
+      "kind": "evidence",
+      "cli": true,
+      "description": "Kubernetes deployment checklist compatibility example"
+    },
+    {
+      "name": "plugin-ecosystem",
+      "path": "examples/ecosystem/plugin-ecosystem",
+      "kind": "recipe",
+      "cli": true,
+      "description": "Plugin registry and template ecosystem example"
+    },
+    {
+      "name": "restserver",
+      "path": "examples/getting-started/restserver",
+      "kind": "starter",
+      "cli": true,
+      "description": "REST server with routing and middleware"
+    },
+    {
+      "name": "rpcserver",
+      "path": "examples/getting-started/rpcserver",
+      "kind": "starter",
+      "cli": true,
+      "description": "gRPC server with gofly RPC runtime"
+    },
+    {
+      "name": "cache-local",
+      "path": "examples/goctl-model/cache-local",
+      "kind": "recipe",
+      "cli": true,
+      "description": "Local cache and cache-aside model capability example"
+    },
+    {
+      "name": "model-gorm",
+      "path": "examples/goctl-model/model-gorm",
+      "kind": "evidence",
+      "cli": true,
+      "description": "GORM-style generated model compatibility example"
+    },
+    {
+      "name": "gosky",
+      "path": "examples/gosky",
+      "kind": "reference",
+      "cli": true,
+      "runCommand": "go run ./cmd/gosky",
+      "description": "Canonical generated API and RPC reference service"
+    },
+    {
+      "name": "http-middleware",
+      "path": "examples/http/http-middleware",
+      "kind": "recipe",
+      "cli": true,
+      "description": "Productized HTTP middleware matrix"
+    },
+    {
+      "name": "http-middlewares",
+      "path": "examples/http/middlewares",
+      "kind": "recipe",
+      "cli": false,
+      "description": "Reusable HTTP middleware catalog package"
+    },
+    {
+      "name": "observability",
+      "path": "examples/http/observability",
+      "kind": "recipe",
+      "cli": true,
+      "description": "Trace, metrics and structured logging demo"
+    },
+    {
+      "name": "config-discovery",
+      "path": "examples/microservices/config-discovery",
+      "kind": "recipe",
+      "cli": true,
+      "description": "Configuration and service discovery example"
+    },
+    {
+      "name": "custom-mux-sink",
+      "path": "examples/microservices/custom-mux-sink",
+      "kind": "recipe",
+      "cli": false,
+      "description": "Application-owned RPC mux sink example"
+    },
+    {
+      "name": "gateway-discovery-rpc",
+      "path": "examples/microservices/gateway-discovery-rpc",
+      "kind": "recipe",
+      "cli": true,
+      "description": "Gateway discovery and RPC routing boundary example"
+    },
+    {
+      "name": "mq-worker",
+      "path": "examples/microservices/mq-worker",
+      "kind": "recipe",
+      "cli": true,
+      "description": "Message queue worker example"
+    },
+    {
+      "name": "outbox-mq",
+      "path": "examples/microservices/outbox-mq",
+      "kind": "recipe",
+      "cli": true,
+      "description": "Transactional outbox with message queue"
+    },
+    {
+      "name": "resilience",
+      "path": "examples/microservices/resilience",
+      "kind": "recipe",
+      "cli": true,
+      "description": "Circuit breaker, rate limiter and timeout patterns"
+    },
+    {
+      "name": "rpc-idl-matrix",
+      "path": "examples/microservices/rpc-idl-matrix",
+      "kind": "recipe",
+      "cli": true,
+      "description": "RPC proto, thrift and streaming compatibility matrix"
+    },
+    {
+      "name": "saga",
+      "path": "examples/microservices/saga",
+      "kind": "recipe",
+      "cli": true,
+      "description": "Saga orchestration and compensation demo"
+    },
+    {
+      "name": "gozero-basic",
+      "path": "examples/migration/gozero-basic",
+      "kind": "evidence",
+      "cli": false,
+      "description": "go-zero migration entry report"
+    },
+    {
+      "name": "migration-proof",
+      "path": "examples/migration/migration-proof",
+      "kind": "evidence",
+      "cli": true,
+      "description": "Gin, go-zero, Kratos and Kitex migration proof cases"
+    },
+    {
+      "name": "microshop",
+      "path": "examples/production/microshop",
+      "kind": "reference",
+      "cli": true,
+      "description": "Multi-service topology example"
+    },
+    {
+      "name": "production-orders",
+      "path": "examples/production/production-orders",
+      "kind": "reference",
+      "cli": true,
+      "description": "Reference production orders service topology"
+    }
+  ]
+}

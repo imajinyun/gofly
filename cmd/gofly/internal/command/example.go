@@ -14,18 +14,20 @@ type exampleInfo struct {
 	Name        string `json:"name"`
 	Path        string `json:"path"`
 	Description string `json:"description"`
+	RunCommand  string `json:"runCommand,omitempty"`
 }
 
 var builtInExamples = []exampleInfo{
 	{Name: "ai-governed-service", Path: "examples/ai-first/ai-governed-service", Description: "AI-first service contract and control-plane example"},
 	{Name: "cache-local", Path: "examples/goctl-model/cache-local", Description: "Local cache and cache-aside model capability example"},
 	{Name: "config-discovery", Path: "examples/microservices/config-discovery", Description: "Configuration and service discovery example"},
-	{Name: "gateway-discovery-rpc", Path: "examples/microservices/gateway-discovery-rpc", Description: "API gateway with service discovery and RPC backend"},
+	{Name: "gateway-discovery-rpc", Path: "examples/microservices/gateway-discovery-rpc", Description: "Gateway discovery and RPC routing boundary example"},
 	{Name: "http-middleware", Path: "examples/http/http-middleware", Description: "Productized HTTP middleware matrix"},
-	{Name: "k8s", Path: "examples/deploy/k8s", Description: "Kubernetes deployment and service manifests"},
-	{Name: "microshop", Path: "examples/production/microshop", Description: "Production microservice topology example"},
+	{Name: "k8s", Path: "examples/deploy/k8s", Description: "Kubernetes deployment checklist compatibility example"},
+	{Name: "microshop", Path: "examples/production/microshop", Description: "Multi-service topology example"},
 	{Name: "migration-proof", Path: "examples/migration/migration-proof", Description: "Gin, go-zero, Kratos and Kitex migration proof cases"},
-	{Name: "model-gorm", Path: "examples/goctl-model/model-gorm", Description: "GORM-style SQL model generation"},
+	{Name: "model-gorm", Path: "examples/goctl-model/model-gorm", Description: "GORM-style generated model compatibility example"},
+	{Name: "gosky", Path: "examples/gosky", Description: "Canonical generated API and RPC reference service", RunCommand: "go run ./cmd/gosky"},
 	{Name: "mq-worker", Path: "examples/microservices/mq-worker", Description: "Message queue worker example"},
 	{Name: "observability", Path: "examples/http/observability", Description: "Trace, metrics and structured logging demo"},
 	{Name: "outbox-mq", Path: "examples/microservices/outbox-mq", Description: "Transactional outbox with message queue"},
@@ -134,7 +136,11 @@ func exampleRunCommand(args []string) error {
 	}
 	cliOutputf("Copied example %q to %s\n", ex.Name, outDir)
 	cliOutputln("To run:")
-	cliOutputf("  cd %s && go run .\n", outDir)
+	runCommand := ex.RunCommand
+	if runCommand == "" {
+		runCommand = "go run ."
+	}
+	cliOutputf("  cd %s && %s\n", outDir, runCommand)
 	return nil
 }
 

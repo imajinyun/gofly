@@ -28,8 +28,8 @@
     "bindings": ["path", "query", "header", "json-body"],
     "statuses": [200, 201, 204, 400, 401, 404, 499, 500, 504],
     "errorEnvelope": "rest.ErrorResponse invalid_argument",
-    "fixture": "testdata/goctl-api-semantic/contract.api",
-    "runtimeExpectations": "testdata/goctl-api-semantic/expectations.json#runtimeSemantics",
+    "fixture": "testdata/api/semantic/goctl/contract.api",
+    "runtimeExpectations": "testdata/api/semantic/goctl/expectations.json#runtimeSemantics",
     "assertions": ["status", "stable-error-envelope", "request-id", "trace-id", "body-shape", "context-cancellation"],
     "excludedAssertions": ["log-timing", "implementation-only-fields"],
     "oracleBoundary": "The optional GOZERO_ROOT run proves pinned goctl grammar and generated-route acceptance. Runtime envelope, correlation, cancellation, and timeout behavior are deliberate gofly enhancements, not a claim of byte-for-byte goctl runtime parity."

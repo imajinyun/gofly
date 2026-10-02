@@ -16,7 +16,7 @@ import (
 //   - the generated temporary module must compile and register imported routes.
 func TestOpenAPIRoundTripContract(t *testing.T) {
 	root := repositoryRoot(t)
-	fixtures := filepath.Join(root, "testdata", "openapi-roundtrip")
+	fixtures := filepath.Join(root, "testdata", "api", "openapi", "roundtrip")
 
 	for _, name := range []string{"remote-ref.json", "escape-ref.yaml"} {
 		t.Run("rejects/"+name, func(t *testing.T) {

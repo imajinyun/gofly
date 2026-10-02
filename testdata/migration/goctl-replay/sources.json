@@ -48,7 +48,7 @@
   "fixtures": [
     {
       "id": "userservice-crud-migration-proof",
-      "directory": "testdata/goctl-replay/migration/userservice",
+      "directory": "testdata/migration/goctl-replay/migration/userservice",
       "sourceDigest": "431e33bbcad616f330582be65a6f96c07058814cb7c22e71900d88ef3886c57d",
       "files": [
         {
@@ -76,7 +76,7 @@
     },
     {
       "id": "inventoryservice-grouped-import-auth-migration-proof",
-      "directory": "testdata/goctl-replay/migration/inventoryservice",
+      "directory": "testdata/migration/goctl-replay/migration/inventoryservice",
       "sourceDigest": "deeca02b3037348ea4078e221465bcff9d2a03b1e541b4be32ef18f827149109",
       "files": [
         {

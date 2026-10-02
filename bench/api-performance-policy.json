@@ -20,7 +20,7 @@
     "outputLimitBytes": 16384
   },
   "fixture": {
-    "manifest": "testdata/api-performance/manifest.json",
+    "manifest": "bench/testdata/api-generator/manifest.json",
     "schema": "gofly.api_performance_fixtures.v1",
     "digest": "sha256",
     "pathPolicy": "All manifest paths must be slash-separated local paths below the repository root and must not cross symlinks."

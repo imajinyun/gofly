@@ -11,7 +11,7 @@ contracts for these supported languages:
 - `java`
 - `kotlin`
 
-The fixture source of truth is `testdata/api-client-matrix/shop.api`. It covers
+The fixture source of truth is `testdata/api/client/matrix/shop.api`. It covers
 path parameters, query parameters, repeated query values, header-tagged fields,
 JSON request bodies, nested DTOs, and list response DTOs.
 

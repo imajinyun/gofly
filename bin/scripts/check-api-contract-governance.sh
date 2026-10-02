@@ -34,7 +34,7 @@ client_compatibility_script = read_text(root / "bin" / "scripts" / "check-api-cl
 openapi_manifest = read_text(root / "docs" / "reference" / "openapi-invalid-request-smoke.json")
 rpc_manifest = read_text(root / "docs" / "reference" / "rpc-tier1-evidence.json")
 client_compatibility_manifest = read_text(root / "docs" / "reference" / "api-client-compatibility.json")
-client_compatibility_fixtures = read_text(root / "testdata" / "api-client-compatibility" / "manifest.json")
+client_compatibility_fixtures = read_text(root / "testdata" / "api" / "client" / "compatibility" / "manifest.json")
 
 try:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))

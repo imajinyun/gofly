@@ -18,7 +18,7 @@ func TestGoZeroCompatibleNativeAPIUpgradeReplay(t *testing.T) {
 	generate := func(fixture string) {
 		t.Helper()
 		if err := GenerateRESTFromAPI(APIOptions{
-			APIFile: filepath.Join(root, "testdata", "generated-compat", fixture, "orders.api"),
+			APIFile: filepath.Join(root, "testdata", "compatibility", "generated", fixture, "orders.api"),
 			Dir:     project,
 			Profile: string(ProfileGoZeroCompatible),
 		}); err != nil {
@@ -93,7 +93,7 @@ func TestGoZeroCompatibleNativeRPCUpgradeReplay(t *testing.T) {
 	generate := func(fixture string) {
 		t.Helper()
 		if err := GenerateGRPCScaffold(t.Context(), GRPCScaffoldOptions{
-			ProtoFile: filepath.Join(root, "testdata", "generated-compat", fixture, "greeter.proto"),
+			ProtoFile: filepath.Join(root, "testdata", "compatibility", "generated", fixture, "greeter.proto"),
 			Dir:       project,
 			Module:    "example.com/orders",
 			Name:      "greeter",

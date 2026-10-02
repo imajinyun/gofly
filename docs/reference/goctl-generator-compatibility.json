@@ -44,7 +44,7 @@
       "id": "generated-version-fixtures",
       "status": "implemented",
       "gate": "make generated-version-compat-check",
-      "implementation": ["testdata/generated-compat/matrix.json"],
+      "implementation": ["testdata/compatibility/generated/matrix.json"],
       "tests": ["bin/scripts/check-generated-version-compat.sh"],
       "evidence": ["old", "current", "future"],
       "rollbackNote": "Rollback by pinning fixture profiles and preserving old/current/future compatibility rows until regenerated output passes."
@@ -82,7 +82,7 @@
       "gate": "make api-client-generation-check",
       "implementation": ["cmd/gofly/internal/generator/api_codegen.go", "cmd/gofly/internal/command/api_client_command.go"],
       "tests": ["cmd/gofly/internal/command/idl_test.go", "cmd/gofly/internal/generator/idl_test.go", "bin/scripts/check-api-client-generation.sh", "docs/reference/api-client-generation.md"],
-      "evidence": ["typescript", "javascript", "dart", "java", "kotlin", "APIClient.java", "APIClient.kt", "testdata/api-client-matrix/shop.api"],
+      "evidence": ["typescript", "javascript", "dart", "java", "kotlin", "APIClient.java", "APIClient.kt", "testdata/api/client/matrix/shop.api"],
       "rollbackNote": "Rollback by pinning client generators per language and keeping generated client evidence out of runtime artifacts."
     },
     {
@@ -90,7 +90,7 @@
       "status": "implemented",
       "gate": "make api-client-toolchain-check",
       "implementation": ["bin/scripts/check-api-client-toolchains.py", "docs/reference/api-client-toolchains.json"],
-      "tests": ["bin/scripts/check-api-client-toolchains.sh", "testdata/api-client-toolchain/javascript-runtime.mjs", "testdata/api-client-toolchain/java/com/fasterxml/jackson/databind/ObjectMapper.java", "testdata/api-client-toolchain/kotlin/Serialization.kt", "testdata/api-client-toolchain/kotlin/Json.kt", "testdata/api-client-toolchain/dart/http/lib/http.dart"],
+      "tests": ["bin/scripts/check-api-client-toolchains.sh", "testdata/api/client/toolchains/javascript-runtime.mjs", "testdata/api/client/toolchains/java/com/fasterxml/jackson/databind/ObjectMapper.java", "testdata/api/client/toolchains/kotlin/Serialization.kt", "testdata/api/client/toolchains/kotlin/Json.kt", "testdata/api/client/toolchains/dart/http/lib/http.dart"],
       "evidence": ["typescript", "javascript", "dart", "java", "kotlin", "required", "unavailable"],
       "rollbackNote": "Rollback the executable toolchain matrix independently while retaining structural generated-client evidence and the API semantic fixture."
     },

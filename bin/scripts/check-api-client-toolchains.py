@@ -142,7 +142,7 @@ def verify_javascript(root: pathlib.Path, output: pathlib.Path, tool: str) -> di
     source = generated_client_file(output, "javascript")
     module = output / "contract_client.mjs"
     shutil.copyfile(source, module)
-    return run([tool, str(root / "testdata/api-client-toolchain/javascript-runtime.mjs"), str(module)], cwd=output)
+    return run([tool, str(root / "testdata/api/client/toolchains/javascript-runtime.mjs"), str(module)], cwd=output)
 
 
 def verify_javascript_syntax(output: pathlib.Path, tool: str) -> dict[str, object]:
@@ -182,7 +182,7 @@ def verify_java(root: pathlib.Path, work: pathlib.Path, output: pathlib.Path, to
             tool,
             "-d",
             str(classes),
-            str(root / "testdata/api-client-toolchain/java/com/fasterxml/jackson/databind/ObjectMapper.java"),
+            str(root / "testdata/api/client/toolchains/java/com/fasterxml/jackson/databind/ObjectMapper.java"),
             str(source),
         ],
         cwd=output,
@@ -196,8 +196,8 @@ def verify_kotlin(root: pathlib.Path, work: pathlib.Path, output: pathlib.Path, 
     return run(
         [
             tool,
-            str(root / "testdata/api-client-toolchain/kotlin/Serialization.kt"),
-            str(root / "testdata/api-client-toolchain/kotlin/Json.kt"),
+            str(root / "testdata/api/client/toolchains/kotlin/Serialization.kt"),
+            str(root / "testdata/api/client/toolchains/kotlin/Json.kt"),
             str(source),
             "-d",
             str(artifact),
@@ -215,7 +215,7 @@ def verify_dart(root: pathlib.Path, work: pathlib.Path, output: pathlib.Path, to
         "name: gofly_api_client_check\n"
         "environment:\n  sdk: '>=3.9.0 <4.0.0'\n"
         "dependencies:\n  http:\n    path: "
-        + str(root / "testdata/api-client-toolchain/dart/http")
+        + str(root / "testdata/api/client/toolchains/dart/http")
         + "\n"
     )
     (project / "pubspec.yaml").write_text(pubspec, encoding="utf-8")
@@ -270,11 +270,11 @@ def write_report(path: pathlib.Path, report: dict[str, object]) -> None:
 def validate_contract(root: pathlib.Path) -> list[str]:
     errors: list[str] = []
     contract_path = root / "docs/reference/api-client-toolchains.json"
-    fixture_path = root / "testdata/goctl-api-semantic/contract.api"
+    fixture_path = root / "testdata/api/semantic/goctl/contract.api"
     if not contract_path.is_file():
         return ["docs/reference/api-client-toolchains.json is missing"]
     if not fixture_path.is_file():
-        errors.append("testdata/goctl-api-semantic/contract.api is missing")
+        errors.append("testdata/api/semantic/goctl/contract.api is missing")
     try:
         contract = json.loads(contract_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
@@ -298,12 +298,12 @@ def validate_contract(root: pathlib.Path) -> list[str]:
             if not row.get(key):
                 errors.append(f"{language}: {key} is required")
     for relative in (
-        "testdata/api-client-toolchain/javascript-runtime.mjs",
-        "testdata/api-client-toolchain/java/com/fasterxml/jackson/databind/ObjectMapper.java",
-        "testdata/api-client-toolchain/kotlin/Serialization.kt",
-        "testdata/api-client-toolchain/kotlin/Json.kt",
-        "testdata/api-client-toolchain/dart/http/pubspec.yaml",
-        "testdata/api-client-toolchain/dart/http/lib/http.dart",
+        "testdata/api/client/toolchains/javascript-runtime.mjs",
+        "testdata/api/client/toolchains/java/com/fasterxml/jackson/databind/ObjectMapper.java",
+        "testdata/api/client/toolchains/kotlin/Serialization.kt",
+        "testdata/api/client/toolchains/kotlin/Json.kt",
+        "testdata/api/client/toolchains/dart/http/pubspec.yaml",
+        "testdata/api/client/toolchains/dart/http/lib/http.dart",
     ):
         if not (root / relative).is_file():
             errors.append(f"{relative} is missing")
@@ -326,7 +326,7 @@ def main() -> int:
     root = args.root.resolve()
     work = args.work.resolve()
     report_path = args.report.resolve()
-    api_file = (args.api_file or (root / "testdata/goctl-api-semantic/contract.api")).resolve()
+    api_file = (args.api_file or (root / "testdata/api/semantic/goctl/contract.api")).resolve()
     try:
         required = parse_bool(args.required)
     except ValueError as error:

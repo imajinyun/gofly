@@ -427,7 +427,7 @@ func TestParseAPIRejectsUnsupportedTypeAlias(t *testing.T) {
 
 func goctlSemanticFixturePath(t *testing.T) string {
 	t.Helper()
-	return filepath.Join(repositoryRoot(t), "testdata", "goctl-api-semantic", "contract.api")
+	return filepath.Join(repositoryRoot(t), "testdata", "api", "semantic", "goctl", "contract.api")
 }
 
 func apiTestFieldType(message IDLMessage, name string) string {

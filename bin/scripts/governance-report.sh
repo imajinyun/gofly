@@ -1675,7 +1675,7 @@ if adopter_upgrade_proof.get("schema") != "gofly.generated_adopter_upgrade_proof
     missing.append("generated adopter upgrade proof schema mismatch")
 if adopter_upgrade_proof.get("source") != "docs/reference/generated-upgrade-dry-run.json":
     missing.append("generated adopter upgrade proof source mismatch")
-if adopter_upgrade_proof.get("compatibilityMatrix") != "testdata/generated-compat/matrix.json":
+if adopter_upgrade_proof.get("compatibilityMatrix") != "testdata/compatibility/generated/matrix.json":
     missing.append("generated adopter upgrade proof compatibilityMatrix mismatch")
 if set(adopter_upgrade_proof.get("acceptanceGates") or []) != {
     "make generated-upgrade-dry-run-check",

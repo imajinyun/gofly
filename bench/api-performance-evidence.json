@@ -142,7 +142,7 @@
         "routeCount": 1000
       }
     ],
-    "manifest": "testdata/api-performance/manifest.json",
+    "manifest": "bench/testdata/api-generator/manifest.json",
     "schema": "gofly.api_performance_fixtures.v1"
   },
   "generatedAt": "2026-09-28T07:24:03.613068+00:00",

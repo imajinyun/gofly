@@ -2,7 +2,7 @@
 
 `make generated-version-compat-check` validates generated project snapshots for
 `old`, `current`, and `future` profiles. The matrix lives in
-`testdata/generated-compat/matrix.json` and exists to keep generated project
+`testdata/compatibility/generated/matrix.json` and exists to keep generated project
 snapshots reproducible across scaffold evolution.
 
 The compatibility contract is:

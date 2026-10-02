@@ -415,20 +415,13 @@ command-feature-family-preflight-check: ## Validate cmd/gofly feature family spl
 project-layout-governance-check: ## Compatibility no-op; docs-backed layout inventory was removed
 	$(GO) env GOMOD >/dev/null
 
+.PHONY: examples-layout-check
+examples-layout-check: ## Validate the example catalog, module ownership, and test layout
+	sh $(SCRIPTS_DIR)/check-examples-layout.sh
+
 .PHONY: examples-check
 examples-check: examples-copyable-check ## Build and vet all examples to keep docs and code in sync
-	@if [ ! -d examples ] || ! find examples -type f -name '*.go' | grep -q .; then \
-		echo "examples/ not present or empty; skipping examples-check"; \
-		exit 0; \
-	fi
-	@find examples -mindepth 2 -maxdepth 3 -name go.mod -print | sort | while IFS= read -r mod; do \
-		dir=$$(dirname $$mod); \
-		out=$$(mktemp -d); \
-		trap 'rm -rf $$out' EXIT; \
-		mkdir -p $$out/gocache $$out/gotmp; \
-		echo "checking $$dir"; \
-		(cd $$dir && GOCACHE=$$out/gocache GOTMPDIR=$$out/gotmp $(GO) build -o $$out/$$(basename $$dir) ./... && GOCACHE=$$out/gocache GOTMPDIR=$$out/gotmp $(GO) vet ./...); \
-	done
+	GO="$(GO)" sh $(SCRIPTS_DIR)/examples-check.sh
 
 .PHONY: examples-copyable-check
 examples-copyable-check: ## Copy each standalone example outside the repo and verify it builds

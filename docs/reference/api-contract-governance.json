@@ -86,7 +86,7 @@
           ]
         },
         {
-          "path": "testdata/api-client-compatibility/manifest.json",
+          "path": "testdata/api/client/compatibility/manifest.json",
           "contains": [
             "optional-field-addition",
             "enum-value-removal",

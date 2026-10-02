@@ -66,9 +66,9 @@
   "profiles": [
     {
       "profile": "old",
-      "api": "testdata/generated-compat/v0.1/orders.api",
-      "proto": "testdata/generated-compat/v0.1/greeter.proto",
-      "serviceConfig": "testdata/generated-compat/v0.1/service-config.json",
+      "api": "testdata/compatibility/generated/v0.1/orders.api",
+      "proto": "testdata/compatibility/generated/v0.1/greeter.proto",
+      "serviceConfig": "testdata/compatibility/generated/v0.1/service-config.json",
       "pluginProfile": {
         "protocol": "1",
         "compatibility": "old generated services keep plugin protocol 1 compatibility",
@@ -104,9 +104,9 @@
     },
     {
       "profile": "current",
-      "api": "testdata/generated-compat/current/orders.api",
-      "proto": "testdata/generated-compat/current/greeter.proto",
-      "serviceConfig": "testdata/generated-compat/current/service-config.json",
+      "api": "testdata/compatibility/generated/current/orders.api",
+      "proto": "testdata/compatibility/generated/current/greeter.proto",
+      "serviceConfig": "testdata/compatibility/generated/current/service-config.json",
       "pluginProfile": {
         "protocol": "1",
         "compatibility": "current generated services keep plugin protocol 1 compatibility",
@@ -141,9 +141,9 @@
     },
     {
       "profile": "future",
-      "api": "testdata/generated-compat/future/orders.api",
-      "proto": "testdata/generated-compat/future/greeter.proto",
-      "serviceConfig": "testdata/generated-compat/future/service-config.json",
+      "api": "testdata/compatibility/generated/future/orders.api",
+      "proto": "testdata/compatibility/generated/future/greeter.proto",
+      "serviceConfig": "testdata/compatibility/generated/future/service-config.json",
       "pluginProfile": {
         "protocol": "1",
         "compatibility": "future generated services keep plugin protocol 1 compatibility while experimental fields are ignored safely",
@@ -199,7 +199,7 @@
         "id": "regenerate-dry-run",
         "phase": "generation",
         "evidence": [
-          "testdata/generated-compat/matrix.json"
+          "testdata/compatibility/generated/matrix.json"
         ],
         "gate": "make generated-upgrade-dry-run-check",
         "expectedOutput": "Regenerate into temporary output and classify repeat-generation diffs before applying changes.",
@@ -243,7 +243,7 @@
         "id": "adopter-smoke-and-rollback",
         "phase": "verification",
         "evidence": [
-          "testdata/generated-compat/matrix.json"
+          "testdata/compatibility/generated/matrix.json"
         ],
         "gate": "make test-generated-matrix",
         "expectedOutput": "Generated project smoke passes and rollback action is documented for each profile.",
@@ -255,7 +255,7 @@
   "adopterUpgradeProof": {
     "schema": "gofly.generated_adopter_upgrade_proof.v1",
     "source": "docs/reference/generated-upgrade-dry-run.json",
-    "compatibilityMatrix": "testdata/generated-compat/matrix.json",
+    "compatibilityMatrix": "testdata/compatibility/generated/matrix.json",
     "acceptanceGates": [
       "make generated-upgrade-dry-run-check",
       "make generated-version-compat-check"
@@ -297,7 +297,7 @@
     "aiflowTask": "GOFLY-GOV-10P9-02",
     "status": "blocking",
     "sourceOfTruth": [
-      "testdata/generated-compat/matrix.json",
+      "testdata/compatibility/generated/matrix.json",
       "docs/reference/generated-version-compat.md",
       "docs/reference/generated-upgrade-dry-run.json"
     ],
@@ -318,10 +318,10 @@
       {
         "profile": "old",
         "fixtureSet": {
-          "api": "testdata/generated-compat/v0.1/orders.api",
-          "proto": "testdata/generated-compat/v0.1/greeter.proto",
-          "serviceConfig": "testdata/generated-compat/v0.1/service-config.json",
-          "snapshot": "testdata/generated-compat/matrix.json"
+          "api": "testdata/compatibility/generated/v0.1/orders.api",
+          "proto": "testdata/compatibility/generated/v0.1/greeter.proto",
+          "serviceConfig": "testdata/compatibility/generated/v0.1/service-config.json",
+          "snapshot": "testdata/compatibility/generated/matrix.json"
         },
         "expectedDiff": "compatible feature addition",
         "requiredReportFields": ["profile", "generatedFiles", "goTest", "repeatGenerationDiff", "expectedDiff", "verification"],
@@ -331,10 +331,10 @@
       {
         "profile": "current",
         "fixtureSet": {
-          "api": "testdata/generated-compat/current/orders.api",
-          "proto": "testdata/generated-compat/current/greeter.proto",
-          "serviceConfig": "testdata/generated-compat/current/service-config.json",
-          "snapshot": "testdata/generated-compat/matrix.json"
+          "api": "testdata/compatibility/generated/current/orders.api",
+          "proto": "testdata/compatibility/generated/current/greeter.proto",
+          "serviceConfig": "testdata/compatibility/generated/current/service-config.json",
+          "snapshot": "testdata/compatibility/generated/matrix.json"
         },
         "expectedDiff": "no unexplained diff",
         "requiredReportFields": ["profile", "generatedFiles", "goTest", "repeatGenerationDiff", "expectedDiff", "verification"],
@@ -344,10 +344,10 @@
       {
         "profile": "future",
         "fixtureSet": {
-          "api": "testdata/generated-compat/future/orders.api",
-          "proto": "testdata/generated-compat/future/greeter.proto",
-          "serviceConfig": "testdata/generated-compat/future/service-config.json",
-          "snapshot": "testdata/generated-compat/matrix.json"
+          "api": "testdata/compatibility/generated/future/orders.api",
+          "proto": "testdata/compatibility/generated/future/greeter.proto",
+          "serviceConfig": "testdata/compatibility/generated/future/service-config.json",
+          "snapshot": "testdata/compatibility/generated/matrix.json"
         },
         "expectedDiff": "experimental future field ignored safely",
         "requiredReportFields": ["profile", "generatedFiles", "goTest", "repeatGenerationDiff", "expectedDiff", "verification"],
@@ -369,7 +369,7 @@
     "sourceOfTruth": [
       "docs/reference/goctl-generator-compatibility.json",
       "docs/reference/generated-scaffold-long-term-compatibility.json",
-      "testdata/generated-compat/matrix.json"
+      "testdata/compatibility/generated/matrix.json"
     ],
     "fidelityRows": [
       {
@@ -423,7 +423,7 @@
     "aiflowTask": "GOFLY-P11-2-GENERATED-PROJECT-LIVE-UPGRADE",
     "status": "blocking-contract",
     "sourceOfTruth": [
-      "testdata/generated-compat/matrix.json",
+      "testdata/compatibility/generated/matrix.json",
       "docs/reference/generated-upgrade-dry-run.json",
       "docs/reference/generated-version-compat.md",
       "docs/reference/generated-scaffold-long-term-compatibility.json"
@@ -441,7 +441,7 @@
     "profiles": [
       {
         "profile": "old",
-        "fixtureSet": {"api": "testdata/generated-compat/v0.1/orders.api", "proto": "testdata/generated-compat/v0.1/greeter.proto", "serviceConfig": "testdata/generated-compat/v0.1/service-config.json", "snapshot": "testdata/generated-compat/matrix.json"},
+        "fixtureSet": {"api": "testdata/compatibility/generated/v0.1/orders.api", "proto": "testdata/compatibility/generated/v0.1/greeter.proto", "serviceConfig": "testdata/compatibility/generated/v0.1/service-config.json", "snapshot": "testdata/compatibility/generated/matrix.json"},
         "expectedDiff": "compatible feature addition",
         "generatedProjectSmoke": "go test ./...",
         "repeatGeneration": "clean",
@@ -454,7 +454,7 @@
       },
       {
         "profile": "current",
-        "fixtureSet": {"api": "testdata/generated-compat/current/orders.api", "proto": "testdata/generated-compat/current/greeter.proto", "serviceConfig": "testdata/generated-compat/current/service-config.json", "snapshot": "testdata/generated-compat/matrix.json"},
+        "fixtureSet": {"api": "testdata/compatibility/generated/current/orders.api", "proto": "testdata/compatibility/generated/current/greeter.proto", "serviceConfig": "testdata/compatibility/generated/current/service-config.json", "snapshot": "testdata/compatibility/generated/matrix.json"},
         "expectedDiff": "no unexplained diff",
         "generatedProjectSmoke": "go test ./...",
         "repeatGeneration": "clean",
@@ -467,7 +467,7 @@
       },
       {
         "profile": "future",
-        "fixtureSet": {"api": "testdata/generated-compat/future/orders.api", "proto": "testdata/generated-compat/future/greeter.proto", "serviceConfig": "testdata/generated-compat/future/service-config.json", "snapshot": "testdata/generated-compat/matrix.json"},
+        "fixtureSet": {"api": "testdata/compatibility/generated/future/orders.api", "proto": "testdata/compatibility/generated/future/greeter.proto", "serviceConfig": "testdata/compatibility/generated/future/service-config.json", "snapshot": "testdata/compatibility/generated/matrix.json"},
         "expectedDiff": "experimental future field ignored safely",
         "generatedProjectSmoke": "go test ./...",
         "repeatGeneration": "clean",
@@ -486,7 +486,7 @@
     "schema": "gofly.generated_real_branch_replay.v1",
     "aiflowTask": "GOFLY-P12-2-GENERATED-UPGRADE-REAL-BRANCH",
     "status": "blocking-contract",
-    "sourceOfTruth": ["docs/reference/generated-upgrade-dry-run.json", "docs/reference/generated-version-compat.md", "docs/reference/goctl-generator-compatibility.json", "testdata/generated-compat/matrix.json"],
+    "sourceOfTruth": ["docs/reference/generated-upgrade-dry-run.json", "docs/reference/generated-version-compat.md", "docs/reference/goctl-generator-compatibility.json", "testdata/compatibility/generated/matrix.json"],
     "acceptanceGates": ["make generated-upgrade-dry-run-check", "make generated-version-compat-check", "make root-dependency-policy-check"],
     "branchContract": {
       "source": "Replay an adopter branch with repository, branch, baseCommit, and generated profile metadata.",
@@ -513,7 +513,7 @@
     "schema": "gofly.goctl_generator_maturity_closeout.v1",
     "aiflowTask": "GOFLY-P13-02-GOCTL-GENERATOR-MATURITY",
     "status": "blocking-contract",
-    "sourceOfTruth": ["docs/reference/generated-upgrade-dry-run.json", "docs/reference/generated-version-compat.md", "docs/reference/goctl-generator-compatibility.json", "docs/reference/generated-scaffold-long-term-compatibility.json", "testdata/generated-compat/matrix.json"],
+    "sourceOfTruth": ["docs/reference/generated-upgrade-dry-run.json", "docs/reference/generated-version-compat.md", "docs/reference/goctl-generator-compatibility.json", "docs/reference/generated-scaffold-long-term-compatibility.json", "testdata/compatibility/generated/matrix.json"],
     "acceptanceGates": ["make generated-version-compat-check", "make generated-upgrade-dry-run-check", "make goctl-generator-compat-check"],
     "executionPolicy": {
       "temporaryProjectSmoke": "Run go test ./... inside generated temporary projects.",
@@ -539,7 +539,7 @@
     "schema": "gofly.generator_adopter_replay_evidence.v1",
     "aiflowTask": "GOFLY-P14-03-GENERATOR-ADOPTER-REPLAY-EVIDENCE",
     "status": "blocking-contract",
-    "sourceOfTruth": ["docs/reference/generated-upgrade-dry-run.json", "docs/reference/generated-version-compat.md", "docs/reference/goctl-generator-compatibility.json", "docs/reference/generated-scaffold-long-term-compatibility.json", "testdata/generated-compat/matrix.json"],
+    "sourceOfTruth": ["docs/reference/generated-upgrade-dry-run.json", "docs/reference/generated-version-compat.md", "docs/reference/goctl-generator-compatibility.json", "docs/reference/generated-scaffold-long-term-compatibility.json", "testdata/compatibility/generated/matrix.json"],
     "acceptanceGates": ["make generated-version-compat-check", "make generated-upgrade-dry-run-check", "make root-dependency-policy-check"],
     "previousContractRefs": [
       {"field": "p12RealBranchReplay", "status": "blocking-contract", "requiredCarryForward": ["repository", "branch", "baseCommit", "rollbackAction"]},
@@ -558,9 +558,9 @@
       "artifactPolicy": "runtime evidence must not be committed and stays in ignored temporary directories."
     },
     "replayRows": [
-      {"id": "old-replay", "profile": "old", "adopterBranchClass": "existing", "fixtureSet": {"api": "testdata/generated-compat/v0.1/orders.api", "proto": "testdata/generated-compat/v0.1/greeter.proto", "serviceConfig": "testdata/generated-compat/v0.1/service-config.json", "snapshot": "testdata/generated-compat/matrix.json"}, "expectedDiff": "compatible feature addition", "acceptedDiffCategories": ["deterministic-repeat-generation", "compatible-addition"], "requiredBranchEvidence": ["repository", "branch", "baseCommit", "profile", "generatorVersion", "previousGeneratedSnapshot", "replayWorktree", "diffReport", "rollbackAction", "smokeResult", "dependencyBoundary"], "generatedProjectSmoke": "go test ./...", "repeatGeneration": "clean", "diffReportSchema": "gofly.generated_version_compat_report.v1", "dependencyBoundary": "generated project go.mod or isolated temporary test module", "rootModulePolicy": "must-not-add-generated-only-dependencies", "blockingChecks": ["fixture replay goTest == passed", "repeatGenerationDiff == clean", "smokeResult == passed", "root module unchanged"], "rollbackAction": "Rollback by pinning the old replay profile, restoring previous generated artifacts, and removing candidate output."},
-      {"id": "current-replay", "profile": "current", "adopterBranchClass": "default", "fixtureSet": {"api": "testdata/generated-compat/current/orders.api", "proto": "testdata/generated-compat/current/greeter.proto", "serviceConfig": "testdata/generated-compat/current/service-config.json", "snapshot": "testdata/generated-compat/matrix.json"}, "expectedDiff": "no unexplained diff", "acceptedDiffCategories": ["deterministic-repeat-generation"], "requiredBranchEvidence": ["repository", "branch", "baseCommit", "profile", "generatorVersion", "previousGeneratedSnapshot", "replayWorktree", "diffReport", "rollbackAction", "smokeResult", "dependencyBoundary"], "generatedProjectSmoke": "go test ./...", "repeatGeneration": "clean", "diffReportSchema": "gofly.generated_version_compat_report.v1", "dependencyBoundary": "generated project go.mod or isolated temporary test module", "rootModulePolicy": "must-not-add-generated-only-dependencies", "blockingChecks": ["fixture replay goTest == passed", "repeatGenerationDiff == clean", "smokeResult == passed", "root module unchanged"], "rollbackAction": "Rollback by keeping the current generator pinned, preserving the previous replay snapshot, and discarding any non-clean replay output."},
-      {"id": "future-replay", "profile": "future", "adopterBranchClass": "experimental", "fixtureSet": {"api": "testdata/generated-compat/future/orders.api", "proto": "testdata/generated-compat/future/greeter.proto", "serviceConfig": "testdata/generated-compat/future/service-config.json", "snapshot": "testdata/generated-compat/matrix.json"}, "expectedDiff": "experimental future field ignored safely", "acceptedDiffCategories": ["deterministic-repeat-generation", "breaking-candidate"], "requiredBranchEvidence": ["repository", "branch", "baseCommit", "profile", "generatorVersion", "previousGeneratedSnapshot", "replayWorktree", "diffReport", "rollbackAction", "smokeResult", "dependencyBoundary"], "generatedProjectSmoke": "go test ./...", "repeatGeneration": "clean", "diffReportSchema": "gofly.generated_version_compat_report.v1", "dependencyBoundary": "generated project go.mod or isolated temporary test module", "rootModulePolicy": "must-not-add-generated-only-dependencies", "blockingChecks": ["fixture replay goTest == passed", "repeatGenerationDiff == clean", "smokeResult == passed", "root module unchanged"], "rollbackAction": "Rollback by discarding future replay output, keeping the branch experimental, and requiring manual release review."}
+      {"id": "old-replay", "profile": "old", "adopterBranchClass": "existing", "fixtureSet": {"api": "testdata/compatibility/generated/v0.1/orders.api", "proto": "testdata/compatibility/generated/v0.1/greeter.proto", "serviceConfig": "testdata/compatibility/generated/v0.1/service-config.json", "snapshot": "testdata/compatibility/generated/matrix.json"}, "expectedDiff": "compatible feature addition", "acceptedDiffCategories": ["deterministic-repeat-generation", "compatible-addition"], "requiredBranchEvidence": ["repository", "branch", "baseCommit", "profile", "generatorVersion", "previousGeneratedSnapshot", "replayWorktree", "diffReport", "rollbackAction", "smokeResult", "dependencyBoundary"], "generatedProjectSmoke": "go test ./...", "repeatGeneration": "clean", "diffReportSchema": "gofly.generated_version_compat_report.v1", "dependencyBoundary": "generated project go.mod or isolated temporary test module", "rootModulePolicy": "must-not-add-generated-only-dependencies", "blockingChecks": ["fixture replay goTest == passed", "repeatGenerationDiff == clean", "smokeResult == passed", "root module unchanged"], "rollbackAction": "Rollback by pinning the old replay profile, restoring previous generated artifacts, and removing candidate output."},
+      {"id": "current-replay", "profile": "current", "adopterBranchClass": "default", "fixtureSet": {"api": "testdata/compatibility/generated/current/orders.api", "proto": "testdata/compatibility/generated/current/greeter.proto", "serviceConfig": "testdata/compatibility/generated/current/service-config.json", "snapshot": "testdata/compatibility/generated/matrix.json"}, "expectedDiff": "no unexplained diff", "acceptedDiffCategories": ["deterministic-repeat-generation"], "requiredBranchEvidence": ["repository", "branch", "baseCommit", "profile", "generatorVersion", "previousGeneratedSnapshot", "replayWorktree", "diffReport", "rollbackAction", "smokeResult", "dependencyBoundary"], "generatedProjectSmoke": "go test ./...", "repeatGeneration": "clean", "diffReportSchema": "gofly.generated_version_compat_report.v1", "dependencyBoundary": "generated project go.mod or isolated temporary test module", "rootModulePolicy": "must-not-add-generated-only-dependencies", "blockingChecks": ["fixture replay goTest == passed", "repeatGenerationDiff == clean", "smokeResult == passed", "root module unchanged"], "rollbackAction": "Rollback by keeping the current generator pinned, preserving the previous replay snapshot, and discarding any non-clean replay output."},
+      {"id": "future-replay", "profile": "future", "adopterBranchClass": "experimental", "fixtureSet": {"api": "testdata/compatibility/generated/future/orders.api", "proto": "testdata/compatibility/generated/future/greeter.proto", "serviceConfig": "testdata/compatibility/generated/future/service-config.json", "snapshot": "testdata/compatibility/generated/matrix.json"}, "expectedDiff": "experimental future field ignored safely", "acceptedDiffCategories": ["deterministic-repeat-generation", "breaking-candidate"], "requiredBranchEvidence": ["repository", "branch", "baseCommit", "profile", "generatorVersion", "previousGeneratedSnapshot", "replayWorktree", "diffReport", "rollbackAction", "smokeResult", "dependencyBoundary"], "generatedProjectSmoke": "go test ./...", "repeatGeneration": "clean", "diffReportSchema": "gofly.generated_version_compat_report.v1", "dependencyBoundary": "generated project go.mod or isolated temporary test module", "rootModulePolicy": "must-not-add-generated-only-dependencies", "blockingChecks": ["fixture replay goTest == passed", "repeatGenerationDiff == clean", "smokeResult == passed", "root module unchanged"], "rollbackAction": "Rollback by discarding future replay output, keeping the branch experimental, and requiring manual release review."}
     ],
     "promotionDecision": {
       "result": "hold-until-replay-evidence-attached",

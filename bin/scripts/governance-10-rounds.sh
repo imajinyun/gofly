@@ -147,7 +147,8 @@ round_tidy_check() {
 }
 
 round_engineering_smoke() {
-	"$go_cmd" test $testflags ./examples/... ./bench/...
+	(cd "$root" && GO="$go_cmd" sh bin/scripts/examples-smoke.sh)
+	"$go_cmd" test $testflags ./bench/...
 }
 
 round_golangci_lint() {

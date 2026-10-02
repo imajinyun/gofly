@@ -21,9 +21,9 @@ import sys
 
 root = pathlib.Path(sys.argv[1])
 report_path = pathlib.Path(sys.argv[2])
-expectations = json.loads((root / "testdata/goctl-api-semantic/expectations.json").read_text(encoding="utf-8"))
-contract = (root / "testdata/goctl-api-semantic/contract.api").read_text(encoding="utf-8")
-common = (root / "testdata/goctl-api-semantic/types/common.api").read_text(encoding="utf-8")
+expectations = json.loads((root / "testdata/api/semantic/goctl/expectations.json").read_text(encoding="utf-8"))
+contract = (root / "testdata/api/semantic/goctl/contract.api").read_text(encoding="utf-8")
+common = (root / "testdata/api/semantic/goctl/types/common.api").read_text(encoding="utf-8")
 required_contract = [
     "import (",
     "type (",
@@ -73,7 +73,7 @@ for case_id, (status, code) in required_runtime.items():
 
 report = {
     "schema": "gofly.api_semantic_parity_report.v1",
-    "fixture": "testdata/goctl-api-semantic/contract.api",
+    "fixture": "testdata/api/semantic/goctl/contract.api",
     "profiles": ["gofly-ai", "gozero-compatible"],
     "routes": routes,
     "fieldLocations": ["path", "query", "header", "body"],
@@ -109,14 +109,14 @@ if [ -n "${GOZERO_ROOT:-}" ]; then
 		exit 1
 	fi
 	gozero_commit="$(git -C "$GOZERO_ROOT" rev-parse HEAD)"
-	expected_commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["gozeroCommit"])' "$root/testdata/goctl-api-semantic/expectations.json")"
+	expected_commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["gozeroCommit"])' "$root/testdata/api/semantic/goctl/expectations.json")"
 	if [ "$gozero_commit" != "$expected_commit" ]; then
 		printf 'go-zero oracle commit mismatch: got %s want %s\n' "$gozero_commit" "$expected_commit" >&2
 		exit 1
 	fi
 	oracle_out="$tmp/goctl-oracle"
 	oracle_source="$tmp/goctl-source"
-	cp -R "$root/testdata/goctl-api-semantic" "$oracle_source"
+	cp -R "$root/testdata/api/semantic/goctl" "$oracle_source"
 	mkdir -p "$oracle_out"
 	(
 		cd "$GOZERO_ROOT/tools/goctl"

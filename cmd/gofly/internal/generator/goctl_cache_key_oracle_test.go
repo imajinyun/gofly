@@ -16,7 +16,7 @@ type goctlCacheKeyOracle struct {
 }
 
 func TestGoctlCacheKeyOracleFixture(t *testing.T) {
-	fixtureDir := filepath.Join(repositoryRoot(t), "testdata", "goctl-model-cache-key-oracle", "users")
+	fixtureDir := filepath.Join(repositoryRoot(t), "testdata", "model", "goctl", "cache-key-oracle", "users")
 	data, err := os.ReadFile(filepath.Join(fixtureDir, "expected.json"))
 	if err != nil {
 		t.Fatal(err)

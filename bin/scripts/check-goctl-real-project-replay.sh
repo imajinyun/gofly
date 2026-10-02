@@ -102,15 +102,15 @@ for source in (
     "docs/reference/goctl-generator-compatibility.json",
     "docs/reference/goctl-model-parity-replay.json",
     "docs/reference/generated-upgrade-dry-run.json",
-    "testdata/goctl-replay/orderservice/replay.json",
-    "testdata/goctl-replay/inventoryservice/replay.json",
-    "testdata/goctl-replay/billingservice/replay.json",
-    "testdata/goctl-replay/userservice/replay.json",
-    "testdata/goctl-replay/taskservice/replay.json",
-    "testdata/goctl-replay/nativeorderservice/replay.json",
-    "testdata/goctl-replay/sources.json",
-    "testdata/goctl-replay/migration/userservice/replay.json",
-    "testdata/goctl-replay/migration/inventoryservice/replay.json",
+    "testdata/migration/goctl-replay/orderservice/replay.json",
+    "testdata/migration/goctl-replay/inventoryservice/replay.json",
+    "testdata/migration/goctl-replay/billingservice/replay.json",
+    "testdata/migration/goctl-replay/userservice/replay.json",
+    "testdata/migration/goctl-replay/taskservice/replay.json",
+    "testdata/migration/goctl-replay/nativeorderservice/replay.json",
+    "testdata/migration/goctl-replay/sources.json",
+    "testdata/migration/goctl-replay/migration/userservice/replay.json",
+    "testdata/migration/goctl-replay/migration/inventoryservice/replay.json",
 ):
     require(source in source_of_truth, f"sourceOfTruth missing {source!r}")
     require((root / source).exists(), f"sourceOfTruth path is missing: {source}")
@@ -162,8 +162,8 @@ require(
 )
 missing_capabilities = required_matrix_capabilities - matrix_capabilities
 require(not missing_capabilities, f"matrix capabilities missing: {sorted(missing_capabilities)!r}")
-require((root / "testdata/goctl-replay/inventoryservice/types/common.api").is_file(), "inventory imported common.api is missing")
-inventory_api = read_text(root / "testdata/goctl-replay/inventoryservice/inventory.api")
+require((root / "testdata/migration/goctl-replay/inventoryservice/types/common.api").is_file(), "inventory imported common.api is missing")
+inventory_api = read_text(root / "testdata/migration/goctl-replay/inventoryservice/inventory.api")
 for needle in (
     'import "types/common.api"',
     "service inventory-api",
@@ -172,10 +172,10 @@ for needle in (
     "middlewares: adminAuth,trace",
 ):
     require(needle in inventory_api, f"inventory API fixture missing {needle!r}")
-inventory_sql = read_text(root / "testdata/goctl-replay/inventoryservice/model/inventory.sql")
+inventory_sql = read_text(root / "testdata/migration/goctl-replay/inventoryservice/model/inventory.sql")
 for needle in ("UNIQUE KEY uk_inventory_tenant_sku_warehouse", "version bigint", "deleted_at timestamp", "KEY idx_inventory_status_updated"):
     require(needle in inventory_sql, f"inventory SQL fixture missing {needle!r}")
-billing_api = read_text(root / "testdata/goctl-replay/billingservice/billing.api")
+billing_api = read_text(root / "testdata/migration/goctl-replay/billingservice/billing.api")
 for needle in (
     'import "types/domain/invoice.api"',
     "Billing replay exercises comments",
@@ -192,16 +192,16 @@ for needle in (
     "middlewares: internalAuth,trace",
 ):
     require(needle in billing_api, f"billing API fixture missing {needle!r}")
-billing_domain_api = read_text(root / "testdata/goctl-replay/billingservice/types/domain/invoice.api")
+billing_domain_api = read_text(root / "testdata/migration/goctl-replay/billingservice/types/domain/invoice.api")
 for needle in ('import "shared/common.api"', "type MoneyAmount", "type InvoiceLine", "type InvoiceSummary", "Meta RequestMeta"):
     require(needle in billing_domain_api, f"billing domain API fixture missing {needle!r}")
-billing_common_api = read_text(root / "testdata/goctl-replay/billingservice/types/domain/shared/common.api")
+billing_common_api = read_text(root / "testdata/migration/goctl-replay/billingservice/types/domain/shared/common.api")
 for needle in ("type RequestMeta", "type CursorPageRequest", "type CursorPageResponse"):
     require(needle in billing_common_api, f"billing common API fixture missing {needle!r}")
-billing_sql = read_text(root / "testdata/goctl-replay/billingservice/model/billing.sql")
+billing_sql = read_text(root / "testdata/migration/goctl-replay/billingservice/model/billing.sql")
 for needle in ("invoice_no varchar(64) unique", "UNIQUE KEY uk_invoice_tenant_customer_status", "version bigint", "deleted_at timestamp"):
     require(needle in billing_sql, f"billing SQL fixture missing {needle!r}")
-user_api = read_text(root / "testdata/goctl-replay/userservice/user.api")
+user_api = read_text(root / "testdata/migration/goctl-replay/userservice/user.api")
 for needle in (
     "service user-api",
     "post /users",
@@ -212,10 +212,10 @@ for needle in (
     'Status string `form:"status,optional"`',
 ):
     require(needle in user_api, f"user API fixture missing {needle!r}")
-user_sql = read_text(root / "testdata/goctl-replay/userservice/model/user.sql")
+user_sql = read_text(root / "testdata/migration/goctl-replay/userservice/model/user.sql")
 for needle in ("UNIQUE KEY uk_users_email", "KEY idx_users_status", "version bigint", "deleted_at timestamp"):
     require(needle in user_sql, f"user SQL fixture missing {needle!r}")
-task_api = read_text(root / "testdata/goctl-replay/taskservice/task.api")
+task_api = read_text(root / "testdata/migration/goctl-replay/taskservice/task.api")
 for needle in (
     "service task-api",
     "service task-admin-api",
@@ -225,7 +225,7 @@ for needle in (
     'Status string `form:"status,optional"`',
 ):
     require(needle in task_api, f"task API fixture missing {needle!r}")
-task_sql = read_text(root / "testdata/goctl-replay/taskservice/model/task.sql")
+task_sql = read_text(root / "testdata/migration/goctl-replay/taskservice/model/task.sql")
 for needle in ("UNIQUE KEY uk_tasks_owner_title", "KEY idx_tasks_owner_status", "KEY idx_tasks_priority", "version bigint", "deleted_at timestamp"):
     require(needle in task_sql, f"task SQL fixture missing {needle!r}")
 
@@ -242,7 +242,7 @@ require("go test ./..." in str(smoke.get("goTest")), "smoke.goTest must run gene
 require("go.mod" in str(smoke.get("rootDependencyPolicy")), "smoke.rootDependencyPolicy must mention go.mod")
 
 migration_proof = manifest.get("migrationProof") or {}
-require(migration_proof.get("sourceManifest") == "testdata/goctl-replay/sources.json", "migrationProof.sourceManifest mismatch")
+require(migration_proof.get("sourceManifest") == "testdata/migration/goctl-replay/sources.json", "migrationProof.sourceManifest mismatch")
 require(len(str(migration_proof.get("sourcePolicy") or "").split()) >= 12, "migrationProof.sourcePolicy must be actionable")
 require(migration_proof.get("minimumFixtures") == 2, "migrationProof.minimumFixtures must be 2")
 migration_fixtures = migration_proof.get("fixtures") or []

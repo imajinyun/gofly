@@ -10,7 +10,7 @@
     "OpenAPI 3 export"
   ],
   "fixtures": {
-    "root": "testdata/openapi-roundtrip",
+    "root": "testdata/api/openapi/roundtrip",
     "positive": ["roundtrip.json", "roundtrip.yaml"],
     "rejectedReferences": ["remote-ref.json", "escape-ref.yaml"]
   },

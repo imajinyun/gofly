@@ -11,14 +11,14 @@
     "resolutionOrder": ["GOZERO_ROOT", "../gozero", "contract-only"],
     "availabilityPolicy": "An explicitly configured GOZERO_ROOT must be a valid checkout at the exact pinned commit. Without an available pinned checkout the gate validates the tracked contract only and emits accepted=false; promotion requires the documented GOZERO_ROOT command."
   },
-  "sourceManifest": "testdata/goctl-replay/sources.json",
+  "sourceManifest": "testdata/migration/goctl-replay/sources.json",
   "sourceOfTruth": [
     "docs/reference/goctl-oracle-replay.json",
     "docs/reference/goctl-real-project-replay.json",
     "docs/reference/from-go-zero-migration.md",
-    "testdata/goctl-replay/sources.json",
-    "testdata/goctl-replay/migration/userservice/replay.json",
-    "testdata/goctl-replay/migration/inventoryservice/replay.json"
+    "testdata/migration/goctl-replay/sources.json",
+    "testdata/migration/goctl-replay/migration/userservice/replay.json",
+    "testdata/migration/goctl-replay/migration/inventoryservice/replay.json"
   ],
   "proofPolicy": {
     "positioning": "The oracle proves a migration path against pinned real goctl output. It does not claim a byte-for-byte goctl replacement or a matching runtime layout.",

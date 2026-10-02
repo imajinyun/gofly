@@ -18,8 +18,8 @@
     "cmd/gofly/internal/command/idl_test.go",
     "cmd/gofly/internal/generator/idl_test.go",
     "cmd/gofly/internal/generator/model_bench_test.go",
-    "testdata/goctl-datasource-replay/mysql-multi-table/replay.json",
-    "testdata/goctl-datasource-replay/postgres-multi-schema/replay.json"
+    "testdata/model/goctl/datasource-replay/mysql-multi-table/replay.json",
+    "testdata/model/goctl/datasource-replay/postgres-multi-schema/replay.json"
   ],
   "compatibilityPolicy": {
     "layout": "gofly may keep generated table structs and repositories split across model and repo directories when the contract compiles and facade methods remain stable.",
@@ -74,7 +74,7 @@
         "TestExecuteModelAcceptsGoctlShortAndSingleDashFlags",
         "TestGenerateModelFromDatasourceMultiTableReplayCompiles",
         "TestGenerateModelFromReplaySchemaIRCompiles",
-        "testdata/goctl-datasource-replay/mysql-multi-table/replay.json"
+        "testdata/model/goctl/datasource-replay/mysql-multi-table/replay.json"
       ],
       "coveredOptions": ["datasource", "table", "tables", "cache", "ignore-columns", "prefix", "database"]
     },
@@ -88,7 +88,7 @@
         "TestExecuteModelAcceptsGoctlShortAndSingleDashFlags",
         "TestGenerateModelFromPostgresDatasourceMultiSchemaReplayCompiles",
         "TestGenerateModelFromReplaySchemaIRCompiles",
-        "testdata/goctl-datasource-replay/postgres-multi-schema/replay.json"
+        "testdata/model/goctl/datasource-replay/postgres-multi-schema/replay.json"
       ],
       "coveredOptions": ["dsn", "datasource", "table", "tables", "schema", "cache", "ignore-columns", "prefix"]
     },
@@ -124,13 +124,13 @@
   "offlineDatasourceFixtures": [
     {
       "id": "mysql-multi-table-datasource-replay",
-      "path": "testdata/goctl-datasource-replay/mysql-multi-table/replay.json",
+      "path": "testdata/model/goctl/datasource-replay/mysql-multi-table/replay.json",
       "driver": "mysql",
       "capabilities": ["mysql-datasource", "multi-table", "cache-prefix", "ignore-columns", "strict", "cache-template"]
     },
     {
       "id": "postgres-multi-schema-datasource-replay",
-      "path": "testdata/goctl-datasource-replay/postgres-multi-schema/replay.json",
+      "path": "testdata/model/goctl/datasource-replay/postgres-multi-schema/replay.json",
       "driver": "postgres",
       "capabilities": ["postgres-datasource", "multi-schema", "cache-prefix", "ignore-columns", "strict", "cache-template"]
     }

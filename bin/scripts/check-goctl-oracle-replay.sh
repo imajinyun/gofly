@@ -18,7 +18,7 @@ from urllib.parse import urlsplit
 
 root = pathlib.Path(".").resolve()
 oracle_path = root / "docs" / "reference" / "goctl-oracle-replay.json"
-sources_path = root / "testdata" / "goctl-replay" / "sources.json"
+sources_path = root / "testdata" / "migration" / "goctl-replay" / "sources.json"
 errors = []
 
 
@@ -355,7 +355,7 @@ expected_categories = {"route-contract", "type-contract", "config-contract", "la
 require(oracle.get("schema") == "gofly.goctl_oracle_replay.v2", "oracle schema must be gofly.goctl_oracle_replay.v2")
 require(oracle.get("acceptanceGate") == "make goctl-oracle-replay-check", "oracle acceptanceGate drifted")
 require(oracle.get("mode") == "pinned-dual-runtime-migration-proof", "oracle mode drifted")
-require(oracle.get("sourceManifest") == "testdata/goctl-replay/sources.json", "oracle sourceManifest drifted")
+require(oracle.get("sourceManifest") == "testdata/migration/goctl-replay/sources.json", "oracle sourceManifest drifted")
 require(set(oracle.get("diffCategories") or []) == expected_categories, "oracle diffCategories drifted")
 require(sources.get("schema") == "gofly.goctl_migration_replay_sources.v1", "sources schema drifted")
 provenance = sources.get("provenance") or {}

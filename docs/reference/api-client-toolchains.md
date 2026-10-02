@@ -4,7 +4,7 @@ schema: gofly.api_client_toolchains.v1
 
 The executable client gate complements the structural
 `api-client-generation-check`. It generates clients from
-`testdata/goctl-api-semantic/contract.api` and validates them with language
+`testdata/api/semantic/goctl/contract.api` and validates them with language
 toolchains instead of relying only on source markers.
 
 ## Local verification

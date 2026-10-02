@@ -564,7 +564,7 @@ func apiPerformanceFixtureRoot(tb testing.TB) string {
 	if !ok {
 		tb.Fatal("resolve api performance fixture source path")
 	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "..", "..", "testdata", "api-performance"))
+	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "..", "..", "bench", "testdata", "api-generator"))
 }
 
 func loadAPIPerformanceManifest(tb testing.TB, root string) apiPerformanceManifest {

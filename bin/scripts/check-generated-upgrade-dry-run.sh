@@ -220,7 +220,7 @@ source_of_truth = set(scaffold_compat.get("sourceOfTruth") or [])
 for source in (
     "docs/reference/generated-upgrade-dry-run.json",
     "docs/reference/generated-version-compat.md",
-    "testdata/generated-compat/matrix.json",
+    "testdata/compatibility/generated/matrix.json",
     "docs/reference/goctl-generator-compatibility.json",
     "docs/reference/generated-tier-compatibility.json",
     "docs/reference/migration-fidelity-matrix.json",
@@ -267,7 +267,7 @@ for source in (
     "docs/reference/generated-version-compat.md",
     "docs/reference/goctl-real-project-replay.json",
     "docs/reference/goctl-generator-compatibility.json",
-    "testdata/generated-compat/matrix.json",
+    "testdata/compatibility/generated/matrix.json",
 ):
     require(source in tier_source_of_truth, f"generated tier compatibility sourceOfTruth missing {source!r}")
     require((root / source).exists(), f"generated tier compatibility source path missing: {source}")
@@ -368,7 +368,7 @@ for item in r8_cross_checks:
         require((root / evidence).exists(), f"generated scaffold R8 cross check {check_id}: evidence path missing: {evidence}")
     require(len(str(item.get("rollbackOrEscalation") or "").split()) >= 10, f"generated scaffold R8 cross check {check_id}: rollbackOrEscalation must be actionable")
 
-matrix_profiles_raw = json.loads((root / "testdata/generated-compat/matrix.json").read_text(encoding="utf-8")).get("profiles") or []
+matrix_profiles_raw = json.loads((root / "testdata/compatibility/generated/matrix.json").read_text(encoding="utf-8")).get("profiles") or []
 matrix_by_profile = {
     item.get("profile"): item
     for item in matrix_profiles_raw
@@ -626,7 +626,7 @@ require({"baseline", "generation", "dependency", "release", "verification"} <= s
 
 matrix_profiles = {
     item.get("profile"): item
-    for item in (json.loads((root / "testdata/generated-compat/matrix.json").read_text(encoding="utf-8")).get("profiles") or [])
+    for item in (json.loads((root / "testdata/compatibility/generated/matrix.json").read_text(encoding="utf-8")).get("profiles") or [])
     if isinstance(item, dict) and item.get("profile")
 }
 adopter_proof = manifest.get("adopterUpgradeProof") or {}
@@ -639,7 +639,7 @@ require(
     "adopterUpgradeProof source mismatch",
 )
 require(
-    adopter_proof.get("compatibilityMatrix") == "testdata/generated-compat/matrix.json",
+    adopter_proof.get("compatibilityMatrix") == "testdata/compatibility/generated/matrix.json",
     "adopterUpgradeProof compatibilityMatrix mismatch",
 )
 require(
@@ -708,7 +708,7 @@ require(
 require(p9_matrix.get("status") == "blocking", "p9HistoricalFixtureMatrix status must be blocking")
 require(
     set(p9_matrix.get("sourceOfTruth") or []) == {
-        "testdata/generated-compat/matrix.json",
+        "testdata/compatibility/generated/matrix.json",
         "docs/reference/generated-version-compat.md",
         "docs/reference/generated-upgrade-dry-run.json",
     },
@@ -755,7 +755,7 @@ for profile_name, item in sorted(p9_profiles.items()):
         require(fixture_set.get(field) == manifest_profile.get(field), f"p9HistoricalFixtureMatrix {profile_name}: fixture {field} must match generated upgrade profile")
         require((root / str(fixture_set.get(field) or "")).is_file(), f"p9HistoricalFixtureMatrix {profile_name}: fixture path missing for {field}")
     require(
-        fixture_set.get("snapshot") == "testdata/generated-compat/matrix.json",
+        fixture_set.get("snapshot") == "testdata/compatibility/generated/matrix.json",
         f"p9HistoricalFixtureMatrix {profile_name}: snapshot must be the generated compatibility matrix",
     )
     require(
@@ -805,7 +805,7 @@ require(
 for source in (
     "docs/reference/goctl-generator-compatibility.json",
     "docs/reference/generated-scaffold-long-term-compatibility.json",
-    "testdata/generated-compat/matrix.json",
+    "testdata/compatibility/generated/matrix.json",
 ):
     require(source in set(p10_fidelity.get("sourceOfTruth") or []), f"p10GoctlGeneratorFidelity sourceOfTruth missing {source!r}")
     require((root / source).exists(), f"p10GoctlGeneratorFidelity source path missing: {source}")
@@ -854,7 +854,7 @@ require(
 require(p11_proof.get("status") == "blocking-contract", "p11LiveUpgradeProof status must be blocking-contract")
 require(
     set(p11_proof.get("sourceOfTruth") or []) == {
-        "testdata/generated-compat/matrix.json",
+        "testdata/compatibility/generated/matrix.json",
         "docs/reference/generated-upgrade-dry-run.json",
         "docs/reference/generated-version-compat.md",
         "docs/reference/generated-scaffold-long-term-compatibility.json",
@@ -905,7 +905,7 @@ for profile_name, item in sorted(p11_profiles.items()):
         require(fixture_set.get(field) == manifest_profile.get(field), f"p11LiveUpgradeProof {profile_name}: fixture {field} must match generated upgrade profile")
         require((root / str(fixture_set.get(field) or "")).is_file(), f"p11LiveUpgradeProof {profile_name}: fixture path missing for {field}")
     require(
-        fixture_set.get("snapshot") == "testdata/generated-compat/matrix.json",
+        fixture_set.get("snapshot") == "testdata/compatibility/generated/matrix.json",
         f"p11LiveUpgradeProof {profile_name}: snapshot must be the generated compatibility matrix",
     )
     require(item.get("expectedDiff") == matrix_profile.get("expectedDiff"), f"p11LiveUpgradeProof {profile_name}: expectedDiff must match version matrix")
@@ -955,7 +955,7 @@ require(
         "docs/reference/generated-upgrade-dry-run.json",
         "docs/reference/generated-version-compat.md",
         "docs/reference/goctl-generator-compatibility.json",
-        "testdata/generated-compat/matrix.json",
+        "testdata/compatibility/generated/matrix.json",
     },
     "p12RealBranchReplay sourceOfTruth mismatch",
 )
@@ -1069,7 +1069,7 @@ expected_p13_sources = {
     "docs/reference/generated-version-compat.md",
     "docs/reference/goctl-generator-compatibility.json",
     "docs/reference/generated-scaffold-long-term-compatibility.json",
-    "testdata/generated-compat/matrix.json",
+    "testdata/compatibility/generated/matrix.json",
 }
 require(
     set(p13_maturity.get("sourceOfTruth") or []) == expected_p13_sources,
@@ -1358,7 +1358,7 @@ for profile_name, row in sorted(p14_rows.items()):
             f"p14GeneratorAdopterReplayEvidence {profile_name}: fixture path missing for {field}",
         )
     require(
-        fixture_set.get("snapshot") == "testdata/generated-compat/matrix.json",
+        fixture_set.get("snapshot") == "testdata/compatibility/generated/matrix.json",
         f"p14GeneratorAdopterReplayEvidence {profile_name}: snapshot must be the generated compatibility matrix",
     )
     require(

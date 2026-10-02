@@ -6,15 +6,15 @@
     "docs/reference/goctl-generator-compatibility.json",
     "docs/reference/goctl-model-parity-replay.json",
     "docs/reference/generated-upgrade-dry-run.json",
-    "testdata/goctl-replay/orderservice/replay.json",
-    "testdata/goctl-replay/inventoryservice/replay.json",
-    "testdata/goctl-replay/billingservice/replay.json",
-    "testdata/goctl-replay/userservice/replay.json",
-    "testdata/goctl-replay/taskservice/replay.json",
-    "testdata/goctl-replay/nativeorderservice/replay.json",
-    "testdata/goctl-replay/sources.json",
-    "testdata/goctl-replay/migration/userservice/replay.json",
-    "testdata/goctl-replay/migration/inventoryservice/replay.json"
+    "testdata/migration/goctl-replay/orderservice/replay.json",
+    "testdata/migration/goctl-replay/inventoryservice/replay.json",
+    "testdata/migration/goctl-replay/billingservice/replay.json",
+    "testdata/migration/goctl-replay/userservice/replay.json",
+    "testdata/migration/goctl-replay/taskservice/replay.json",
+    "testdata/migration/goctl-replay/nativeorderservice/replay.json",
+    "testdata/migration/goctl-replay/sources.json",
+    "testdata/migration/goctl-replay/migration/userservice/replay.json",
+    "testdata/migration/goctl-replay/migration/inventoryservice/replay.json"
   ],
   "scope": {
     "expandsCLICommandSurface": false,
@@ -50,11 +50,11 @@
         "profile": "gozero-compatible",
         "style": "minimal",
         "cache": true,
-        "manifest": "testdata/goctl-replay/orderservice/replay.json",
+        "manifest": "testdata/migration/goctl-replay/orderservice/replay.json",
         "files": [
-          "testdata/goctl-replay/orderservice/orders.api",
-          "testdata/goctl-replay/orderservice/etc/orders-api.yaml",
-          "testdata/goctl-replay/orderservice/model/orders.sql"
+          "testdata/migration/goctl-replay/orderservice/orders.api",
+          "testdata/migration/goctl-replay/orderservice/etc/orders-api.yaml",
+          "testdata/migration/goctl-replay/orderservice/model/orders.sql"
         ],
         "capabilities": [
           "single-column-unique-key",
@@ -80,12 +80,12 @@
         "profile": "gozero-compatible",
         "style": "minimal",
         "cache": true,
-        "manifest": "testdata/goctl-replay/inventoryservice/replay.json",
+        "manifest": "testdata/migration/goctl-replay/inventoryservice/replay.json",
         "files": [
-          "testdata/goctl-replay/inventoryservice/inventory.api",
-          "testdata/goctl-replay/inventoryservice/types/common.api",
-          "testdata/goctl-replay/inventoryservice/etc/inventory-api.yaml",
-          "testdata/goctl-replay/inventoryservice/model/inventory.sql"
+          "testdata/migration/goctl-replay/inventoryservice/inventory.api",
+          "testdata/migration/goctl-replay/inventoryservice/types/common.api",
+          "testdata/migration/goctl-replay/inventoryservice/etc/inventory-api.yaml",
+          "testdata/migration/goctl-replay/inventoryservice/model/inventory.sql"
         ],
         "capabilities": [
           "api-import",
@@ -121,13 +121,13 @@
         "profile": "gozero-compatible",
         "style": "minimal",
         "cache": true,
-        "manifest": "testdata/goctl-replay/billingservice/replay.json",
+        "manifest": "testdata/migration/goctl-replay/billingservice/replay.json",
         "files": [
-          "testdata/goctl-replay/billingservice/billing.api",
-          "testdata/goctl-replay/billingservice/types/domain/invoice.api",
-          "testdata/goctl-replay/billingservice/types/domain/shared/common.api",
-          "testdata/goctl-replay/billingservice/etc/billing-api.yaml",
-          "testdata/goctl-replay/billingservice/model/billing.sql"
+          "testdata/migration/goctl-replay/billingservice/billing.api",
+          "testdata/migration/goctl-replay/billingservice/types/domain/invoice.api",
+          "testdata/migration/goctl-replay/billingservice/types/domain/shared/common.api",
+          "testdata/migration/goctl-replay/billingservice/etc/billing-api.yaml",
+          "testdata/migration/goctl-replay/billingservice/model/billing.sql"
         ],
         "capabilities": [
           "api-import",
@@ -170,11 +170,11 @@
         "profile": "gozero-compatible",
         "style": "minimal",
         "cache": true,
-        "manifest": "testdata/goctl-replay/userservice/replay.json",
+        "manifest": "testdata/migration/goctl-replay/userservice/replay.json",
         "files": [
-          "testdata/goctl-replay/userservice/user.api",
-          "testdata/goctl-replay/userservice/etc/user-api.yaml",
-          "testdata/goctl-replay/userservice/model/user.sql"
+          "testdata/migration/goctl-replay/userservice/user.api",
+          "testdata/migration/goctl-replay/userservice/etc/user-api.yaml",
+          "testdata/migration/goctl-replay/userservice/model/user.sql"
         ],
         "capabilities": [
           "crud-route-set",
@@ -210,11 +210,11 @@
         "profile": "gozero-compatible",
         "style": "minimal",
         "cache": true,
-        "manifest": "testdata/goctl-replay/taskservice/replay.json",
+        "manifest": "testdata/migration/goctl-replay/taskservice/replay.json",
         "files": [
-          "testdata/goctl-replay/taskservice/task.api",
-          "testdata/goctl-replay/taskservice/etc/task-api.yaml",
-          "testdata/goctl-replay/taskservice/model/task.sql"
+          "testdata/migration/goctl-replay/taskservice/task.api",
+          "testdata/migration/goctl-replay/taskservice/etc/task-api.yaml",
+          "testdata/migration/goctl-replay/taskservice/model/task.sql"
         ],
         "capabilities": [
           "multi-service-group",
@@ -269,19 +269,19 @@
     "rootDependencyPolicy": "Generated fixture dependencies stay in generated go.mod files; root go.mod must remain unchanged."
   },
   "migrationProof": {
-    "sourceManifest": "testdata/goctl-replay/sources.json",
+    "sourceManifest": "testdata/migration/goctl-replay/sources.json",
     "sourcePolicy": "Use the pinned go-zero origin, commit, and fixture SHA-256 digests from sources.json. The replay never fetches or accepts an unpinned checkout.",
     "minimumFixtures": 2,
     "fixtures": [
       {
         "id": "userservice-crud-migration-proof",
-        "manifest": "testdata/goctl-replay/migration/userservice/replay.json",
+        "manifest": "testdata/migration/goctl-replay/migration/userservice/replay.json",
         "shape": "single-service CRUD routes with path, query, and header binding",
         "requiredEvidence": ["dual-generation", "dual-compilation", "HTTP-200-smoke", "route-type-config-contract", "classified-layout-diff"]
       },
       {
         "id": "inventoryservice-grouped-import-auth-migration-proof",
-        "manifest": "testdata/goctl-replay/migration/inventoryservice/replay.json",
+        "manifest": "testdata/migration/goctl-replay/migration/inventoryservice/replay.json",
         "shape": "imported types, server group, JWT middleware, and MySQL model",
         "requiredEvidence": ["dual-generation", "dual-compilation", "HTTP-401-auth-smoke", "route-type-config-contract", "classified-layout-diff"]
       }

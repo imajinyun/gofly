@@ -1238,7 +1238,7 @@ service Chat {
 
 func TestZRPCProtoCompatibilityMatrix(t *testing.T) {
 	root := repositoryRoot(t)
-	protoPath := filepath.Join(root, "testdata", "zrpc-proto-matrix", "shop.proto")
+	protoPath := filepath.Join(root, "testdata", "rpc", "zrpc", "proto-matrix", "shop.proto")
 	manifestPath := filepath.Join(root, "docs", "reference", "zrpc-proto-compatibility.json")
 	doc, err := ParseProtoFile(protoPath)
 	if err != nil {
@@ -3497,7 +3497,7 @@ func TestGenerateRESTFromAPIGoZeroCompatibleMultilineServerAnnotation(t *testing
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/nativeorderservice\n\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	apiPath := filepath.Join(repositoryRoot(t), "testdata", "goctl-replay", "nativeorderservice", "nativeorders.api")
+	apiPath := filepath.Join(repositoryRoot(t), "testdata", "migration", "goctl-replay", "nativeorderservice", "nativeorders.api")
 	if err := GenerateRESTFromAPI(APIOptions{
 		APIFile: apiPath,
 		Dir:     dir,
@@ -4740,7 +4740,7 @@ func TestGenerateModelFromDDLGoctlOptions(t *testing.T) {
 func TestGenerateModelFromDDLGoZeroStyleWritesGoctlFacade(t *testing.T) {
 	dir := t.TempDir()
 	writeGeneratedModule(t, dir, "example.com/nativeorderservice")
-	ddlPath := filepath.Join(repositoryRoot(t), "testdata", "goctl-replay", "nativeorderservice", "model", "native_orders.sql")
+	ddlPath := filepath.Join(repositoryRoot(t), "testdata", "migration", "goctl-replay", "nativeorderservice", "model", "native_orders.sql")
 	if err := GenerateModelFromDDL(ModelOptions{
 		DDLFile: ddlPath,
 		Dir:     dir,

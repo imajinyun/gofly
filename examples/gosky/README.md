@@ -10,6 +10,9 @@ project through a repeatable test, smoke report, or generated-output contract.
 The project preserves generated source and adds product-specific extensions
 under `internal/`.
 
+Repository-level ownership and acceptance expectations are recorded in the
+[gosky reference contract](../../docs/reference/gosky-reference-project.md).
+
 ## Tenant-Scoped Casbin Authorization
 
 The protected REST example `GET /api/v1/projects/{id}`, unary HTTP-RPC example

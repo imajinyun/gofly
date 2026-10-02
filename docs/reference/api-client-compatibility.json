@@ -2,7 +2,7 @@
   "schema": "gofly.api_client_compatibility.v1",
   "status": "blocking-contract",
   "acceptanceGate": "make api-client-compatibility-check",
-  "fixtureManifest": "testdata/api-client-compatibility/manifest.json",
+  "fixtureManifest": "testdata/api/client/compatibility/manifest.json",
   "languages": ["javascript", "typescript", "java", "kotlin", "dart"],
   "classification": {
     "apiCompatibility": ["compatible", "breaking"],
@@ -20,7 +20,7 @@
   "failureModes": [
     {
       "id": "missing-or-escaping-fixture",
-      "invariant": "Each base and target path is relative to testdata/api-client-compatibility and resolves to a regular file below that root.",
+      "invariant": "Each base and target path is relative to testdata/api/client/compatibility and resolves to a regular file below that root.",
       "rollbackOrEscalation": "Reject the fixture update; do not permit the compatibility gate to read arbitrary API definitions."
     },
     {

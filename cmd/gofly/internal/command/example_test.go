@@ -1,10 +1,25 @@
 package command
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+type exampleCatalog struct {
+	Schema   string               `json:"schema"`
+	Examples []exampleCatalogItem `json:"examples"`
+}
+
+type exampleCatalogItem struct {
+	Name        string `json:"name"`
+	Path        string `json:"path"`
+	Kind        string `json:"kind"`
+	CLI         bool   `json:"cli"`
+	Description string `json:"description"`
+	RunCommand  string `json:"runCommand"`
+}
 
 func TestExampleCommandBranches(t *testing.T) {
 	if err := exampleCommand([]string{"--help"}); err != nil {
@@ -49,9 +64,49 @@ func TestBuiltInExamplesPointToExistingCategorizedDirs(t *testing.T) {
 			t.Fatalf("example %s missing go.mod at %s: %v", example.Name, src, err)
 		}
 	}
-	for _, name := range []string{"restserver", "rpcserver", "cache-local", "http-middleware", "production-orders", "plugin-ecosystem", "migration-proof", "rpc-idl-matrix"} {
+	for _, name := range []string{"restserver", "rpcserver", "cache-local", "http-middleware", "production-orders", "plugin-ecosystem", "migration-proof", "rpc-idl-matrix", "gosky"} {
 		if !seen[name] {
 			t.Fatalf("built-in examples missing %q", name)
+		}
+	}
+}
+
+func TestBuiltInExamplesMatchCatalog(t *testing.T) {
+	root := repositoryRootFromCommandTest(t)
+	data, err := os.ReadFile(filepath.Join(root, "examples", "catalog.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var catalog exampleCatalog
+	if err := json.Unmarshal(data, &catalog); err != nil {
+		t.Fatal(err)
+	}
+	if catalog.Schema != "gofly.examples_catalog.v1" {
+		t.Fatalf("catalog schema = %q", catalog.Schema)
+	}
+
+	want := make(map[string]exampleCatalogItem)
+	for _, item := range catalog.Examples {
+		if !item.CLI {
+			continue
+		}
+		want[item.Name] = item
+	}
+	got := make(map[string]exampleInfo, len(builtInExamples))
+	for _, item := range builtInExamples {
+		got[item.Name] = item
+	}
+	if len(got) != len(want) {
+		t.Fatalf("CLI example count = %d, want %d", len(got), len(want))
+	}
+	for name, expected := range want {
+		actual, ok := got[name]
+		if !ok {
+			t.Errorf("CLI examples missing catalog entry %q", name)
+			continue
+		}
+		if actual.Path != expected.Path || actual.Description != expected.Description || actual.RunCommand != expected.RunCommand {
+			t.Errorf("CLI example %q = %#v, want path %q description %q run command %q", name, actual, expected.Path, expected.Description, expected.RunCommand)
 		}
 	}
 }

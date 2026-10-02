@@ -4,7 +4,9 @@ Each directory under `examples/` is a standalone Go module. Copy it out of the
 repository, keep its `go.mod`, and point the `replace` directive at a released
 gofly version when you are not hacking on this checkout.
 
-The catalog is [examples/README.md](../../examples/README.md).
+The human catalog is [examples/README.md](../../examples/README.md), and
+[`examples/catalog.json`](../../examples/catalog.json) is the machine-readable
+module inventory used by repository gates.
 
 ## Copy and build
 
@@ -26,6 +28,7 @@ builds it there so in-repo relative paths cannot hide broken modules.
 | Multi-service topology | `examples/production/microshop` |
 | go-zero migration | `examples/migration/gozero-basic` |
 | Control-plane drift | `examples/ai-first/ai-governed-service` |
+| Full API/RPC reference | `examples/gosky` |
 
 Run the module from its directory:
 

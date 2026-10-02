@@ -1,7 +1,7 @@
 {
   "schema": "gofly.api_client_toolchains.v1",
   "acceptanceGate": "make api-client-toolchain-check",
-  "fixture": "testdata/goctl-api-semantic/contract.api",
+  "fixture": "testdata/api/semantic/goctl/contract.api",
   "localPolicy": {
     "mode": "available-toolchains",
     "missingStatus": "unavailable",
@@ -17,7 +17,7 @@
       "id": "javascript",
       "tool": "node",
       "ciVersion": "24.13.0",
-      "verification": "node testdata/api-client-toolchain/javascript-runtime.mjs <generated-client>",
+      "verification": "node testdata/api/client/toolchains/javascript-runtime.mjs <generated-client>",
       "evidence": ["http-runtime", "path-query-header-body", "201-204-error"]
     },
     {

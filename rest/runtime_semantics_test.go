@@ -18,7 +18,7 @@ import (
 
 // TestRuntimeSemanticFailureModes exercises the public HTTP boundary rather
 // than individual middleware helpers. The failure-mode inventory is recorded
-// in testdata/goctl-api-semantic/expectations.json#runtimeSemantics:
+// in testdata/api/semantic/goctl/expectations.json#runtimeSemantics:
 // authentication, middleware ordering, validation, typed errors, recovery,
 // empty success, cancellation, handler deadlines, and downstream deadlines.
 func TestRuntimeSemanticFailureModes(t *testing.T) {

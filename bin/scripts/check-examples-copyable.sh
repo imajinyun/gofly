@@ -3,6 +3,7 @@ set -eu
 
 script_dir="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 root="$(CDPATH='' cd -- "$script_dir/../.." && pwd)"
+# shellcheck source=bin/scripts/examples-lib.sh
 . "$script_dir/examples-lib.sh"
 
 cd "$root"

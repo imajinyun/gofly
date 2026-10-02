@@ -122,6 +122,18 @@ func TestProjectFeatureLibraryAppliesTemplateTags(t *testing.T) {
 	if !strings.Contains(string(data), "title: orders API") {
 		t.Fatalf("openapi feature was not rendered with project name:\n%s", data)
 	}
+	migrationData, err := os.ReadFile(filepath.Join(dir, "migrations", "000001_init.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, reserved := range []string{"schema_migrations", "gofly_migration_checksums", "CREATE TABLE IF NOT EXISTS migrations", "CREATE TABLE IF NOT EXISTS checksums"} {
+		if strings.Contains(string(migrationData), reserved) {
+			t.Fatalf("generated application migration uses reserved runner metadata %q:\n%s", reserved, migrationData)
+		}
+	}
+	if !strings.Contains(string(migrationData), "CREATE TABLE IF NOT EXISTS app_metadata") {
+		t.Fatalf("generated application migration = %q, want app_metadata table", migrationData)
+	}
 }
 
 func TestProjectFeaturePluginContractsAreStableAndDefensive(t *testing.T) {

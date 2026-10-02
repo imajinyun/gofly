@@ -66,13 +66,6 @@
       "description": "Productized HTTP middleware matrix"
     },
     {
-      "name": "http-middlewares",
-      "path": "examples/http/middlewares",
-      "kind": "recipe",
-      "cli": false,
-      "description": "Reusable HTTP middleware catalog package"
-    },
-    {
       "name": "observability",
       "path": "examples/http/observability",
       "kind": "recipe",

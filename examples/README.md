@@ -35,8 +35,7 @@ make examples-copyable-check
 | [ai-first/ai-governed-service](ai-first/ai-governed-service) | Control-plane snapshot for agents |
 | [ecosystem/plugin-ecosystem](ecosystem/plugin-ecosystem) | Plugin registry and template |
 | [goctl-model/cache-local](goctl-model/cache-local) | Local cache model helpers |
-| [http/http-middleware](http/http-middleware) | Runnable JWT, CORS, CSRF, SSE, WebSocket, and OpenAPI example |
-| [http/middlewares](http/middlewares) | Reusable middleware catalog package used as supporting example code |
+| [http/http-middleware](http/http-middleware) | Runnable JWT, CORS, CSRF, SSE, WebSocket, OpenAPI, and reusable middleware catalog |
 | [http/observability](http/observability) | Prometheus, Grafana, and OpenTelemetry wiring |
 | [microservices/config-discovery](microservices/config-discovery) | Config and discovery wiring |
 | [microservices/custom-mux-sink](microservices/custom-mux-sink) | Application-owned RPC mux sink |

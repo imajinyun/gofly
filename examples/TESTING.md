@@ -24,6 +24,8 @@ The example governance gates must detect the following failures:
    network unexpectedly, or depends on a persistent user cache.
 8. A fixture or integration harness is placed under `examples/` even though it
    is not intended to be read, copied, and run by an adopter.
+9. A supporting package creates a second standalone module beside the runnable
+   example that owns it, causing duplicate dependency files and split gates.
 
 ## Test layers
 

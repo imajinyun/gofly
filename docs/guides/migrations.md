@@ -86,9 +86,13 @@ boundaries. Snapshot readers and pair writers acquire the same exclusive
 `.gofly-migration.lock`; the selected directory must be writable even for
 validation/status. A busy reader or writer fails immediately and can be retried. Database-connected commands initialize their metadata tables and
 verify checksums under the same database lock used for execution. Status may
-therefore initialize metadata on a fresh database. The engine's
-`schema_migrations` table and `gofly_migration_checksums` must remain in the same
-database/schema and be managed by the same deployment workflow.
+therefore initialize metadata on a fresh database. The engine's `migrations`
+version table and `checksums` ledger must remain in the same
+database/schema and be managed by the same deployment workflow. A database
+created by an earlier gofly migration runner is upgraded automatically only
+when both legacy tables (`schema_migrations` and
+`gofly_migration_checksums`) exist and neither new table exists; mixed or
+partial metadata fails closed for operator review.
 
 Checksums cover both directions of every applied migration. Editing, renaming,
 removing applied files or inserting an older version fails closed. Migration

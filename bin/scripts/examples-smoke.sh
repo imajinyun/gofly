@@ -84,7 +84,7 @@ for framework in ('Gin', 'go-zero'):
 assert any('JWT' in item for item in middleware_dx['failureModes']), http_middleware
 assert any('Gin or go-zero' in item for item in middleware_dx['productionDefaults']), http_middleware
 assert {'make p1-growth-check', 'make examples-smoke', 'make api-example-consistency-check'} <= set(middleware_dx['smokeReferences']), http_middleware
-assert {'go -C examples/http/http-middleware test ./...', 'go -C examples/http/middlewares test ./...'} <= set(middleware_dx['smokeReferences']), http_middleware
+assert 'go -C examples/http/http-middleware test ./...' in set(middleware_dx['smokeReferences']), http_middleware
 
 with open(workdir / 'migration-proof.json', encoding='utf-8') as f:
     migration_proof = json.load(f)

@@ -122,7 +122,7 @@ func initialDown(up []byte, dialect string) ([]byte, error) {
 		}
 		key := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(name, "`", ""), "\"", ""))
 		last := key[strings.LastIndex(key, ".")+1:]
-		if last == "schema_migrations" || last == "gofly_migration_checksums" {
+		if last == migrationVersionTable || last == migrationChecksumTable || last == legacyVersionTable || last == legacyChecksumTable {
 			return nil, errors.New("DDL cannot create migration metadata tables")
 		}
 		if seen[key] {

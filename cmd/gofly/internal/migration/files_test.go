@@ -57,7 +57,10 @@ func TestMigrationRejectsInitialDDL(t *testing.T) {
 		{"unclosed string", "CREATE TABLE users (name TEXT DEFAULT 'oops);"},
 		{"unclosed comment", "CREATE TABLE users (id INT); /*"},
 		{"executable comment", "/*! CREATE TABLE bad(id INT) */ CREATE TABLE users(id INT);"},
-		{"metadata", "CREATE TABLE schema_migrations (id INT);"},
+		{"legacy version metadata", "CREATE TABLE schema_migrations (id INT);"},
+		{"legacy checksum metadata", "CREATE TABLE gofly_migration_checksums (id INT);"},
+		{"version metadata", "CREATE TABLE migrations (id INT);"},
+		{"checksum metadata", "CREATE TABLE checksums (id INT);"},
 		{"ambiguous quoted identifier", "CREATE TABLE \"foo\\\" (id INT); DROP TABLE victims; --\" (id INT);"},
 	}
 	for _, tt := range tests {

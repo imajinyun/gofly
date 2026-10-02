@@ -229,7 +229,7 @@ root-dependency-policy-check: ## Validate root go.mod direct dependency ownershi
 check: fmt-check vet test ## Run the core local verification suite
 
 .PHONY: ci-fast
-ci-fast: fmt-check vet build examples-check examples-smoke test tidy ## Run the default CI build/test/tidy gates
+ci-fast: fmt-check vet build examples-check examples-smoke testdata-layout-check test tidy ## Run the default CI build/test/tidy gates
 
 .PHONY: ci
 ci: ci-fast generated-output-governance test-generated-matrix generated-control-plane-smoke bench-evidence-check governance supply-chain ## Run the full CI verification suite
@@ -419,6 +419,10 @@ project-layout-governance-check: ## Compatibility no-op; docs-backed layout inve
 examples-layout-check: ## Validate the example catalog, module ownership, and test layout
 	sh $(SCRIPTS_DIR)/check-examples-layout.sh
 
+.PHONY: testdata-layout-check
+testdata-layout-check: ## Validate fixture ownership, paths, and executable-test boundaries
+	sh $(SCRIPTS_DIR)/check-testdata-layout.sh
+
 .PHONY: examples-check
 examples-check: examples-copyable-check ## Build and vet all examples to keep docs and code in sync
 	GO="$(GO)" sh $(SCRIPTS_DIR)/examples-check.sh
@@ -432,7 +436,7 @@ examples-smoke: ## Run runnable example smoke tests and machine-readable output 
 	sh $(SCRIPTS_DIR)/examples-smoke.sh
 
 .PHONY: docs-check
-docs-check: reference-contracts-check api-contract-governance-check doc-manifest-sync-check goctl-surface-drift-check goctl-api-flag-parity-check goctl-rpc-protoc-parity-check goctl-model-parity-replay-check goctl-oracle-replay-check goctl-generator-compat-check goctl-real-project-replay-check goctl-compatibility-report-check community-growth-check docs-taxonomy-check migration-docs-check docs-link-check db-cache-productization-check ## Validate tracked documentation-backed governance contracts
+docs-check: reference-contracts-check testdata-layout-check api-contract-governance-check doc-manifest-sync-check goctl-surface-drift-check goctl-api-flag-parity-check goctl-rpc-protoc-parity-check goctl-model-parity-replay-check goctl-oracle-replay-check goctl-generator-compat-check goctl-real-project-replay-check goctl-compatibility-report-check community-growth-check docs-taxonomy-check migration-docs-check docs-link-check db-cache-productization-check ## Validate tracked documentation-backed governance contracts
 
 .PHONY: reference-contracts-check
 reference-contracts-check: ## Validate docs/reference is the tracked governance contract root

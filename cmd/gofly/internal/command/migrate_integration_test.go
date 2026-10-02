@@ -61,6 +61,10 @@ func TestMigrationDatabaseLifecycle(t *testing.T) {
 	run(false, "gen", "init", "--from-ddl", input, "--dialect", driver, "--dir", out, "--version", "1")
 	run(true, "up", "--driver", driver, "--steps", "99", "--dir", out)
 	run(false, "up", "--driver", driver, "--steps", "1", "--dir", out)
+	assertMigrationMetadataTables(t, db, driver, true)
+	renameMigrationMetadataToLegacy(t, db, driver)
+	run(false, "status", "--driver", driver, "--dir", out)
+	assertMigrationMetadataTables(t, db, driver, true)
 	if _, err := db.Exec("INSERT INTO migration_test_users(id,name) VALUES(1,'preserved')"); err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +90,7 @@ func TestMigrationDatabaseLifecycle(t *testing.T) {
 	run(false, "status", "--driver", driver, "--dir", out)
 	// Simulate operator-reviewed recovery in this disposable fixture, then verify
 	// caller cancellation interrupts an in-flight statement, not just the next file.
-	if _, err := db.Exec("UPDATE schema_migrations SET version=2, dirty=false"); err != nil {
+	if _, err := db.Exec("UPDATE migrations SET version=2, dirty=false"); err != nil {
 		t.Fatal(err)
 	}
 	write(filepath.Join(out, "3_failure.up.sql"), "BEGIN; CREATE TABLE migration_uncommitted(id INT);\n")
@@ -122,4 +126,57 @@ func TestMigrationDatabaseLifecycle(t *testing.T) {
 		}
 		write(path, string(data)+"\n")
 	}
+}
+
+func assertMigrationMetadataTables(t *testing.T, db *sql.DB, driver string, wantNew bool) {
+	t.Helper()
+	for _, table := range []string{"migrations", "checksums"} {
+		if got := migrationTableExists(t, db, driver, table); got != wantNew {
+			t.Fatalf("metadata table %q exists=%t, want %t", table, got, wantNew)
+		}
+	}
+	for _, table := range []string{"schema_migrations", "gofly_migration_checksums"} {
+		if got := migrationTableExists(t, db, driver, table); got == wantNew {
+			t.Fatalf("legacy metadata table %q exists=%t, want %t", table, got, !wantNew)
+		}
+	}
+}
+
+func renameMigrationMetadataToLegacy(t *testing.T, db *sql.DB, driver string) {
+	t.Helper()
+	if driver == "postgres" {
+		tx, err := db.Begin()
+		if err != nil {
+			t.Fatalf("begin metadata legacy rename: %v", err)
+		}
+		defer func() { _ = tx.Rollback() }()
+		if _, err := tx.Exec("ALTER TABLE migrations RENAME TO schema_migrations"); err != nil {
+			t.Fatalf("rename migration version metadata to legacy name: %v", err)
+		}
+		if _, err := tx.Exec("ALTER TABLE checksums RENAME TO gofly_migration_checksums"); err != nil {
+			t.Fatalf("rename migration checksum metadata to legacy name: %v", err)
+		}
+		if err := tx.Commit(); err != nil {
+			t.Fatalf("commit metadata legacy rename: %v", err)
+		}
+	} else if _, err := db.Exec("RENAME TABLE migrations TO schema_migrations, checksums TO gofly_migration_checksums"); err != nil {
+		t.Fatalf("rename migration metadata to legacy names: %v", err)
+	}
+	assertMigrationMetadataTables(t, db, driver, false)
+}
+
+func migrationTableExists(t *testing.T, db *sql.DB, driver, table string) bool {
+	t.Helper()
+	if driver == "postgres" {
+		var exists bool
+		if err := db.QueryRow("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = $1)", table).Scan(&exists); err != nil {
+			t.Fatalf("check metadata table %q: %v", table, err)
+		}
+		return exists
+	}
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?", table).Scan(&count); err != nil {
+		t.Fatalf("check metadata table %q: %v", table, err)
+	}
+	return count > 0
 }

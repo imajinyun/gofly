@@ -578,9 +578,10 @@ func (r *Repository) Ping(ctx context.Context) error {
 `
 
 const postgresMigrationFeatureTemplate = `-- Initial migration for {{.Name}}.
-CREATE TABLE IF NOT EXISTS schema_migrations (
-    version TEXT PRIMARY KEY,
-    applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE IF NOT EXISTS app_metadata (
+    metadata_key TEXT PRIMARY KEY,
+    metadata_value TEXT NOT NULL,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 `
 

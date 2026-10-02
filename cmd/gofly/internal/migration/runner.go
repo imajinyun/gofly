@@ -209,12 +209,74 @@ func openDatabase(ctx context.Context, opts RunOptions) (db *sql.DB, driver data
 	if err = db.PingContext(ctx); err != nil {
 		return db, nil, err
 	}
+	if err = migrateLegacyMetadataTables(ctx, db, opts.Driver); err != nil {
+		return db, nil, err
+	}
 	if opts.Driver == "mysql" {
-		driver, err = migratemysql.WithInstance(db, &migratemysql.Config{StatementTimeout: opts.Timeout})
+		driver, err = migratemysql.WithInstance(db, &migratemysql.Config{MigrationsTable: migrationVersionTable, StatementTimeout: opts.Timeout})
 	} else {
-		driver, err = migratepg.WithInstance(db, &migratepg.Config{StatementTimeout: opts.Timeout})
+		driver, err = migratepg.WithInstance(db, &migratepg.Config{MigrationsTable: migrationVersionTable, StatementTimeout: opts.Timeout})
 	}
 	return db, driver, err
+}
+
+// migrateLegacyMetadataTables renames only the complete metadata pair created
+// by pre-rename gofly versions. Partial or mixed state fails closed because it
+// can belong to an external runner or an interrupted manual intervention.
+func migrateLegacyMetadataTables(ctx context.Context, db *sql.DB, driver string) error {
+	migrationsExists, err := migrationMetadataTableExists(ctx, db, driver, migrationVersionTable)
+	if err != nil {
+		return err
+	}
+	checksumsExists, err := migrationMetadataTableExists(ctx, db, driver, migrationChecksumTable)
+	if err != nil {
+		return err
+	}
+	legacyMigrationsExists, err := migrationMetadataTableExists(ctx, db, driver, legacyVersionTable)
+	if err != nil {
+		return err
+	}
+	legacyChecksumsExists, err := migrationMetadataTableExists(ctx, db, driver, legacyChecksumTable)
+	if err != nil {
+		return err
+	}
+
+	if !legacyMigrationsExists && !legacyChecksumsExists {
+		if migrationsExists == checksumsExists {
+			return nil
+		}
+		return errors.New("migration metadata is incomplete; migrations and checksums must both exist")
+	}
+	if migrationsExists || checksumsExists || !legacyMigrationsExists || !legacyChecksumsExists {
+		return errors.New("legacy migration metadata conflicts with migrations/checksums; resolve the table state manually")
+	}
+	if driver == "mysql" {
+		_, err = db.ExecContext(ctx, "RENAME TABLE schema_migrations TO migrations, gofly_migration_checksums TO checksums")
+		return err
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err = tx.ExecContext(ctx, "ALTER TABLE schema_migrations RENAME TO migrations"); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, "ALTER TABLE gofly_migration_checksums RENAME TO checksums"); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func migrationMetadataTableExists(ctx context.Context, db *sql.DB, driver, table string) (bool, error) {
+	if driver == "postgres" {
+		var exists bool
+		err := db.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = $1)", table).Scan(&exists)
+		return exists, err
+	}
+	var count int
+	err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?", table).Scan(&count)
+	return count > 0, err
 }
 
 // Database errors may contain passwords, raw migration SQL and user data.

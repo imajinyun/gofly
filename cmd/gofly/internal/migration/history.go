@@ -12,6 +12,13 @@ import (
 
 var errHistory = errors.New("migration history verification failed")
 
+const (
+	migrationVersionTable  = "migrations"
+	migrationChecksumTable = "checksums"
+	legacyVersionTable     = "schema_migrations"
+	legacyChecksumTable    = "gofly_migration_checksums"
+)
+
 type historyRow struct {
 	Version        int
 	Name, Up, Down string
@@ -29,11 +36,11 @@ type sqlHistory struct {
 }
 
 func (h sqlHistory) Ensure(ctx context.Context) error {
-	_, err := h.db.ExecContext(ctx, "CREATE TABLE IF NOT EXISTS gofly_migration_checksums (version BIGINT PRIMARY KEY, name VARCHAR(100) NOT NULL, up_sha256 VARCHAR(64) NOT NULL, down_sha256 VARCHAR(64) NOT NULL)")
+	_, err := h.db.ExecContext(ctx, "CREATE TABLE IF NOT EXISTS checksums (version BIGINT PRIMARY KEY, name VARCHAR(100) NOT NULL, up_sha256 VARCHAR(64) NOT NULL, down_sha256 VARCHAR(64) NOT NULL)")
 	return err
 }
 func (h sqlHistory) List(ctx context.Context) ([]historyRow, error) {
-	rows, err := h.db.QueryContext(ctx, "SELECT version,name,up_sha256,down_sha256 FROM gofly_migration_checksums ORDER BY version")
+	rows, err := h.db.QueryContext(ctx, "SELECT version,name,up_sha256,down_sha256 FROM checksums ORDER BY version")
 	if err != nil {
 		return nil, err
 	}
@@ -49,17 +56,17 @@ func (h sqlHistory) List(ctx context.Context) ([]historyRow, error) {
 	return result, rows.Err()
 }
 func (h sqlHistory) Record(ctx context.Context, e Entry) error {
-	query := "INSERT INTO gofly_migration_checksums(version,name,up_sha256,down_sha256) VALUES(?,?,?,?)"
+	query := "INSERT INTO checksums(version,name,up_sha256,down_sha256) VALUES(?,?,?,?)"
 	if h.driver == "postgres" {
-		query = "INSERT INTO gofly_migration_checksums(version,name,up_sha256,down_sha256) VALUES($1,$2,$3,$4)"
+		query = "INSERT INTO checksums(version,name,up_sha256,down_sha256) VALUES($1,$2,$3,$4)"
 	}
 	_, err := h.db.ExecContext(ctx, query, e.Version, e.Name, e.UpSHA256, e.DownSHA256)
 	return err
 }
 func (h sqlHistory) Remove(ctx context.Context, version int) error {
-	query := "DELETE FROM gofly_migration_checksums WHERE version=?"
+	query := "DELETE FROM checksums WHERE version=?"
 	if h.driver == "postgres" {
-		query = "DELETE FROM gofly_migration_checksums WHERE version=$1"
+		query = "DELETE FROM checksums WHERE version=$1"
 	}
 	_, err := h.db.ExecContext(ctx, query, version)
 	return err

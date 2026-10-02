@@ -3,6 +3,8 @@
 This directory contains data-only fixtures shared by repository tests and
 governance gates. Go test source remains next to the package it verifies;
 standalone executable integration harnesses live under `tests/integration/`.
+[`catalog.json`](catalog.json) is the machine-readable ownership inventory and
+is enforced by `make testdata-layout-check`.
 
 | Family | Purpose | Primary consumers |
 | --- | --- | --- |

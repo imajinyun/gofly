@@ -1,0 +1,137 @@
+{
+  "schema": "gofly.testdata_catalog.v1",
+  "families": [
+    {
+      "id": "api-client-compatibility",
+      "path": "testdata/api/client/compatibility",
+      "kind": "fixture",
+      "owner": "API client compatibility",
+      "gate": "make api-client-compatibility-check",
+      "consumers": [
+        "bin/scripts/check-api-client-compatibility.sh",
+        "docs/reference/api-client-compatibility.json"
+      ]
+    },
+    {
+      "id": "api-client-generation",
+      "path": "testdata/api/client/matrix",
+      "kind": "fixture",
+      "owner": "API client generation",
+      "gate": "make api-client-generation-check",
+      "consumers": [
+        "bin/scripts/check-api-client-generation.sh",
+        "docs/reference/api-client-generation.md"
+      ]
+    },
+    {
+      "id": "api-client-toolchains",
+      "path": "testdata/api/client/toolchains",
+      "kind": "fixture",
+      "owner": "API client toolchain verification",
+      "gate": "make api-client-toolchain-check",
+      "consumers": [
+        "bin/scripts/check-api-client-toolchains.py",
+        "docs/reference/api-client-toolchains.json"
+      ]
+    },
+    {
+      "id": "openapi-roundtrip",
+      "path": "testdata/api/openapi/roundtrip",
+      "kind": "fixture",
+      "owner": "OpenAPI import and export",
+      "gate": "make openapi-roundtrip-check",
+      "consumers": [
+        "cmd/gofly/internal/generator/openapi_roundtrip_test.go",
+        "docs/reference/openapi-roundtrip.json"
+      ]
+    },
+    {
+      "id": "goctl-api-semantics",
+      "path": "testdata/api/semantic/goctl",
+      "kind": "fixture",
+      "owner": "goctl API semantic parity",
+      "gate": "make api-semantic-parity-check",
+      "consumers": [
+        "bin/scripts/check-api-semantic-parity.sh",
+        "rest/runtime_semantics_test.go"
+      ]
+    },
+    {
+      "id": "generated-version-compatibility",
+      "path": "testdata/compatibility/generated",
+      "kind": "fixture",
+      "owner": "Generated project compatibility",
+      "gate": "make generated-version-compat-check",
+      "consumers": [
+        "bin/scripts/check-generated-version-compat.sh",
+        "docs/reference/generated-version-compat.md"
+      ]
+    },
+    {
+      "id": "goctl-real-project-replay",
+      "path": "testdata/migration/goctl-replay",
+      "kind": "fixture",
+      "owner": "goctl migration replay",
+      "gate": "make goctl-real-project-replay-check",
+      "consumers": [
+        "bin/scripts/check-goctl-real-project-replay.sh",
+        "docs/reference/goctl-real-project-replay.json"
+      ]
+    },
+    {
+      "id": "goctl-model-cache-key-oracle",
+      "path": "testdata/model/goctl/cache-key-oracle",
+      "kind": "fixture",
+      "owner": "goctl model cache-key parity",
+      "gate": "make goctl-model-parity-replay-check",
+      "consumers": [
+        "cmd/gofly/internal/generator/goctl_cache_key_oracle_test.go",
+        "docs/reference/goctl-model-parity-replay.json"
+      ]
+    },
+    {
+      "id": "goctl-datasource-replay",
+      "path": "testdata/model/goctl/datasource-replay",
+      "kind": "fixture",
+      "owner": "Model datasource replay",
+      "gate": "make goctl-model-parity-replay-check",
+      "consumers": [
+        "cmd/gofly/internal/generator/model_bench_test.go",
+        "docs/reference/goctl-model-parity-replay.json"
+      ]
+    },
+    {
+      "id": "zrpc-proto-matrix",
+      "path": "testdata/rpc/zrpc/proto-matrix",
+      "kind": "fixture",
+      "owner": "zRPC proto compatibility",
+      "gate": "make zrpc-proto-compatibility-check",
+      "consumers": [
+        "bin/scripts/check-zrpc-proto-compatibility.sh",
+        "docs/reference/zrpc-proto-compatibility.json"
+      ]
+    },
+    {
+      "id": "api-generator-performance",
+      "path": "bench/testdata/api-generator",
+      "kind": "benchmark",
+      "owner": "API generator performance",
+      "gate": "make api-performance-check",
+      "consumers": [
+        "cmd/gofly/internal/generator/api_bench_test.go",
+        "bench/api-performance-policy.json"
+      ]
+    },
+    {
+      "id": "zrpc-runtime-interop",
+      "path": "tests/integration/zrpc-interop",
+      "kind": "integration",
+      "owner": "zRPC runtime interoperability",
+      "gate": "make zrpc-proto-compatibility-check",
+      "consumers": [
+        "bin/scripts/check-zrpc-proto-compatibility.sh",
+        "docs/reference/zrpc-proto-compatibility.json"
+      ]
+    }
+  ]
+}

@@ -339,7 +339,7 @@ func migrationDX() migrationDXReport {
 		},
 		FrameworkMapping: map[string]map[string]string{
 			"Gin": {
-				"auth":          "gin middleware that validates Authorization maps to rest.BearerAuthMiddleware or examples/http/middlewares.JWTMiddleware",
+				"auth":          "gin middleware that validates Authorization maps to rest.BearerAuthMiddleware or examples/http/http-middleware/middlewares.JWTMiddleware",
 				"cors":          "gin-contrib/cors settings map to rest.CORSConfig origins, headers, credentials, and max age",
 				"csrf":          "gin CSRF or custom double-submit middleware maps to rest.CSRFConfig cookie/header/TTL/SameSite",
 				"session":       "gin session store maps to signed HttpOnly session cookies or an injected session middleware before auth",
@@ -378,7 +378,6 @@ func migrationDX() migrationDXReport {
 			"make examples-smoke",
 			"make api-example-consistency-check",
 			"go -C examples/http/http-middleware test ./...",
-			"go -C examples/http/middlewares test ./...",
 			"go -C examples/http/http-middleware run . --describe",
 		},
 	}

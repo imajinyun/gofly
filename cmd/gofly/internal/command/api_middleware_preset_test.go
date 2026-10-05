@@ -77,7 +77,7 @@ func TestAPIMiddlewarePresetRejectsAmbiguousInputsAndOptionAlias(t *testing.T) {
 
 func writeMiddlewarePresetTestModule(t *testing.T, dir string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/presets\n\ngo 1.26\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/presets\n\ngo 1.26\n\nrequire github.com/imajinyun/gofly v0.1.0\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

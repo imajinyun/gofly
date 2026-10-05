@@ -35,6 +35,17 @@
       ]
     },
     {
+      "id": "middleware-presets",
+      "path": "testdata/api/middleware-presets",
+      "kind": "fixture",
+      "owner": "Maintained middleware runtime contracts",
+      "gate": "make middleware-preset-check",
+      "consumers": [
+        "cmd/gofly/internal/generator/middleware_preset_runtime_test.go",
+        "docs/reference/middleware-presets.md"
+      ]
+    },
+    {
       "id": "openapi-roundtrip",
       "path": "testdata/api/openapi/roundtrip",
       "kind": "fixture",

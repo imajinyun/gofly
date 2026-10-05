@@ -1833,7 +1833,7 @@ func writeRepoFileWithEntityImport(dir string, table SQLTable, pkg string, modul
 		fprintf(&b, "\t\"strconv\"\n")
 	}
 	fprintf(&b, "\t\"strings\"\n")
-	if hasSoftDelete(table) || cacheEnabled {
+	if modelsNeedTime([]SQLTable{table}) || hasSoftDelete(table) || cacheEnabled {
 		fprintf(&b, "\t\"time\"\n")
 	}
 	fprintf(&b, "\n")
@@ -3311,7 +3311,7 @@ func parseSQLTable(name string, body string) (SQLTable, error) {
 			}
 			continue
 		}
-		if strings.HasPrefix(lower, "constraint ") {
+		if strings.HasPrefix(lower, "constraint ") || strings.HasPrefix(lower, "check ") || strings.HasPrefix(lower, "foreign key ") {
 			continue
 		}
 		column := parseSQLColumn(part)

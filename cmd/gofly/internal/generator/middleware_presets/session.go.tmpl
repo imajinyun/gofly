@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -16,14 +17,24 @@ import (
 
 // SessionConfig configures a signed cookie session middleware.
 type SessionConfig struct {
-	Secret     []byte
-	CookieName string
-	HeaderName string
-	DefaultID  string
-	Path       string
-	TTL        time.Duration
-	Secure     bool
-	SameSite   http.SameSite
+	Secret               []byte
+	CookieName           string
+	HeaderName           string // Projection of the verified ID for downstream handlers; never an input credential.
+	DefaultID            string
+	Path                 string
+	TTL                  time.Duration
+	Secure               bool // Force Secure even when local HTTP cookies are explicitly allowed.
+	AllowInsecureCookies bool // Explicit opt-in for local HTTP development; never use on public deployments.
+	SameSite             http.SameSite
+}
+
+type sessionContextKey struct {
+	cookieName string
+	keyDigest  [sha256.Size]byte
+}
+
+func sessionKey(config SessionConfig) sessionContextKey {
+	return sessionContextKey{cookieName: config.CookieName, keyDigest: sha256.Sum256(config.Secret)}
 }
 
 // SessionMiddleware verifies or issues a signed session cookie and exposes its
@@ -50,7 +61,14 @@ func SessionMiddleware(config SessionConfig) rest.Middleware {
 				}
 			}
 			signed := SignSession(sessionID, config.Secret)
-			http.SetCookie(w, &http.Cookie{Name: config.CookieName, Value: signed, Path: config.Path, HttpOnly: true, Secure: config.Secure, SameSite: config.SameSite, MaxAge: int(config.TTL.Seconds())})
+			// #nosec G124 -- cookies default to Secure/HttpOnly/Lax; plaintext cookies require explicit local-HTTP opt-in and SameSite=None retains Secure.
+			cookie := &http.Cookie{Name: config.CookieName, Value: signed, Path: config.Path, HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode, MaxAge: int(config.TTL.Seconds())}
+			cookie.SameSite = config.SameSite
+			if config.AllowInsecureCookies && !config.Secure && config.SameSite != http.SameSiteNoneMode {
+				cookie.Secure = false
+			}
+			http.SetCookie(w, cookie)
+			r = r.WithContext(context.WithValue(r.Context(), sessionKey(config), sessionID))
 			r.Header.Set(config.HeaderName, sessionID)
 			next.ServeHTTP(w, r)
 		})
@@ -66,13 +84,14 @@ func NewSessionID() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(raw[:]), nil
 }
 
-// SessionID extracts and verifies a signed session ID from the request.
+// SessionID returns the established request identity or verifies a signed cookie.
+// Client-supplied session headers are never trusted as proof of identity.
 func SessionID(r *http.Request, config SessionConfig) string {
 	if r == nil {
 		return ""
 	}
 	config = resolveSessionConfig(config)
-	if sessionID := r.Header.Get(config.HeaderName); sessionID != "" {
+	if sessionID, ok := r.Context().Value(sessionKey(config)).(string); ok && sessionID != "" {
 		return sessionID
 	}
 	cookie, err := r.Cookie(config.CookieName)

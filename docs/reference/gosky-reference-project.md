@@ -14,14 +14,15 @@ exception when it changes a relevant boundary.
 The Project REST example demonstrates the boundary between tenant-scoped Casbin
 RBAC and persisted resource-state authorization. It uses MySQL Project,
 membership, and operation-log tables; an authenticated same-tenant Project
-owner, active member/collaborator, or Casbin `editor`/`admin` may read a
+owner, active member/collaborator, or Casbin `reader`/`writer`/`admin` may read a
 Project. The schema and fail-closed audit contract are documented in
 [`examples/gosky/docs/persistence/project-mysql-schema.md`](../../examples/gosky/docs/persistence/project-mysql-schema.md).
 
-This is deliberately not a persistent Casbin policy-management example. Policy
-mutations, audit history for policy changes, and multi-instance watchers remain
-separate capabilities so their control-plane requirements are not hidden inside
-the Project data path.
+The reference also contains a MySQL Casbin policy-management slice: current
+rules, immutable policy mutation events, last-admin protection, and
+cross-instance watcher refresh. These remain separate from Project data state:
+owner/member/collaborator authorization stays in the Project repository rather
+than being copied into Casbin policy rows.
 
 Run the baseline locally:
 
@@ -34,4 +35,4 @@ smoke. It is included in the Go 1.26 GitHub Actions build-and-test job. The
 Casbin demonstration covers tenant-scoped REST, unary HTTP-RPC, and the
 explicitly enabled experimental mux stream probe. Project owner/member ABAC is
 backed by MySQL. Persistent Casbin policy administration and distributed policy
-refresh remain separate, explicitly tested evolutions.
+refresh are also exercised against MySQL as explicit, independent contracts.

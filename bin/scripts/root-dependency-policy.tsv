@@ -34,3 +34,4 @@ go.yaml.in/yaml/v2|runtime|cmd core|YAML parsing is used by CLI/config/runtime a
 google.golang.org/grpc|rpc|rpc/grpc core|gRPC server/client runtime and health/reflection support.
 google.golang.org/protobuf|rpc|rpc/grpc cmd/gofly/internal/command|Protobuf types support generated RPC descriptors and gateway contracts.
 github.com/golang-migrate/migrate/v4|runtime|cmd/gofly/internal/migration|Explicit CLI SQL migrations use the pinned engine and existing MySQL/pgx drivers; no automatic startup migration.
+golang.org/x/mod|runtime|cmd/gofly/internal/generator/middleware_preset.go|Parse target module and dependency versions before installing middleware presets without executing Go dependency commands.

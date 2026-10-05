@@ -1,14 +1,16 @@
 package command
 
 import (
+	"errors"
 	"flag"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/imajinyun/gofly/cmd/gofly/internal/generator"
 )
 
-func apiMiddlewareCommand(args []string) error {
+func apiMiddlewareCommand(args []string) (err error) {
 	leadingNames, args := splitLeadingNames(args)
 	fs := flag.NewFlagSet("api middleware", flag.ContinueOnError)
 	name := fs.String("name", "", "middleware name, comma-separated for multiple middlewares")
@@ -17,7 +19,18 @@ func apiMiddlewareCommand(args []string) error {
 	preset := fs.String("preset", "", "maintained middleware preset, comma-separated or all")
 	list := fs.Bool("list", false, "list maintained middleware presets")
 	dryRun := fs.Bool("dry-run", false, "plan preset files without writing")
-	jsonOutput := registerCLIJSONOutputFlag(fs, "emit preset catalog or result as JSON")
+	jsonOutput := registerCLIJSONOutputFlag(fs, "emit preset/catalog results and errors as JSON")
+	jsonRequested := middlewareJSONOutputRequested(fs, args)
+	defer func() {
+		if err == nil || !jsonRequested || outputMode() == outputJSON || ErrorAlreadyReported(err) {
+			return
+		}
+		if reportErr := printJSONError("api.middleware", err); reportErr != nil {
+			err = errors.Join(err, reportErr)
+			return
+		}
+		err = errors.Join(errJSONAlreadyReported, err)
+	}()
 	remaining, err := parseInterspersedFlags(fs, args)
 	if err != nil {
 		return err
@@ -67,6 +80,35 @@ func apiMiddlewareCommand(args []string) error {
 		names = append(names, apiNames...)
 	}
 	return generator.GenerateMiddleware(generator.MiddlewareOptions{Names: names, Dir: *dir})
+}
+
+// Resolve output intent before parsing so even a preceding invalid flag can
+// produce JSON. Values consumed by known string flags are never output flags.
+func middlewareJSONOutputRequested(fs *flag.FlagSet, args []string) bool {
+	requested := false
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			break
+		}
+		if !strings.HasPrefix(arg, "-") {
+			continue
+		}
+		name := flagName(arg)
+		_, value, inline := strings.Cut(arg, "=")
+		if name == "json" {
+			if !inline {
+				requested = true
+			} else if parsed, err := strconv.ParseBool(value); err == nil {
+				requested = parsed
+			}
+			continue
+		}
+		if f := fs.Lookup(name); f != nil && !inline && !isBoolFlag(f) {
+			i++
+		}
+	}
+	return requested
 }
 
 func printMiddlewarePresetCatalog(jsonOutput bool) error {

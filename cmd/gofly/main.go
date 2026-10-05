@@ -26,7 +26,7 @@ func runMain(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	streams := command.IOStreams{In: stdin, Out: stdout, Err: stderr}
 	if err := command.ExecuteWithIO(args, streams); err != nil {
-		if !command.JSONOutputRequested(args) {
+		if !command.JSONOutputRequested(args) && !command.ErrorAlreadyReported(err) {
 			fmt.Fprintln(stderr, err)
 		}
 		return command.ExitCode(err)

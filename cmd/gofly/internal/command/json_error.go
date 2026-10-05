@@ -20,6 +20,11 @@ const (
 	exitUsage = 2
 )
 
+// ErrorAlreadyReported reports whether a command has emitted its error envelope.
+func ErrorAlreadyReported(err error) bool {
+	return errors.Is(err, errJSONAlreadyReported)
+}
+
 // ExitCode maps command errors to stable Unix-style process exit codes.
 func ExitCode(err error) int {
 	if err == nil {

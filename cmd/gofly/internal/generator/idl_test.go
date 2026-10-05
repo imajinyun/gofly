@@ -4213,6 +4213,25 @@ func TestGenerateModelCode(t *testing.T) {
 	}
 }
 
+func TestParseSQLModelsSkipsCheckConstraints(t *testing.T) {
+	tables, err := ParseSQLModels(`CREATE TABLE projects (
+  project_id BIGINT UNSIGNED PRIMARY KEY,
+  project_name VARCHAR(255) NOT NULL,
+  CHECK (project_name <> '')
+);`)
+	if err != nil {
+		t.Fatalf("ParseSQLModels: %v", err)
+	}
+	if len(tables) != 1 {
+		t.Fatalf("tables = %d, want 1", len(tables))
+	}
+	for _, column := range tables[0].Columns {
+		if strings.EqualFold(column.Name, "check") {
+			t.Fatalf("CHECK constraint was emitted as a model column: %#v", tables[0].Columns)
+		}
+	}
+}
+
 func TestGenerateModelFromDDL(t *testing.T) {
 	dir := t.TempDir()
 	ddlPath := filepath.Join(dir, "schema.sql")

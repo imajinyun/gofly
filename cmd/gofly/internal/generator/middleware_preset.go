@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"golang.org/x/mod/modfile"
 )
 
 const (
@@ -177,12 +179,23 @@ func validateMiddlewarePresetModule(root string) error {
 	if err != nil {
 		return fmt.Errorf("read target go.mod: %w", err)
 	}
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "module ") {
+	file, err := modfile.Parse("go.mod", data, nil)
+	if err != nil {
+		return fmt.Errorf("parse target go.mod: %w", err)
+	}
+	if file.Module == nil || file.Module.Mod.Path == "" {
+		return errors.New("target go.mod does not declare a module")
+	}
+	const frameworkModule = "github.com/imajinyun/gofly"
+	if file.Module.Mod.Path == frameworkModule {
+		return nil
+	}
+	for _, requirement := range file.Require {
+		if requirement.Mod.Path == frameworkModule {
 			return nil
 		}
 	}
-	return errors.New("target go.mod does not declare a module")
+	return errors.New("target go.mod must require github.com/imajinyun/gofly; add a compatible pinned dependency before installing presets (a replace directive alone is insufficient)")
 }
 
 func prepareMiddlewarePresetFile(root, fileName string, dryRun bool) (middlewarePresetPreparedFile, MiddlewarePresetFileResult, error) {

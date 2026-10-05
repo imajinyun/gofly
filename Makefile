@@ -455,7 +455,7 @@ p1-growth-check: helm-template-smoke plugin-conformance-check reference-app-smok
 
 .PHONY: middleware-preset-check
 middleware-preset-check: ## Validate maintained API middleware preset generation
-	$(GO) test $(TESTFLAGS) ./cmd/gofly/internal/generator ./cmd/gofly/internal/command ./cmd/gofly/internal/command/help -run 'Test(MiddlewarePreset|GenerateMiddlewarePreset|GenerateAllMiddlewarePreset|APIMiddlewarePreset|TopicCatalog)'
+	GO="$(GO)" TESTFLAGS="$(TESTFLAGS)" sh $(SCRIPTS_DIR)/check-middleware-presets.sh
 
 .PHONY: helm-template-smoke
 helm-template-smoke: ## Validate Helm chart production resource coverage

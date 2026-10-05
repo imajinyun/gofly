@@ -117,6 +117,7 @@ func buildAIToolManifestCommands() []aiToolCommand {
 		manifestCommand("config clean", nil, "Remove .gofly/config.json if it exists.", "gofly config clean --dir <service-dir> [--dry-run|--plan]", map[string]aiInputProperty{"dir": stringProperty("Service root directory."), "dryRun": boolProperty("Print a plan without removing config.")}, []string{outputText, outputJSON}, []string{"removes .gofly/config.json under --dir"}, "medium", true, true, []string{"gofly config clean --dir . --dry-run"}),
 	}
 	commands = append(commands, migrationManifestCommands()...)
+	commands = append(commands, middlewareManifestCommand())
 	for i := range commands {
 		switch commands[i].Name {
 		case "ai manifest":

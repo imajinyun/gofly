@@ -11,6 +11,7 @@ is enforced by `make testdata-layout-check`.
 | `api/client/compatibility` | Base/target API compatibility cases | API client compatibility gate |
 | `api/client/matrix` | Multi-language client generation input | API client generation gate |
 | `api/client/toolchains` | Minimal offline language toolchain shims | API client toolchain gate |
+| `api/middleware-presets` | Generated middleware HTTP, session, SSE and WebSocket behavior fixture | Middleware preset gate |
 | `api/openapi/roundtrip` | OpenAPI import/export round-trip fixtures | Generator OpenAPI tests and contract gate |
 | `api/semantic/goctl` | Pinned goctl API semantic oracle | Generator and REST runtime semantic tests |
 | `compatibility/generated` | Old/current/future generated project inputs | Generated-version compatibility gates |

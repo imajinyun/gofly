@@ -66,7 +66,7 @@ jobs:
 
       - name: Upload coverage artifacts
         if: matrix.go == '1.26' && always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: coverage-go-${{ matrix.go }}
           path: |
@@ -110,7 +110,7 @@ jobs:
 
       - name: Upload API semantic oracle report
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: api-semantic-parity-report
           path: ${{ runner.temp }}/api-semantic-parity-report.json
@@ -141,7 +141,7 @@ jobs:
 
       - name: Set up Node.js
         if: matrix.language == 'javascript' || matrix.language == 'typescript'
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: "24.13.0"
 
@@ -158,7 +158,7 @@ jobs:
 
       - name: Set up Kotlin
         if: matrix.language == 'kotlin'
-        uses: fwilhe2/setup-kotlin@ee9692514da313706b193d808526812102a344e4
+        uses: fwilhe2/setup-kotlin@b325539ca8f6e1d9ee04efed06f49bdbf5426dbb
         with:
           version: "2.3.10"
 
@@ -177,7 +177,7 @@ jobs:
 
       - name: Upload API client toolchain report
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: api-client-toolchain-${{ matrix.language }}
           path: ${{ runner.temp }}/api-client-toolchain-${{ matrix.language }}.json
@@ -265,7 +265,7 @@ jobs:
 
       - name: Upload CI script verification evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: p2-ci-script-evidence
           path: .tmp-test/p2-ci/report.json
@@ -301,7 +301,7 @@ jobs:
 
       - name: Upload public API compatibility report
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: api-compat-report
           path: ${{ runner.temp }}/api-compat-report.json
@@ -317,16 +317,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2
+        uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d
         with:
           languages: go
           config-file: ./.github/codeql/codeql-config.yml
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2
+        uses: github/codeql-action/autobuild@24c54180a607b1449ed407dd24f251e4e9147c8d
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2
+        uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d
 
   dependency-review:
     name: dependency review
@@ -585,7 +585,7 @@ jobs:
 
       - name: Upload gateway aggregation SARIF artifact
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: gateway-aggregation-sarif
           path: gateway-aggregation.sarif
@@ -593,7 +593,7 @@ jobs:
 
       - name: Upload gateway aggregation SARIF to Code Scanning
         if: vars.GOFLY_UPLOAD_AGGREGATION_SARIF == 'true'
-        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d
         with:
           sarif_file: gateway-aggregation.sarif
 
@@ -780,7 +780,7 @@ jobs:
 
       - name: Upload governance skip report
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: governance-skip-report
           path: ${{ runner.temp }}/governance-skip-report.json
@@ -880,7 +880,7 @@ jobs:
 
       - name: Upload benchmark artifacts
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: benchmark-smoke
           path: |
@@ -962,7 +962,7 @@ jobs:
 
       - name: Upload cloud-native live render evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: cloud-native-live-render-evidence
           path: |
@@ -1035,13 +1035,13 @@ jobs:
 
       - name: Upload Trivy scan results
         if: always()
-        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d
         with:
           sarif_file: trivy-results.sarif
 
       - name: Upload Docker and Trivy evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: docker-trivy-evidence
           path: |
@@ -1074,7 +1074,7 @@ jobs:
           publish_results: true
 
       - name: Upload Scorecard SARIF
-        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d
         with:
           sarif_file: scorecard-results.sarif
 
@@ -1254,7 +1254,7 @@ jobs:
 
       - name: Upload release verification evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: release-dist-evidence
           path: |

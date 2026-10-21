@@ -1833,7 +1833,7 @@ func writeRepoFileWithEntityImport(dir string, table SQLTable, pkg string, modul
 		fprintf(&b, "\t\"strconv\"\n")
 	}
 	fprintf(&b, "\t\"strings\"\n")
-	if modelsNeedTime([]SQLTable{table}) || hasSoftDelete(table) || cacheEnabled {
+	if repositoryNeedsTime(table, cacheEnabled) {
 		fprintf(&b, "\t\"time\"\n")
 	}
 	fprintf(&b, "\n")
@@ -1901,7 +1901,7 @@ func writeGORMRepoFileWithEntityImport(dir string, table SQLTable, module string
 		fprintf(&b, "\t\"strconv\"\n")
 		fprintf(&b, "\t\"strings\"\n")
 	}
-	if hasSoftDelete(table) || cacheEnabled {
+	if repositoryNeedsTime(table, cacheEnabled) {
 		fprintf(&b, "\t\"time\"\n")
 	}
 	fprintf(&b, "\n")
@@ -4434,6 +4434,45 @@ func modelsNeedTime(tables []SQLTable) bool {
 		}
 	}
 	return false
+}
+
+func repositoryNeedsTime(table SQLTable, cacheEnabled bool) bool {
+	if cacheEnabled || hasSoftDelete(table) || columnNeedsTime(primaryColumn(table)) {
+		return true
+	}
+	if version, ok := versionColumn(table); ok && columnNeedsTime(version) {
+		return true
+	}
+	for _, column := range table.Columns {
+		if column.Unique && !column.PrimaryKey && columnNeedsTime(column) {
+			return true
+		}
+	}
+	for _, index := range table.UniqueIndexes {
+		columns, ok := uniqueIndexColumns(table, index)
+		if ok && columnsNeedTime(columns) {
+			return true
+		}
+	}
+	for _, index := range modelIndexPrefixes(table) {
+		if columnsNeedTime(index.Columns) {
+			return true
+		}
+	}
+	return false
+}
+
+func columnsNeedTime(columns []SQLColumn) bool {
+	for _, column := range columns {
+		if columnNeedsTime(column) {
+			return true
+		}
+	}
+	return false
+}
+
+func columnNeedsTime(column SQLColumn) bool {
+	return strings.TrimPrefix(columnGoType(column), "*") == "time.Time"
 }
 
 func columnGoType(column SQLColumn) string {

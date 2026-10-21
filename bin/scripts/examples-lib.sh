@@ -11,7 +11,7 @@ catalog_path = pathlib.Path(sys.argv[1])
 catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
 for item in catalog.get("examples") or []:
     path = item.get("path")
-    if isinstance(path, str):
+    if isinstance(path, str) and item.get("rootGate", True):
         print(path)
 PY
 }

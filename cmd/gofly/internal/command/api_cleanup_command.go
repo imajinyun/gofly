@@ -90,12 +90,17 @@ func buildAPIStaleCleanupResult(dir string, execute bool) (apiCleanupStaleResult
 		result.NextActions = []string{"rerun with --execute to delete the planned stale files"}
 		return result, nil
 	}
+	cleanupRoot, err := os.OpenRoot(dir)
+	if err != nil {
+		return apiCleanupStaleResult{}, fmt.Errorf("open stale cleanup root: %w", err)
+	}
+	defer cleanupRoot.Close()
 	for _, rel := range planned {
-		path, err := safeAPIStaleCleanupTarget(dir, rel)
+		_, err := safeAPIStaleCleanupTarget(dir, rel)
 		if err != nil {
 			return apiCleanupStaleResult{}, err
 		}
-		if err := os.Remove(path); err != nil {
+		if err := cleanupRoot.Remove(filepath.FromSlash(rel)); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				result.Skipped = append(result.Skipped, rel)
 				continue
@@ -177,7 +182,7 @@ func safeAPIStaleCleanupTarget(root string, rel string) (string, error) {
 	if relToRoot == ".." || strings.HasPrefix(relToRoot, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("stale cleanup target %q escapes root", rel)
 	}
-	return cleanTarget, nil
+	return generator.SafeTarget(absRoot, cleanTarget, "stale cleanup")
 }
 
 func printAPIStaleCleanupText(result apiCleanupStaleResult) {

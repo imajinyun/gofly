@@ -6,7 +6,7 @@ PKGS      ?= ./...
 BIN_DIR   ?= bin
 CLI_BIN   ?= $(BIN_DIR)/gofly
 CLI_PKG   ?= ./cmd/gofly
-GOFMT_DIRS ?= app cache cmd core examples gateway ops rest rpc
+GOFMT_DIRS ?= app cache cmd core gateway ops rest rpc
 TESTFLAGS ?= -count=1 -shuffle=on
 SCRIPTS_DIR ?= bin/scripts
 
@@ -103,12 +103,6 @@ test-short: ## Run fast unit tests (no race)
 .PHONY: test-generated-matrix
 test-generated-matrix: ## Verify generated project templates and service contract input matrix end-to-end
 	GOFLY_FRAMEWORK_PATH=$(CURDIR) $(GO) test $(TESTFLAGS) ./cmd/gofly/internal/command -run 'Test(AINewGeneratedProjectVerificationMatrix|NewServiceGeneratedProjectSmokeMatrix|NewServiceContractInputMatrix)'
-
-.PHONY: gosky-check
-gosky-check: ## Verify the gosky API/RPC reference project and its authorization contract
-	$(MAKE) -C examples/gosky test
-	$(MAKE) -C examples/gosky project-schema-check
-	$(MAKE) -C examples/gosky authorization-smoke
 
 .PHONY: generated-service-layout-check
 generated-service-layout-check: ## Validate the Tier 0 generated production service layout contract
@@ -228,8 +222,12 @@ root-dependency-policy-check: ## Validate root go.mod direct dependency ownershi
 .PHONY: check
 check: fmt-check vet test ## Run the core local verification suite
 
+.PHONY: ci-boundary-check
+ci-boundary-check: ## Verify root CI planning does not execute standalone examples
+	python3 -B -m unittest discover -s $(SCRIPTS_DIR)/tests -p test_root_ci_boundary.py
+
 .PHONY: ci-fast
-ci-fast: fmt-check vet build examples-check examples-smoke testdata-layout-check test tidy ## Run the default CI build/test/tidy gates
+ci-fast: ci-boundary-check fmt-check vet build testdata-layout-check test tidy ## Run the default CI build/test/tidy gates
 
 .PHONY: ci
 ci: ci-fast generated-output-governance test-generated-matrix generated-control-plane-smoke bench-evidence-check governance supply-chain ## Run the full CI verification suite
@@ -417,6 +415,7 @@ project-layout-governance-check: ## Compatibility no-op; docs-backed layout inve
 
 .PHONY: examples-layout-check
 examples-layout-check: ## Validate the example catalog, module ownership, and test layout
+	python3 -B -m unittest discover -s $(SCRIPTS_DIR)/tests -p test_examples_governance.py
 	sh $(SCRIPTS_DIR)/check-examples-layout.sh
 
 .PHONY: testdata-layout-check
@@ -666,8 +665,8 @@ shellcheck: ## Lint governance shell scripts
 	$(SHELLCHECK) $(SCRIPTS_DIR)/*.sh
 
 .PHONY: osv-scan
-osv-scan: ## Scan lockfiles and manifests with OSV Scanner
-	$(OSV_SCANNER) scan source --recursive .
+osv-scan: ## Scan root module dependencies with OSV Scanner
+	$(OSV_SCANNER) scan source --lockfile=go.mod
 
 .PHONY: supply-chain
 supply-chain: actionlint shellcheck release-artifacts-test api-compat-test osv-scan ## Run workflow, shell, release/API provenance, action pin, and OSV supply-chain checks

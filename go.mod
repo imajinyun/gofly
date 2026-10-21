@@ -2,6 +2,8 @@ module github.com/imajinyun/gofly
 
 go 1.26.7
 
+toolchain go1.26.9
+
 require (
 	github.com/cloudwego/hertz v0.10.6
 	github.com/gin-gonic/gin v1.12.0
@@ -209,7 +211,7 @@ require (
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/exp v0.0.0-20260611194520-c48552f49976 // indirect
 	golang.org/x/mod v0.42.0
-	golang.org/x/net v0.59.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/telemetry v0.0.0-20260924152758-ed294f943157 // indirect

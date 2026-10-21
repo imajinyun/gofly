@@ -59,6 +59,8 @@ for item in catalog.get("examples") or []:
         errors.append(f"{name}: invalid kind {kind!r}")
     if not isinstance(item.get("cli"), bool):
         errors.append(f"{name}: cli must be boolean")
+    if "rootGate" in item and not isinstance(item["rootGate"], bool):
+        errors.append(f"{name}: rootGate must be boolean")
     if not isinstance(item.get("description"), str) or not item["description"].strip():
         errors.append(f"{name}: description is required")
 

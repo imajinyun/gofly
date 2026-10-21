@@ -241,19 +241,50 @@ func (s *SQLStore) QueryOne(ctx context.Context, query string, scan func(*sql.Ro
 	return nil
 }
 
-func (s *SQLStore) QueryRows(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+// queryRows binds the per-query timeout context to the rows' lifecycle.
+// The context must stay alive until Close: canceling it as soon as the
+// query helper returns makes the caller's first rows.Next fail with
+// context.Canceled because database/sql ties row iteration to the context
+// passed to QueryContext.
+type queryRows struct {
+	*sql.Rows
+	cancel context.CancelFunc
+	once   sync.Once
+}
+
+func (r *queryRows) Close() error {
+	err := r.Rows.Close()
+	r.once.Do(r.cancel)
+	return err
+}
+
+// QueryRows executes a query whose result the caller iterates. The returned
+// rows' Close releases the per-query timeout context; callers must always
+// defer rows.Close().
+func (s *SQLStore) QueryRows(ctx context.Context, query string, args ...any) (*queryRows, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("sql store is nil")
 	}
+	ctx = core.Context(ctx)
+	start := time.Now()
+	callCtx, cancel := s.operationContext(ctx)
 	var rows *sql.Rows
-	if err := s.run(ctx, "query_rows", func(callCtx context.Context) error {
-		var err error
+	var err error
+	if s.breaker != nil {
+		err = s.breaker.Do(callCtx, func() error {
+			var queryErr error
+			rows, queryErr = s.db.QueryContext(callCtx, query, args...)
+			return queryErr
+		})
+	} else {
 		rows, err = s.db.QueryContext(callCtx, query, args...)
-		return err
-	}); err != nil {
+	}
+	s.observe(callCtx, "query_rows", start, err)
+	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("query sql: %w", err)
 	}
-	return rows, nil
+	return &queryRows{Rows: rows, cancel: cancel}, nil
 }
 
 func (s *SQLStore) QueryAll(ctx context.Context, query string, scan func(*sql.Rows) error, args ...any) error {

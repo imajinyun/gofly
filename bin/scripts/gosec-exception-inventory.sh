@@ -77,6 +77,8 @@ entries = []
 ignored_path_parts = {".aiflow", ".harness", ".tmp-test", ".trae", "vendor", "testdata"}
 for path in sorted(root.rglob("*.go")):
     rel = path.relative_to(root).as_posix()
+    if pathlib.PurePosixPath(rel).parts[0] == "examples":
+        continue
     if any(part in ignored_path_parts for part in pathlib.PurePosixPath(rel).parts):
         continue
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):

@@ -32,7 +32,7 @@ fi
 go_cmd="${GO:-go}"
 golangci_lint="${GOLANGCI_LINT:-golangci-lint}"
 pkgs="${PKGS:-./...}"
-gofmt_dirs="${GOFMT_DIRS:-app cache cmd core examples gateway ops rest rpc}"
+gofmt_dirs="${GOFMT_DIRS:-app cache cmd core gateway ops rest rpc}"
 testflags="${TESTFLAGS:--shuffle=on}"
 govulncheck_scan="${GOVULNCHECK_SCAN:-package}"
 gosec_flags="${GOSEC_FLAGS:--quiet -exclude-generated -exclude-dir=testdata -exclude-dir=vendor -exclude-dir=.tmp-test}"
@@ -147,7 +147,6 @@ round_tidy_check() {
 }
 
 round_engineering_smoke() {
-	(cd "$root" && GO="$go_cmd" sh bin/scripts/examples-smoke.sh)
 	"$go_cmd" test $testflags ./bench/...
 }
 

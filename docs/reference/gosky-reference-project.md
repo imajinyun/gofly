@@ -13,9 +13,8 @@ exception when it changes a relevant boundary.
 
 The Project REST example demonstrates the boundary between tenant-scoped Casbin
 RBAC and persisted resource-state authorization. It uses MySQL Project,
-membership, and operation-log tables; an authenticated same-tenant Project
-owner, active member/collaborator, or Casbin `reader`/`writer`/`admin` may read a
-Project. The schema and fail-closed audit contract are documented in
+membership, and operation-log tables. Admin reads require explicit `project.read` plus an owner/viewer/editor relationship or `project.read.any`; front reads use project relationships. Backend roles never inherit grants. Project updates, soft deletes and collaborator administration combine explicit operation grants with resource scope, and GET/list responses expose matching `allowedActions`. Tenant reader/writer roles alone do not grant access to every Project.
+The schema and fail-closed audit contract are documented in
 [`examples/gosky/docs/persistence/project-mysql-schema.md`](../../examples/gosky/docs/persistence/project-mysql-schema.md).
 
 The reference also contains a MySQL Casbin policy-management slice: current
@@ -27,12 +26,25 @@ than being copied into Casbin policy rows.
 Run the baseline locally:
 
 ```sh
-make gosky-check
+make -C examples/gosky check
 ```
 
-This target runs the gosky module test suite and a real-process authorization
-smoke. It is included in the Go 1.26 GitHub Actions build-and-test job. The
-Casbin demonstration covers tenant-scoped REST, unary HTTP-RPC, and the
+This target requires Go, Python 3 and a reachable Docker daemon. It runs the
+Gosky module tests, schema validation, runtime authorization smoke and all
+required HTTP/MySQL E2Es. The MySQL runner creates a digest-pinned disposable
+database, applies the checked-in migrations, rejects skipped/missing suites,
+and removes its container and anonymous volumes even on failure. It never
+uses an inherited application DSN for migration. Run just that gate with
+`make -C examples/gosky mysql-e2e`.
+
+Gofly CI does not invoke this target or host example workflows. Run it explicitly
+when verifying Gosky. Reports remain under
+`examples/gosky/.tmp-test/gosky-mysql/run-*/`; `summary.json` includes test status,
+migration hashes, image digest and cleanup state, with raw test/migration output.
+The authoritative command and suite list live in
+`examples/gosky/bin/scripts/check-gosky-mysql.py`.
+
+The Casbin demonstration covers tenant-scoped REST, unary HTTP-RPC, and the
 explicitly enabled experimental mux stream probe. Project owner/member ABAC is
 backed by MySQL. Persistent Casbin policy administration and distributed policy
 refresh are also exercised against MySQL as explicit, independent contracts.

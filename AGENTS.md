@@ -237,6 +237,14 @@ Release governance should also include CodeQL, Dependency Review, release checks
 
 If a gate fails because a local tool is missing, continue running other available gates and clearly report the failure reason, impact scope, and reproduction command.
 
+## 🧭 Toolkit and example CI boundary
+
+- Gofly CI must not invoke checks for any standalone module under `examples/`, directly or through aggregate Makefile targets and governance scripts.
+- Do not register example workflows or jobs under the root `.github/workflows`. Example validation is an explicitly invoked local/application workflow.
+- Root formatting, dependency-change detection, vulnerability scanning, and security-exception inventories must follow toolkit ownership rather than recursively treating examples as root modules.
+- Root code-generation tests may generate and compile temporary projects to verify generator contracts. Those tests remain toolkit-owned and do not delegate to committed example CI.
+- `make ci-boundary-check` verifies root CI command planning; `Makefile` and `bin/scripts/` remain the command source of truth.
+
 ## 🏁 CI and release governance
 
 - CI must use `make governance-10-rounds` or equivalent steps as the primary quality entry point, explicitly including `-shuffle=on`, `-race`, `go vet`, `golangci-lint`, coverage ratchet, and tidy/verify.

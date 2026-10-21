@@ -52,10 +52,6 @@ jobs:
         if: matrix.go == '1.26'
         run: make test-generated-matrix
 
-      - name: gosky API/RPC reference project contract
-        if: matrix.go == '1.26'
-        run: make gosky-check
-
       - name: Generated project runtime control-plane smoke
         if: matrix.go == '1.26'
         run: make generated-control-plane-smoke
@@ -378,7 +374,7 @@ jobs:
           git fetch --no-tags --prune --depth=1 origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
           changed_files="$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")"
           printf '%s\n' "$changed_files"
-          if printf '%s\n' "$changed_files" | grep -E '(^|/)go\.(mod|sum)$'; then
+          if printf '%s\n' "$changed_files" | grep -E '^go\.(mod|sum)$'; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -813,30 +809,6 @@ jobs:
           go-version-file: go.mod
           check-latest: true
           cache: true
-
-      - name: Build examples
-        run: |
-          if [ -d examples ] && find examples -mindepth 2 -maxdepth 3 -name go.mod -print -quit | grep -q .; then
-            find examples -mindepth 2 -maxdepth 3 -name go.mod -print | sort | while IFS= read -r mod; do
-              dir="$(dirname "$mod")"
-              echo "building $dir"
-              (cd "$dir" && go build ./...)
-            done
-          else
-            echo "examples/ has no standalone Go modules; skipping build"
-          fi
-
-      - name: Vet examples
-        run: |
-          if [ -d examples ] && find examples -mindepth 2 -maxdepth 3 -name go.mod -print -quit | grep -q .; then
-            find examples -mindepth 2 -maxdepth 3 -name go.mod -print | sort | while IFS= read -r mod; do
-              dir="$(dirname "$mod")"
-              echo "vetting $dir"
-              (cd "$dir" && go vet ./...)
-            done
-          else
-            echo "examples/ has no standalone Go modules; skipping vet"
-          fi
 
       - name: Benchmark evidence gate
         run: make bench-evidence-check

@@ -1243,6 +1243,45 @@ func TestGenerateModelFromReplaySchemaIRCompiles(t *testing.T) {
 	}
 }
 
+func TestGenerateModelFromSchemaIRCompilesTimestampEntityWithoutTimestampRepositoryAPI(t *testing.T) {
+	rootGoMod, rootGoSum := snapshotRootModuleFiles(t)
+	defer assertRootModuleFilesUnchanged(t, rootGoMod, rootGoSum)
+
+	dir := t.TempDir()
+	const module = "example.com/timestamp-entity"
+	writeGeneratedModule(t, dir, module)
+	ir := newModelSchemaIR(ModelSchemaSourceReplay, storage.DialectMySQL, "mysql", "", "", []SQLTable{{
+		Name:       "tenants",
+		PrimaryKey: "tenant_id",
+		Columns: []SQLColumn{
+			{Name: "tenant_id", Type: "bigint", PrimaryKey: true},
+			{Name: "tenant_code", Type: "varchar"},
+			{Name: "created_at", Type: "timestamp"},
+			{Name: "updated_at", Type: "timestamp"},
+		},
+	}})
+	if err := generateModelFromSchemaIR(ir, modelSchemaGenerationOptions{
+		Emit: modelSchemaEmitOptions{
+			Dir:          dir,
+			Module:       module,
+			Style:        "go_zero",
+			GoZeroLayout: true,
+		},
+	}); err != nil {
+		t.Fatalf("generateModelFromSchemaIR timestamp entity: %v", err)
+	}
+
+	repoData, err := os.ReadFile(filepath.Join(dir, "repo", "tenant.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(repoData), "\"time\"") {
+		t.Fatalf("repository without timestamp APIs must not import time:\n%s", repoData)
+	}
+	runGoCommand(t, dir, 3*time.Minute, "mod", "tidy")
+	runGoCommand(t, dir, 3*time.Minute, "test", "./...")
+}
+
 func TestIntrospectSQLTablesWithFakeDatasource(t *testing.T) {
 	db, err := sql.Open(fakeModelDatasourceDriver, "ok")
 	if err != nil {

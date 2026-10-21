@@ -48,8 +48,7 @@ func printJSON(value any) error {
 	if err != nil {
 		return fmt.Errorf("marshal json: %w", err)
 	}
-	cliOutputln(string(data))
-	return nil
+	return writeJSONBytes(data)
 }
 
 func printJSONLine(value any) error {
@@ -57,7 +56,13 @@ func printJSONLine(value any) error {
 	if err != nil {
 		return fmt.Errorf("marshal json line: %w", err)
 	}
-	cliOutputln(string(data))
+	return writeJSONBytes(data)
+}
+
+func writeJSONBytes(data []byte) error {
+	if _, err := fmt.Fprintln(currentOut(), string(data)); err != nil {
+		return fmt.Errorf("write json: %w", err)
+	}
 	return nil
 }
 

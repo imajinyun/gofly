@@ -1,8 +1,6 @@
 module github.com/imajinyun/gofly
 
-go 1.26.7
-
-toolchain go1.26.9
+go 1.26.9
 
 require (
 	github.com/cloudwego/hertz v0.10.6
@@ -11,17 +9,17 @@ require (
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/gofiber/fiber/v2 v2.52.15
 	github.com/golang-migrate/migrate/v4 v4.20.1
-	github.com/hashicorp/consul/api v1.34.5
+	github.com/hashicorp/consul/api v1.35.0
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/labstack/echo/v4 v4.16.0
+	github.com/labstack/echo/v4 v4.16.1
 	github.com/nacos-group/nacos-sdk-go/v2 v2.3.5
 	github.com/prometheus/client_golang v1.25.0
-	github.com/rabbitmq/amqp091-go v1.15.0
+	github.com/rabbitmq/amqp091-go v1.16.0
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/segmentio/kafka-go v0.4.51
 	github.com/testcontainers/testcontainers-go v0.44.0
-	go.etcd.io/etcd/api/v3 v3.7.2
-	go.etcd.io/etcd/client/v3 v3.7.2
+	go.etcd.io/etcd/api/v3 v3.7.3
+	go.etcd.io/etcd/client/v3 v3.7.3
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.47.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.47.0
@@ -198,7 +196,7 @@ require (
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
-	go.etcd.io/etcd/client/pkg/v3 v3.7.2 // indirect
+	go.etcd.io/etcd/client/pkg/v3 v3.7.3 // indirect
 	go.mongodb.org/mongo-driver/v2 v2.5.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.70.0 // indirect
@@ -208,14 +206,14 @@ require (
 	go.uber.org/zap v1.27.1 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/arch v0.22.0 // indirect
-	golang.org/x/crypto v0.57.0 // indirect
+	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/exp v0.0.0-20260611194520-c48552f49976 // indirect
 	golang.org/x/mod v0.42.0
-	golang.org/x/net v0.60.0 // indirect
-	golang.org/x/sync v0.23.0 // indirect
-	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/net v0.61.0 // indirect
+	golang.org/x/sync v0.24.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/telemetry v0.0.0-20260924152758-ed294f943157 // indirect
-	golang.org/x/text v0.42.0 // indirect
+	golang.org/x/text v0.43.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.51.0 // indirect
 	golang.org/x/vuln v1.6.0 // indirect

@@ -11,7 +11,7 @@ require (
 	github.com/golang-migrate/migrate/v4 v4.20.1
 	github.com/hashicorp/consul/api v1.35.0
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/labstack/echo/v4 v4.16.1
+	github.com/labstack/echo/v4 v4.16.2
 	github.com/nacos-group/nacos-sdk-go/v2 v2.3.5
 	github.com/prometheus/client_golang v1.25.0
 	github.com/rabbitmq/amqp091-go v1.16.0

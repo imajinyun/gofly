@@ -12,6 +12,7 @@ import (
 	"github.com/imajinyun/gofly/rest"
 )
 
+// #nosec G101 -- X-API-Key is a protocol header name, not a credential.
 const defaultAPIKeyHeader = "X-API-Key"
 
 // APIKeyConfig configures API key authentication for service-to-service or

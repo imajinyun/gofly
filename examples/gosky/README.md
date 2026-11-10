@@ -27,9 +27,46 @@ Preset generation is idempotent and does not modify routes, configuration,
 secrets, or `go.mod`. The checked-in files compile with gosky but remain opt-in
 until explicitly registered by the application.
 
+## Unified verification
+
+From the gofly repository root, run:
+
+```sh
+make -C examples/gosky check
+```
+
+This runs the runner's process contracts, the Gosky module tests, schema
+validation, runtime authorization smoke and all required HTTP/MySQL E2Es.
+Go, Python 3 and a reachable Docker daemon are required. To run only the MySQL
+gate, use `make -C examples/gosky mysql-e2e`.
+
+The MySQL runner creates a digest-pinned disposable container with an ephemeral
+loopback port, applies every migration under `internal/migrations` with
+`gofly migrate up`, and runs the required suites with `-race -count=1 -shuffle=on`.
+It supplies its own child-process DSN regardless of an existing
+`GOSKY_MYSQL_DSN`; no developer database is migrated. The container and its
+anonymous volumes are removed on success or failure, and build caches are
+temporary. Missing Docker, migration errors, failed/skipped/missing required
+tests and cleanup failures return nonzero.
+
+Each invocation prints its report path under
+`.tmp-test/gosky-mysql/run-*/` in the Gosky module root. `summary.json` records the
+required test statuses, migration hashes, image digest and cleanup result;
+`tests.jsonl`, `migration.json` and `commands.log` retain execution evidence.
+Gofly CI does not invoke this target or host Gosky workflows. Run it explicitly
+when verifying the application.
+The runner's test list is authoritative in
+[`check-gosky-mysql.py`](bin/scripts/check-gosky-mysql.py).
+
+All Gosky verification scripts and runner tests live under `bin/scripts`.
+The toolkit's root gates exclude this independently governed module; its CLI
+catalog entry remains available. The root formatting gate checks toolkit source,
+while `make fmt-check` checks Gosky. Run `make scripts-check` for runner and shell
+checks without Docker, or `make check` for the complete Gosky gate.
+
 ## Tenant-Scoped Casbin Authorization
 
-The protected REST example `GET /api/v1/projects/{id}`, unary HTTP-RPC example
+The protected REST example `GET /api/admin/projects/{id}`, unary HTTP-RPC example
 `greeter/SayHello`, and opt-in mux stream probe `greeter/Watch` use Casbin only
 after a bearer JWT has been verified. Set a distinct, 32-byte-or-longer
 development secret before starting the service:
@@ -40,13 +77,506 @@ go run ./cmd/gosky
 ```
 
 The authenticated JWT must carry `sub` and `tenant_id`. The model and
-development-only policy live in `etc/authorization/`; no REST header or RPC
-metadata field can override the verified tenant claim. REST resources use their
-route template; unary RPC resources use `rpc:<service>/<method>` and the
-`CALL` action; mux streams use the same resource format and the `STREAM`
-action. The mux probe remains disabled by default and is only registered when
+file-backed development-only policy live in `etc/authorization/`; no REST header or RPC
+metadata field can override the verified tenant claim. A deployment-owned
+capability registry maps protected REST, RPC, and mux transport identifiers to
+canonical capabilities with the `EXECUTE` action, so tenant policies never
+contain raw route templates, HTTP verbs, or RPC names. Each long-lived mux
+transport message is rechecked against its registered capability before its
+business handler observes it, so a locally observed policy revocation rejects
+the next unread message. The mux probe remains disabled by default and is only registered when
 both `rpc.mux.enabled` and `rpc.mux.probe` are enabled. See
 [docs/authorization/README.md](docs/authorization/README.md).
+
+## Browser identity and admin API boundary
+
+`gosky` is the direct API service for a browser client; it does not require a
+smart-api or BFF compatibility layer. Enable `identityStore` only after its
+MySQL migration has been applied. The application then exposes explicit public
+login and refresh endpoints, and statefully protects every business route in
+the matching realm:
+
+- `POST /api/admin/auth/login`, `POST /api/admin/auth/refresh`, and `POST /api/admin/auth/logout`
+- `GET /api/admin/auth/session` for the authenticated browser identity and its navigation projection
+- `POST /api/front/auth/login`, `POST /api/front/auth/refresh`, and `POST /api/front/auth/logout`
+- Project and policy-management operations under `/api/admin/**`
+
+The login service verifies an Argon2id password hash and creates a MySQL-backed
+session. It issues a short-lived JWT with `iss`, `aud`, `sub`, `tenant_id`,
+`realm`, `sid`, and `jti`, plus an opaque refresh token. Only the SHA-256
+refresh-token digest is stored. Refresh rotates the digest atomically, and a
+replayed refresh token fails. `AdminInterceptor` and `FrontInterceptor` verify
+the JWT realm and look up the active session, account, tenant, and membership
+state before a handler runs; a revoked session or disabled membership therefore
+returns `401` immediately.
+
+With `identityStore.enabled` set to `false`, gosky deliberately does not
+register Project or policy-management routes. This avoids a deployment that
+accepts a signed token without its session-revocation boundary. The required
+configuration is environment-owned for the DSN and secret:
+
+```json
+{
+  "authorization": {
+    "enabled": true,
+    "jwtSecretEnv": "GOSKY_JWT_SECRET"
+  },
+  "identityStore": {
+    "enabled": true,
+    "driver": "mysql",
+    "dsnEnv": "GOSKY_MYSQL_DSN",
+    "issuer": "gosky",
+    "audience": "gosky-web",
+    "accessTTL": 900000000000,
+    "refreshTTL": 86400000000000
+  }
+}
+```
+
+`accessTTL` and `refreshTTL` are Go duration values in nanoseconds in the JSON
+configuration. `refreshTTL` must be greater than `accessTTL`. The current
+example's default login response is a JSON token pair; a browser client should
+keep the access token in memory and use a secure, HttpOnly, same-site cookie or
+an equally protected browser storage boundary for the refresh token according
+to its deployment's CSRF model.
+
+### SmartAdmin local compatibility
+
+New modules ported from smart-api must follow the
+[SmartAdmin compatibility module template](docs/smartadmin-compat-modules.md):
+contract inventory, `support.<module>.{read,manage}` capabilities, fixed
+menu-id seeding, layered implementation, pagination, i18n, and failure-mode
+tests. Authenticated compatibility routes use
+`smartweb.AuthMiddleware`, which returns the legacy numeric 401 codes
+(`30007` missing session, `30008` expired/invalid session) so the unchanged
+axios client performs its forced logout.
+
+The unmodified SmartAdmin pages use their historical `/login/**` and
+`/support/dict/getAllDictData` contracts. With the compatibility adapter
+enabled, Gosky remains the authority for its standard REST and RPC addresses:
+REST listens on `127.0.0.1:8080` and RPC on `:8081`. SmartAdmin's local and test
+configuration therefore targets `http://127.0.0.1:8080`, while its Vite server
+listens on `:5173` to avoid the RPC port. Gosky's example configuration permits
+only `http://127.0.0.1:5173` and `http://localhost:5173` through CORS; do not
+replace these exact development origins with a wildcard in shared or production
+configuration.
+
+Before starting the example, apply the identity migration and export
+`GOSKY_MYSQL_DSN` plus a JWT secret of at least 32 bytes. The checked-in example
+enables both `identityStore` and the MySQL Casbin policy backend, so a missing
+DSN or unavailable policy migration makes startup fail fast instead of serving
+an incomplete login surface.
+
+The usable existing SmartAdmin pages are `/system/role`, `/system/menu`,
+`/system/employee`, `/system/department`, and `/system/position`. The Access
+Control catalog (`810000001`) with the role and menu pages is returned only
+when the verified tenant identity has the `authorization.role.read`
+capability; the Organization catalog (`810000004`) with the employee,
+department, and position pages requires `system.user.manage`, which is also
+the capability every organization list and mutation endpoint enforces. Each
+operator button is additionally gated by its own capability; catalogs with no
+visible descendant are pruned from the login navigation. The compatibility
+layer serves the existing SmartAdmin contracts, but translates every browser
+identifier to Gosky's fixed role/capability and active-tenant-user model:
+
+```text
+GET  /role/getAll
+POST /role/add
+POST /role/update
+GET  /role/delete/{roleId}
+GET  /role/menu/getRoleSelectedMenu/{roleId}
+GET  /dataScope/list
+GET  /role/dataScope/getRoleDataScopeList/{roleId}
+POST /role/employee/queryEmployee
+POST /employee/query
+POST /role/menu/updateRoleMenu
+POST /role/dataScope/updateRoleDataScopeList
+POST /role/employee/batchAddRoleEmployee
+POST /role/employee/batchRemoveRoleEmployee
+GET  /role/employee/removeEmployee
+GET  /menu/query
+GET  /menu/tree?onlyMenu=true|false
+GET  /menu/auth/url
+POST /menu/add
+POST /menu/update
+GET  /menu/batchDelete?menuIdList=1,2,3
+
+# Organization pages (all require system.user.manage)
+POST /employee/query                 GET  /employee/queryAll
+POST /employee/add                   POST /employee/update
+GET  /employee/delete/{id}           POST /employee/update/batch/delete
+POST /employee/update/batch/department
+GET  /employee/update/disabled/{id}
+GET  /employee/update/password/reset/{id}
+GET  /employee/getAllEmployeeByDepartmentId/{id}
+GET  /department/listAll             GET  /department/treeList
+POST /department/add                 POST /department/update
+GET  /department/delete/{id}
+POST /position/queryPage             GET  /position/queryList
+POST /position/add                   POST /position/update
+GET  /position/delete/{id}           POST /position/batchDelete
+
+# File service (support.file.read / support.file.manage)
+POST /support/file/upload             # multipart upload (form field "file", ?folder=1..4)
+POST /support/file/queryPage          # file console paging ({list,total})
+GET  /support/file/getFileUrl         # HMAC-signed capability URL for <img> access
+GET  /support/file/downLoad           # authenticated file download
+GET  /support/file/view               # public endpoint; HMAC signature is the authorization proof
+```
+
+The returned roles always include the immutable Gosky Casbin roles `reader`,
+`writer`, and `admin`, whose IDs, menu tree, routes, components, and capability
+leaves are code-owned, plus the tenant's own active roles from `roles`.
+Seeded roles and seeded menus stay read-only; tenant-created roles and
+catalog/page menus are mutable through the same endpoints. Saving function
+permissions can change only the registered canonical capabilities; it cannot
+submit a route/RPC name, an operator webPerms button, or change a Casbin
+action. The data-scope tab represents only Project visibility:
+`Related Projects` removes the `project.read.any` scope; `All tenant Projects` adds it. Neither choice changes operation grants such as `project.read`. Roles have no inheritance; each role owns its complete explicit capability set.
+
+Role employees are resolved from active `tenant_users` rows in the verified
+JWT tenant before a subject-to-role binding changes. The browser submits only
+Gosky user IDs; it never supplies a Casbin subject. Batch changes validate all
+employees before one atomic policy/event mutation, preserve the final tenant
+`admin`, and reload local policy after commit. Direct compatibility reads and
+writes use `AdminInterceptor` and make the same server-side capability decision
+as the menu.
+
+The Menu Catalog page (`/menu/query`, `/menu/tree`) reads the tenant `menus`
+catalog: the Access Control catalog, the implemented Role Management and Menu
+Catalog pages, the canonical capability function points, the seeded operator
+buttons, and tenant-created catalog/page rows. Raw REST/RPC paths are never
+exposed as a browser permission model (`/menu/auth/url` returns an empty
+list), and `apiPerms` from the browser are discarded: capability points are
+deployment-owned. Tenant-created rows may be added, edited, and batch-deleted
+through the legacy endpoints (batch delete uses `?menuIdList=1,2,3`); seeded
+system rows stay immutable and every mutation requires `system.menu.manage`.
+This includes a selectable `greeter.watch` function point, so every capability
+accepted by the role API remains representable in the role tree.
+
+Role capability selection and the current operator's management buttons are
+separate projections. The role tree and Menu Catalog use the same capability
+definitions for both labels and save-time translation:
+
+| Menu ID | Role-tree label | Granted capability |
+| --- | --- | --- |
+| 810000011 | Read related Projects | `project.read` |
+| 810000012 | Read all tenant Projects | `project.read.any` |
+| 810000013 | Manage Project collaborators | `project.member.manage` |
+| 810000014 | Edit role permissions | `authorization.role.manage` |
+| 810000015 | Call Greeter | `greeter.hello` |
+| 810000016 | Watch Greeter stream | `greeter.watch` |
+| 810000017 | Update related Projects | `project.update` |
+| 810000018 | Delete owned Projects | `project.delete` |
+| 810000019 | Manage all tenant Projects (scope only) | `project.manage.any` |
+| 810000031 | View tenant roles and employees | `authorization.role.read` |
+| 810000032 | Edit Project read scope | `authorization.role.scope.manage` |
+| 810000033 | Assign tenant roles | `authorization.role.member.add` |
+| 810000034 | Remove tenant roles | `authorization.role.member.remove` |
+| 810000035 | Read policy audit events | `authorization.policy.events.read` |
+
+Login and session restoration project 22 current-operator buttons, each as a
+separate ID, only when its corresponding capability is explicitly granted:
+the role-permission/scope/employee buttons `810000021` through `810000025`,
+the role add/edit/delete buttons `810000026` through `810000028`
+(`authorization.role.manage`), the menu add/edit/batch-delete buttons
+`810000041` through `810000043` (`system.menu.manage`, parented by the Menu
+Catalog page), the employee buttons `810000061` through `810000066`
+(add/update/delete/department move/disable/password reset), and the department
+buttons `810000051` through `810000054` (query/add/update/delete); every
+organization button maps to `system.user.manage`. Role page visibility
+requires `authorization.role.read`; organization pages require
+`system.user.manage`. These button IDs cannot be submitted as target-role
+grants; the role-permission tree omits webPerms buttons and the repository
+rejects them on save. All seven catalog/page IDs (`810000001` through
+`810000007`) are accepted as structural selection, never persisted as
+permissions. Saving only those structural nodes clears the role's direct
+capability grants, subject to final-manager protection. The selection API
+reports the exact direct grants used by authorization; there are no inherited
+grants. The role-employee table columns (phone, department) are projected from
+`users.phone` and the `tenant_users.department_id` placement.
+
+Upgrade note: existing capability IDs are retained, additional capabilities are explicit, and role inheritance is disabled. Follow the [explicit permission conversion](docs/authorization/explicit-admin-permissions.md#compatibility-and-operator-conversion) before using an existing legacy tenant.
+Refresh the browser session or sign in again to replace cached button IDs and
+labels. Review roles previously saved using the misleading employee-operation
+labels against the corrected capability names; Gosky does not silently rewrite
+those existing grants.
+
+Role administration now follows one application boundary. `smartweb.Service`
+translates SmartAdmin menu/role IDs, scope values and employee DTOs;
+`app.RoleService` validates member batches, authorizes directory access,
+resolves current-tenant users, paginates results and updates Project scope.
+Its three-method `TenantUserDirectory` interface is implemented by
+`repo.MySQLIdentityRepository` in `internal/model/repo/tenant_user_directory.go`. The user projection
+is application-owned and contains no credentials. The service shares the
+existing audited `authz.PolicyService` with native APIs, preserving transaction,
+final-admin protection and policy-reload behavior. It contains no SmartAdmin
+IDs, JSON response envelopes or SQL. The adapter's AST dependency test prevents
+direct imports of `repo`, `database/sql` or `core/storage`.
+
+Run the role-menu and membership HTTP/MySQL E2Es against a migrated Gosky test database:
+
+```sh
+# GOSKY_MYSQL_DSN must be set. The test creates and removes only its own
+# identities and uniquely named policy tables; default policy rows are untouched.
+GOPROXY=direct GOFLY_CACHE_DISABLED=true sh ./bin/scripts/go-test.sh \
+  -json -shuffle=on -tags=integration ./internal/routes \
+  -run '^TestMySQLSmartWebRole(MenuRoundTrip|MembersAndScopes)Integration$' \
+  > /tmp/gosky-role-menu-e2e.jsonl
+```
+
+The JSON transcript records each label/ID/capability check, persisted grants,
+Casbin allow/deny decisions, idempotent saves, invalid-ID rejection, management
+button projection, tenant isolation and audit evidence without credentials.
+It also verifies that oversized employee page numbers return empty pages
+without negative indices or wraparound to an earlier page. The existing
+generated-runtime smoke explicitly uses file policies and disables identity
+storage for its no-database scenario, restoring the development configuration
+after the run; this E2E covers the persisted identity/policy path.
+The membership E2E additionally verifies add/list/remove responses, rejected
+cross-tenant and malformed batches, final-admin protection, and preservation
+of non-Project capabilities while changing Project data scope.
+These MySQL suites are part of `check` through the disposable database
+runner. The AST dependency check also runs with ordinary `make test`.
+
+Project persistence follows the same boundary: `app.ProjectService` consumes
+application-owned repository interfaces, and `repo.MySQLProjectRepository`
+implements tenant-scoped SQL and atomic collaborator/audit writes. The
+generated generic CRUD models remain unconnected output; they are not used
+as an alternate authorization path. See the
+[Project persistence boundary and isolated E2E](docs/persistence/project-mysql-schema.md#application-and-repository-boundary)
+for the runtime wiring, identifier differences and verification command.
+
+Database artifacts follow gofly's default layout beneath `internal`:
+
+```text
+internal/model/
+  entity/                     # Generated table structs, columns and Tabler metadata
+  repo/
+    project_mysql.go          # Custom Project SQL and collaboration/audit transactions
+    identity.go               # Custom identity/session SQL
+    tenant_user_directory.go  # Custom tenant membership queries
+    ...                       # Existing generated CRUD and compatibility facades
+```
+
+`entity` holds database representations. `repo` contains repository operations,
+including custom queries that implement the application-owned interfaces.
+Keep custom SQL in separate files from generated table CRUD so later generation
+does not overwrite it. The default `sql` model style emits `model/entity` and
+`model/repo` relative to its output directory. Gosky uses this directory layout;
+the flat `model`/`repo` layout is specific to the `go_zero` profile. Existing
+compatibility facade code is retained under `model/repo`, including its
+`ErrNotFound` alias in `vars.go`; it is not newly wired into production.
+`TestDefaultModelLayout` verifies directory/package names and rejects imports
+of the retired flat paths during ordinary `make test`.
+
+Authentication uses the same dependency direction. `authn/repository.go` owns
+`IdentityRepository`, the minimal login/session query projections, audit input
+records, and repository-result errors. `model/repo.MySQLIdentityRepository`
+implements that interface; `authn` does not import the concrete repository or
+SQL packages. These service contracts describe authentication use cases, while
+generated database table entities remain in `model/entity`. Password parameter
+validation, Argon2id hashing and verification live in `authn/password.go`.
+`TestAuthenticationPersistenceBoundary` prevents the persistence dependency
+from returning during later changes.
+
+Verify the authentication boundary against a migrated test database:
+
+```sh
+# Requires GOSKY_MYSQL_DSN; uses fresh tenant/user/session fixtures.
+GOPROXY=direct GOFLY_CACHE_DISABLED=true sh ./bin/scripts/go-test.sh \
+  -json -race -shuffle=on -tags=integration ./internal/routes \
+  -run '^TestMySQLIdentity(BoundaryLifecycle|RejectsInvalidStoredHash)Integration$' \
+  > /tmp/gosky-identity-lifecycle-e2e.jsonl
+```
+
+The E2E verifies failed login without a session, refresh digest storage and
+rotation, replay rejection, user/tenant/realm session isolation, owned-session
+revocation, disabled membership, logout and authentication audit outcomes. Its
+transcript contains assertions and audit counts, never credentials. Both suites
+are required by the application's `check` target.
+Stored Argon2id salt and key lengths are checked before integer conversion.
+An empty stored salt is rejected instead of receiving a configuration default;
+normally generated password hashes and their parameters are unchanged. The
+malformed-hash E2E verifies eight rejected cases and zero created sessions.
+
+### Browser session-navigation contract
+
+After `POST /api/admin/auth/login` or a successful admin refresh, the browser
+uses the returned `accessToken` as a Bearer token to request:
+
+```text
+GET /api/admin/auth/session
+```
+
+The response is a client-safe projection, not a compatibility copy of
+smart-api's historical `menuList` response:
+
+```json
+{
+  "subject": "user:10086",
+  "tenantId": "1001",
+  "realm": "admin",
+  "navigation": [
+    {
+      "id": "workspace.projects",
+      "kind": "page",
+      "title": "Projects",
+      "icon": "ProjectOutlined",
+      "group": "workspace",
+      "route": "/projects",
+      "component": "gosky.projects.list",
+      "order": 100
+    }
+  ],
+  "points": ["projects.members.manage"]
+}
+```
+
+`component` is a logical, deployment-owned key. The browser maps it through a
+local allowlist to a compiled Vue component; it must never use the value as an
+import path or a remote URL. The backend checks each navigation entry and point
+against its fixed Casbin capability before returning it. A normal denial omits
+that entry, while a policy-store or watcher failure returns `503` rather than a
+stale partial navigation result. The response never contains JWTs, refresh
+tokens, Casbin policy rows, role inheritance, or Project collaboration rows.
+
+## MySQL Casbin Policy Store
+
+`gosky` can replace the development CSV with a MySQL-backed Casbin policy
+store. The migration pair
+[`20261002133038_casbin_policy_store.up.sql`](internal/migrations/20261002133038_casbin_policy_store.up.sql)
+and
+[`20261002133038_casbin_policy_store.down.sql`](internal/migrations/20261002133038_casbin_policy_store.down.sql)
+creates the current rule table (`casbin_rules`) and the immutable policy-change
+audit/outbox table (`casbin_policy_events`). Apply all migrations before
+switching the application backend:
+
+```sh
+cd ../..
+go run ./cmd/gofly migrate up \
+  --driver mysql \
+  --dir examples/gosky/internal/migrations \
+  --dsn-env GOSKY_MYSQL_DSN
+```
+
+For a MySQL deployment, configure the `authorization` block as follows. The
+policy DSN stays in `GOSKY_MYSQL_DSN`; the service neither accepts it over HTTP
+nor includes it in its control-plane snapshot.
+
+```json
+{
+  "authorization": {
+    "enabled": true,
+    "jwtSecretEnv": "GOSKY_JWT_SECRET",
+    "policyBackend": "mysql",
+    "mysql": {
+      "driver": "mysql",
+      "dsnEnv": "GOSKY_MYSQL_DSN",
+      "watcherEnabled": true,
+      "watcherInterval": 1000000000
+    }
+  }
+}
+```
+
+MySQL mode does not fall back to the CSV file. The initial tenant `admin`
+binding, complete explicit grants for each role, and fixed canonical
+capability policies such as `authorization.role.manage EXECUTE` are
+deployment-owned bootstrap rules.
+Run the dedicated one-time operator command before starting a tenant in MySQL
+mode; it refuses to modify a tenant that already has an `admin`:
+
+```sh
+GOSKY_MYSQL_DSN='root:password@tcp(mysql.example:3306)/gosky?parseTime=true&charset=utf8mb4' \
+GOSKY_POLICY_BOOTSTRAP_TENANT=1001 \
+GOSKY_POLICY_BOOTSTRAP_ADMIN=tenant-admin-subject \
+GOSKY_POLICY_BOOTSTRAP_ACTOR=platform-operator-subject \
+go run ./cmd/gosky-policy-bootstrap
+```
+
+For a tenant initialized by the older route/RPC policy format, run the same
+operator command once with `GOSKY_POLICY_UPGRADE_CAPABILITIES=true` instead of
+`GOSKY_POLICY_BOOTSTRAP_ADMIN`. It converts the known legacy policies in one
+transaction, retains role bindings, reconciles newly introduced fixed
+capabilities such as `project.member.manage`, records outbox events, and
+leaves unknown custom policies untouched for explicit review:
+
+```sh
+GOSKY_MYSQL_DSN='root:password@tcp(mysql.example:3306)/gosky?parseTime=true&charset=utf8mb4' \
+GOSKY_POLICY_BOOTSTRAP_TENANT=1001 \
+GOSKY_POLICY_BOOTSTRAP_ACTOR=platform-operator-subject \
+GOSKY_POLICY_UPGRADE_CAPABILITIES=true \
+go run ./cmd/gosky-policy-bootstrap
+```
+
+### Custom policy table names
+
+The default migration creates `casbin_rules` and `casbin_policy_events`. A
+deployment may instead configure an existing, matching pair by setting both
+`rulesTable` and `eventsTable`:
+
+```json
+{
+  "authorization": {
+    "policyBackend": "mysql",
+    "mysql": {
+      "driver": "mysql",
+      "dsnEnv": "GOSKY_MYSQL_DSN",
+      "rulesTable": "tenant_casbin_rules",
+      "eventsTable": "tenant_casbin_policy_events",
+      "watcherEnabled": true,
+      "watcherInterval": 1000000000
+    }
+  }
+}
+```
+
+Both names are required together and must differ. Each is a single 1–64-byte
+ASCII identifier beginning with a letter; only letters, digits, and `_` are
+accepted. Schema-qualified names, backticks, whitespace, and SQL punctuation
+are rejected at startup. This restriction keeps dynamic SQL identifiers outside
+the request surface and prevents configuration from changing the SQL grammar.
+
+The service never creates or renames schema at startup. The standard `gofly
+migrate` pair creates only the default names; a deployment choosing custom
+names must provide an approved migration with the same columns, constraints,
+and indexes as
+[`20261002133038_casbin_policy_store.up.sql`](internal/migrations/20261002133038_casbin_policy_store.up.sql).
+For bootstrap, set the same pair in the operator process; leave both variables
+unset for the defaults:
+
+```sh
+GOSKY_POLICY_RULES_TABLE=tenant_casbin_rules \
+GOSKY_POLICY_EVENTS_TABLE=tenant_casbin_policy_events \
+GOSKY_MYSQL_DSN='root:password@tcp(mysql.example:3306)/gosky?parseTime=true&charset=utf8mb4' \
+GOSKY_POLICY_BOOTSTRAP_TENANT=1001 \
+GOSKY_POLICY_BOOTSTRAP_ADMIN=tenant-admin-subject \
+GOSKY_POLICY_BOOTSTRAP_ACTOR=platform-operator-subject \
+go run ./cmd/gosky-policy-bootstrap
+```
+
+Once bootstrapped, a tenant `admin` may list, grant, and revoke only
+`reader`/`writer`/`admin` bindings in that same verified JWT tenant through:
+
+- `GET /api/admin/authorization/roles`
+- `POST /api/admin/authorization/roles`
+- `DELETE /api/admin/authorization/roles`
+- `GET /api/admin/authorization/policy-events?limit=50`
+
+Every successful mutation updates the configured rules table and inserts the
+immutable event in the configured events table in one transaction. Local policy
+reload happens synchronously after that commit; other instances reload from the
+monotonic event sequence. If a watcher cannot read or reload policy, the
+instance fails closed with `503` until it is healthy again. A final tenant
+`admin` cannot be revoked.
+
+Run the real MySQL contract:
+
+```sh
+GOSKY_MYSQL_DSN='root:password@tcp(127.0.0.1:3306)/gosky?parseTime=true&charset=utf8mb4' \
+make casbin-mysql-integration
+```
 
 ## Project Persistence and ABAC
 
@@ -73,11 +603,7 @@ export GOSKY_MYSQL_DSN='gosky:password@tcp(mysql.example:3306)/gosky?parseTime=t
 ```
 
 Set `projectStore.enabled` to `true` only after the migration and DSN are
-available. The service never performs schema migration at startup. Project
-reads require the verified JWT tenant to match the stored Project tenant and
-then allow an owner, active member/collaborator, or tenant-scoped Casbin
-`reader`/`writer`/`admin`. Casbin roles are hierarchical: `writer` inherits
-`reader`, and `admin` inherits `writer`. A cross-tenant Project returns `403`; an unknown Project
+available. The service never performs schema migration at startup. Admin Project reads require explicit `project.read`, a matching tenant, and either an owner/viewer/editor relationship or the `project.read.any` scope. Front reads retain relation-only access. No role inherits another role. Project modification, soft deletion and collaborator management also require explicit operation grants plus their resource scope. GET/list items return matching `allowedActions`. A cross-tenant Project returns `403`; an unknown Project
 returns `404`. Project and tenant IDs are positive unsigned 64-bit decimal
 values. Each decision must be written to `opslogs`; an
 audit-write failure returns `503` instead of returning an unaudited result.

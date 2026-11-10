@@ -30,6 +30,7 @@ type Config struct {
 	Discovery     DiscoveryConfig     `json:"discovery,omitempty"`
 	OpenAPI       OpenAPIConfig       `json:"openapi,omitempty"`
 	Authorization AuthorizationConfig `json:"authorization,omitempty"`
+	IdentityStore IdentityStoreConfig `json:"identityStore,omitempty"`
 	ProjectStore  ProjectStoreConfig  `json:"projectStore,omitempty"`
 	Rest          rest.Config         `json:"rest"`
 	Admin         AdminConfig         `json:"admin"`
@@ -64,8 +65,26 @@ type OpenAPIConfig struct {
 // AuthorizationConfig only identifies the environment variable containing the
 // JWT signing key. The key itself is never stored in a config file.
 type AuthorizationConfig struct {
-	Enabled      bool   `json:"enabled"`
-	JWTSecretEnv string `json:"jwtSecretEnv,omitempty"`
+	Enabled       bool                   `json:"enabled"`
+	JWTSecretEnv  string                 `json:"jwtSecretEnv,omitempty"`
+	PolicyBackend string                 `json:"policyBackend,omitempty"`
+	MySQL         MySQLPolicyStoreConfig `json:"mysql,omitempty"`
+}
+
+// MySQLPolicyStoreConfig is independent from ProjectStoreConfig so policy
+// storage can be enabled even in services that do not use the Project example.
+// The DSN stays environment-owned and is omitted from control-plane snapshots.
+type MySQLPolicyStoreConfig struct {
+	Driver          string             `json:"driver,omitempty"`
+	DSNEnv          string             `json:"dsnEnv,omitempty"`
+	RulesTable      string             `json:"rulesTable,omitempty"`
+	EventsTable     string             `json:"eventsTable,omitempty"`
+	Pool            storage.PoolConfig `json:"pool,omitempty"`
+	Ping            time.Duration      `json:"ping,omitempty"`
+	QueryTimeout    time.Duration      `json:"queryTimeout,omitempty"`
+	SlowThreshold   time.Duration      `json:"slowThreshold,omitempty"`
+	WatcherEnabled  bool               `json:"watcherEnabled"`
+	WatcherInterval time.Duration      `json:"watcherInterval,omitempty"`
 }
 
 // ProjectStoreConfig configures gosky's MySQL-backed Project authorization
@@ -79,6 +98,109 @@ type ProjectStoreConfig struct {
 	Ping          time.Duration      `json:"ping,omitempty"`
 	QueryTimeout  time.Duration      `json:"queryTimeout,omitempty"`
 	SlowThreshold time.Duration      `json:"slowThreshold,omitempty"`
+}
+
+// IdentityStoreConfig configures gosky-owned user, tenant-membership, refresh
+// session, and authentication-audit persistence. It is deliberately separate
+// from the Project example store so applications can evolve those domains on
+// independent rollout schedules while still using the same MySQL database.
+type IdentityStoreConfig struct {
+	Enabled       bool               `json:"enabled"`
+	Driver        string             `json:"driver,omitempty"`
+	DSNEnv        string             `json:"dsnEnv,omitempty"`
+	Pool          storage.PoolConfig `json:"pool,omitempty"`
+	Ping          time.Duration      `json:"ping,omitempty"`
+	QueryTimeout  time.Duration      `json:"queryTimeout,omitempty"`
+	SlowThreshold time.Duration      `json:"slowThreshold,omitempty"`
+	Issuer        string             `json:"issuer,omitempty"`
+	Audience      string             `json:"audience,omitempty"`
+	AccessTTL     time.Duration      `json:"accessTTL,omitempty"`
+	RefreshTTL    time.Duration      `json:"refreshTTL,omitempty"`
+	TwoFactor     TwoFactorConfig    `json:"twoFactor,omitempty"`
+}
+
+// TwoFactorConfig controls the email-code second factor. It stays disabled
+// until a deployment provisions an SMTP transport and the MySQL code store.
+type TwoFactorConfig struct {
+	Enabled     bool          `json:"enabled,omitempty"`
+	Issuer      string        `json:"issuer,omitempty"`
+	CodeTTL     time.Duration `json:"codeTTL,omitempty"`
+	ResendGap   time.Duration `json:"resendGap,omitempty"`
+	MaxAttempts int           `json:"maxAttempts,omitempty"`
+	SMTPHost    string        `json:"smtpHost,omitempty"`
+	SMTPPort    int           `json:"smtpPort,omitempty"`
+	SMTPUserEnv string        `json:"smtpUserEnv,omitempty"`
+	SMTPPassEnv string        `json:"smtpPassEnv,omitempty"`
+	MailFrom    string        `json:"mailFrom,omitempty"`
+}
+
+func ValidateIdentityStoreConfig(c IdentityStoreConfig) error {
+	if !c.Enabled {
+		return nil
+	}
+	if !strings.EqualFold(strings.TrimSpace(c.Driver), "mysql") {
+		return errors.New("identityStore driver must be mysql when enabled")
+	}
+	if strings.TrimSpace(c.DSNEnv) == "" {
+		return errors.New("identityStore dsnEnv is required when enabled")
+	}
+	if strings.TrimSpace(os.Getenv(c.DSNEnv)) == "" {
+		return fmt.Errorf("identityStore DSN environment variable %q is required when enabled", c.DSNEnv)
+	}
+	if c.AccessTTL < 0 || c.RefreshTTL < 0 {
+		return errors.New("identityStore token TTLs cannot be negative")
+	}
+	if c.AccessTTL > 0 && c.RefreshTTL > 0 && c.RefreshTTL <= c.AccessTTL {
+		return errors.New("identityStore refreshTTL must exceed accessTTL")
+	}
+	return nil
+}
+
+// StorageConfig resolves the identity store DSN only after validating the
+// MySQL-only and environment-owned configuration boundary.
+func (c IdentityStoreConfig) StorageConfig() (storage.Config, error) {
+	if !c.Enabled {
+		return storage.Config{}, nil
+	}
+	if err := ValidateIdentityStoreConfig(c); err != nil {
+		return storage.Config{}, err
+	}
+	return storage.Config{
+		Driver:        "mysql",
+		DSN:           strings.TrimSpace(os.Getenv(c.DSNEnv)),
+		Pool:          c.Pool,
+		Ping:          c.Ping,
+		QueryTimeout:  c.QueryTimeout,
+		SlowThreshold: c.SlowThreshold,
+	}, nil
+}
+
+func (c IdentityStoreConfig) AccessTokenIssuer() string {
+	if issuer := strings.TrimSpace(c.Issuer); issuer != "" {
+		return issuer
+	}
+	return "gosky"
+}
+
+func (c IdentityStoreConfig) AccessTokenAudience() string {
+	if audience := strings.TrimSpace(c.Audience); audience != "" {
+		return audience
+	}
+	return "gosky-web"
+}
+
+func (c IdentityStoreConfig) AccessTokenTTL() time.Duration {
+	if c.AccessTTL > 0 {
+		return c.AccessTTL
+	}
+	return 15 * time.Minute
+}
+
+func (c IdentityStoreConfig) RefreshTokenTTL() time.Duration {
+	if c.RefreshTTL > 0 {
+		return c.RefreshTTL
+	}
+	return 24 * time.Hour
 }
 
 func ValidateProjectStoreConfig(c ProjectStoreConfig) error {
@@ -123,6 +245,73 @@ func (c AuthorizationConfig) SecretEnv() string {
 	return "GOSKY_JWT_SECRET"
 }
 
+func (c AuthorizationConfig) PolicyBackendName() string {
+	if backend := strings.ToLower(strings.TrimSpace(c.PolicyBackend)); backend != "" {
+		return backend
+	}
+	return "file"
+}
+
+func (c MySQLPolicyStoreConfig) StorageConfig() (storage.Config, error) {
+	if !strings.EqualFold(strings.TrimSpace(c.Driver), "mysql") {
+		return storage.Config{}, errors.New("authorization mysql driver must be mysql")
+	}
+	if strings.TrimSpace(c.DSNEnv) == "" {
+		return storage.Config{}, errors.New("authorization mysql dsnEnv is required")
+	}
+	dsn := strings.TrimSpace(os.Getenv(c.DSNEnv))
+	if dsn == "" {
+		return storage.Config{}, fmt.Errorf("authorization MySQL DSN environment variable %q is required", c.DSNEnv)
+	}
+	if c.WatcherEnabled && c.WatcherInterval <= 0 {
+		return storage.Config{}, errors.New("authorization mysql watcherInterval must be positive when watcherEnabled")
+	}
+	if err := validateMySQLPolicyTableNames(c.RulesTable, c.EventsTable); err != nil {
+		return storage.Config{}, err
+	}
+	return storage.Config{Driver: "mysql", DSN: dsn, Pool: c.Pool, Ping: c.Ping, QueryTimeout: c.QueryTimeout, SlowThreshold: c.SlowThreshold}, nil
+}
+
+func validateMySQLPolicyTableNames(rulesTable, eventsTable string) error {
+	if rulesTable != strings.TrimSpace(rulesTable) || eventsTable != strings.TrimSpace(eventsTable) {
+		return errors.New("authorization mysql policy table names cannot contain leading or trailing whitespace")
+	}
+	if rulesTable == "" && eventsTable == "" {
+		return nil
+	}
+	if rulesTable == "" || eventsTable == "" {
+		return errors.New("authorization mysql rulesTable and eventsTable must be configured together")
+	}
+	if rulesTable == eventsTable {
+		return errors.New("authorization mysql rulesTable and eventsTable must differ")
+	}
+	if !isSafeMySQLPolicyTableName(rulesTable) || !isSafeMySQLPolicyTableName(eventsTable) {
+		return errors.New("authorization mysql policy table names must be 1-64 ASCII identifiers starting with a letter")
+	}
+	return nil
+}
+
+func isSafeMySQLPolicyTableName(value string) bool {
+	if len(value) == 0 || len(value) > 64 || !isASCIIAlpha(value[0]) {
+		return false
+	}
+	for index := 1; index < len(value); index++ {
+		current := value[index]
+		if !isASCIIAlpha(current) && !isASCIIDigit(current) && current != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+func isASCIIAlpha(value byte) bool {
+	return value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z'
+}
+
+func isASCIIDigit(value byte) bool {
+	return value >= '0' && value <= '9'
+}
+
 func ValidateAuthorizationConfig(c AuthorizationConfig) error {
 	if !c.Enabled {
 		return nil
@@ -130,7 +319,15 @@ func ValidateAuthorizationConfig(c AuthorizationConfig) error {
 	if strings.TrimSpace(c.SecretEnv()) == "" {
 		return errors.New("authorization jwtSecretEnv is required")
 	}
-	return nil
+	switch c.PolicyBackendName() {
+	case "file":
+		return nil
+	case "mysql":
+		_, err := c.MySQL.StorageConfig()
+		return err
+	default:
+		return errors.New("authorization policyBackend must be file or mysql")
+	}
 }
 
 type RPCConfig struct {
@@ -934,6 +1131,17 @@ func (c ControlPlaneContributor) ContributeSnapshot(ctx context.Context, snapsho
 	}{Enabled: cfg.ProjectStore.Enabled, Driver: cfg.ProjectStore.Driver, DSNEnv: cfg.ProjectStore.DSNEnv}); err != nil {
 		return err
 	}
+	if err := addGeneratedControlPlaneConfig("authorization", struct {
+		Enabled       bool   `json:"enabled"`
+		PolicyBackend string `json:"policyBackend"`
+		MySQLDriver   string `json:"mysqlDriver,omitempty"`
+		MySQLDSNEnv   string `json:"mysqlDsnEnv,omitempty"`
+		RulesTable    string `json:"rulesTable,omitempty"`
+		EventsTable   string `json:"eventsTable,omitempty"`
+		Watcher       bool   `json:"watcherEnabled"`
+	}{Enabled: cfg.Authorization.Enabled, PolicyBackend: cfg.Authorization.PolicyBackendName(), MySQLDriver: cfg.Authorization.MySQL.Driver, MySQLDSNEnv: cfg.Authorization.MySQL.DSNEnv, RulesTable: cfg.Authorization.MySQL.RulesTable, EventsTable: cfg.Authorization.MySQL.EventsTable, Watcher: cfg.Authorization.MySQL.WatcherEnabled}); err != nil {
+		return err
+	}
 	restConfig := cfg.Rest
 	restConfig.Admin.Token = ""
 	if err := addGeneratedControlPlaneConfig("rest", restConfig); err != nil {
@@ -1161,6 +1369,7 @@ func Validate(c Config) error {
 		ValidateDiscoveryConfig(c.Discovery),
 		ValidateOpenAPIConfig(c),
 		ValidateAuthorizationConfig(c.Authorization),
+		ValidateIdentityStoreConfig(c.IdentityStore),
 		ValidateProjectStoreConfig(c.ProjectStore),
 		ValidateRPCMuxConfig(c.RPC.Mux),
 	); err != nil {

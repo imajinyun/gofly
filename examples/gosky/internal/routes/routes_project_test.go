@@ -12,6 +12,7 @@ import (
 
 	"github.com/imajinyun/gofly/core/auth"
 	"github.com/imajinyun/gofly/examples/gosky/internal/app"
+	"github.com/imajinyun/gofly/examples/gosky/internal/authn"
 	"github.com/imajinyun/gofly/examples/gosky/internal/authz"
 	"github.com/imajinyun/gofly/examples/gosky/internal/config"
 	"github.com/imajinyun/gofly/examples/gosky/internal/svc"
@@ -35,12 +36,13 @@ func TestRegisterRoutesProjectReadAuthorizationContract(t *testing.T) {
 	}{
 		{name: "missing credentials", projectID: "10001", wantStatus: http.StatusUnauthorized},
 		{name: "invalid numeric project identifier", subject: "owner-demo", tenant: "1001", projectID: "project-demo", withToken: true, wantStatus: http.StatusBadRequest},
-		{name: "invalid numeric tenant claim", subject: "owner-demo", tenant: "tenant:demo", projectID: "10001", withToken: true, wantStatus: http.StatusForbidden},
+		{name: "invalid numeric tenant claim", subject: "owner-demo", tenant: "tenant:demo", projectID: "10001", withToken: true, wantStatus: http.StatusUnauthorized},
 		{name: "owner in same tenant", subject: "owner-demo", tenant: "1001", projectID: "10001", withToken: true, wantStatus: http.StatusOK, wantAudit: true, wantAuditResult: app.ProjectOperationOutcomeAllowed, wantAuditBasis: app.ProjectAuthorizationOwner},
-		{name: "active member in same tenant", subject: "member-demo", tenant: "1001", projectID: "10001", withToken: true, wantStatus: http.StatusOK, wantAudit: true, wantAuditResult: app.ProjectOperationOutcomeAllowed, wantAuditBasis: app.ProjectAuthorizationMember},
-		{name: "casbin reader in same tenant", subject: "reader-demo", tenant: "1001", projectID: "10001", withToken: true, wantStatus: http.StatusOK, wantAudit: true, wantAuditResult: app.ProjectOperationOutcomeAllowed, wantAuditBasis: app.ProjectAuthorizationPolicy},
-		{name: "casbin writer inherits reader in same tenant", subject: "writer-demo", tenant: "1001", projectID: "10001", withToken: true, wantStatus: http.StatusOK, wantAudit: true, wantAuditResult: app.ProjectOperationOutcomeAllowed, wantAuditBasis: app.ProjectAuthorizationPolicy},
-		{name: "casbin admin inherits writer and reader in same tenant", subject: "admin-demo", tenant: "1001", projectID: "10001", withToken: true, wantStatus: http.StatusOK, wantAudit: true, wantAuditResult: app.ProjectOperationOutcomeAllowed, wantAuditBasis: app.ProjectAuthorizationPolicy},
+		{name: "active viewer in same tenant", subject: "viewer-member-demo", tenant: "1001", projectID: "10001", withToken: true, wantStatus: http.StatusOK, wantAudit: true, wantAuditResult: app.ProjectOperationOutcomeAllowed, wantAuditBasis: app.ProjectAuthorizationViewer},
+		{name: "active editor in same tenant", subject: "editor-member-demo", tenant: "1001", projectID: "10001", withToken: true, wantStatus: http.StatusOK, wantAudit: true, wantAuditResult: app.ProjectOperationOutcomeAllowed, wantAuditBasis: app.ProjectAuthorizationEditor},
+		{name: "casbin reader without project relation is denied", subject: "reader-demo", tenant: "1001", projectID: "10001", withToken: true, wantStatus: http.StatusForbidden, wantAudit: true, wantAuditResult: app.ProjectOperationOutcomeDenied, wantAuditBasis: app.ProjectAuthorizationNoGrant},
+		{name: "casbin writer without project relation is denied", subject: "writer-demo", tenant: "1001", projectID: "10001", withToken: true, wantStatus: http.StatusForbidden, wantAudit: true, wantAuditResult: app.ProjectOperationOutcomeDenied, wantAuditBasis: app.ProjectAuthorizationNoGrant},
+		{name: "casbin admin reads every project in own tenant", subject: "admin-demo", tenant: "1001", projectID: "10001", withToken: true, wantStatus: http.StatusOK, wantAudit: true, wantAuditResult: app.ProjectOperationOutcomeAllowed, wantAuditBasis: app.ProjectAuthorizationTenantAdmin},
 		{name: "same tenant without owner member or policy", subject: "viewer-demo", tenant: "1001", projectID: "10001", withToken: true, wantStatus: http.StatusForbidden, wantAudit: true, wantAuditResult: app.ProjectOperationOutcomeDenied, wantAuditBasis: app.ProjectAuthorizationNoGrant},
 		{name: "cross tenant owner is denied", subject: "owner-demo", tenant: "2002", projectID: "10001", withToken: true, wantStatus: http.StatusForbidden, wantAudit: true, wantAuditResult: app.ProjectOperationOutcomeDenied, wantAuditBasis: app.ProjectAuthorizationCrossTenant},
 		{name: "missing project", subject: "reader-demo", tenant: "1001", projectID: "10002", withToken: true, wantStatus: http.StatusNotFound, wantAudit: true, wantAuditResult: app.ProjectOperationOutcomeNotFound, wantAuditBasis: app.ProjectAuthorizationNotFound},
@@ -53,11 +55,14 @@ func TestRegisterRoutesProjectReadAuthorizationContract(t *testing.T) {
 				projects: map[uint64]app.Project{
 					10001: {ID: 10001, TenantID: 1001, OwnerSubject: "owner-demo", Name: "Gosky"},
 				},
-				members:  map[projectMemberKey]bool{{projectID: 10001, tenantID: 1001, subject: "member-demo"}: true},
+				members: map[projectMemberKey]app.ProjectMemberRole{
+					{projectID: 10001, tenantID: 1001, subject: "viewer-member-demo"}: app.ProjectMemberRoleViewer,
+					{projectID: 10001, tenantID: 1001, subject: "editor-member-demo"}: app.ProjectMemberRoleEditor,
+				},
 				auditErr: tt.auditErr,
 			}
 			server := newProjectAuthorizationServer(t, repository)
-			req := httptest.NewRequest(http.MethodGet, "/api/v1/projects/"+tt.projectID, nil)
+			req := httptest.NewRequest(http.MethodGet, "/api/admin/projects/"+tt.projectID, nil)
 			req.Header.Set(rest.RequestIDHeader, "request-project-contract")
 			if tt.withToken {
 				req.Header.Set(auth.AuthorizationHeader, auth.BearerValue(projectAuthorizationToken(t, tt.subject, tt.tenant)))
@@ -88,10 +93,15 @@ func TestRegisterRoutesProjectReadAuthorizationContract(t *testing.T) {
 }
 
 func newProjectAuthorizationServer(t *testing.T, repository app.ProjectRepository) *rest.Server {
+	return newProjectAuthorizationServerWithAuthentication(t, repository, &projectRouteAuthenticationService{})
+}
+
+func newProjectAuthorizationServerWithAuthentication(t *testing.T, repository app.ProjectRepository, authenticationService svc.AuthenticationService) *rest.Server {
 	t.Helper()
 	authorizer := projectAuthorizationAuthorizer(t)
 	serviceContext := svc.NewServiceContext(config.Config{})
 	serviceContext.SetAuthorizer(authorizer)
+	serviceContext.SetAuthenticationService(authenticationService)
 	serviceContext.SetProjectService(app.NewProjectService(repository, authorizer))
 	server := rest.MustNewServer(rest.Config{})
 	RegisterRoutes(server, serviceContext)
@@ -118,9 +128,20 @@ e = some(where (p.eft == allow))
 [matchers]
 m = g(r.sub, p.sub, r.dom) && r.dom == p.dom && keyMatch2(r.obj, p.obj) && regexMatch(r.act, p.act)
 `
-	const policy = `p, reader, 1001, /api/v1/projects/:id, GET
-g, writer, reader, 1001
-g, admin, writer, 1001
+	const policy = `p, reader, 1001, project.read, EXECUTE
+p, admin, 1001, project.read.any, EXECUTE
+p, admin, 1001, project.member.manage, EXECUTE
+p, admin, 1001, authorization.role.manage, EXECUTE
+p, writer, 1001, project.read, EXECUTE
+p, writer, 1001, project.member.manage, EXECUTE
+p, admin, 1001, project.read, EXECUTE
+p, admin, 1001, project.manage.any, EXECUTE
+p, admin, 1001, authorization.role.read, EXECUTE
+p, admin, 1001, authorization.policy.events.read, EXECUTE
+g, owner-demo, writer, 1001
+g, viewer-member-demo, reader, 1001
+g, editor-member-demo, reader, 1001
+g, viewer-demo, reader, 1001
 g, reader-demo, reader, 1001
 g, writer-demo, writer, 1001
 g, admin-demo, admin, 1001
@@ -142,8 +163,15 @@ func projectAuthorizationToken(t *testing.T, subject string, tenant string) stri
 	t.Helper()
 	token, err := auth.SignJWT(auth.JWTClaims{
 		Subject:   subject,
+		Issuer:    "gosky",
+		Audience:  "gosky-web",
+		IssuedAt:  time.Now().Add(-time.Minute).Unix(),
 		ExpiresAt: time.Now().Add(time.Hour).Unix(),
-		Extra:     map[string]any{"tenant_id": tenant},
+		Extra: map[string]any{
+			"tenant_id": tenant,
+			"realm":     string(authn.RealmAdmin),
+			"sid":       "project-route-session",
+		},
 	}, []byte(projectAuthorizationTestSecret))
 	if err != nil {
 		t.Fatalf("sign project authorization token: %v", err)
@@ -151,9 +179,71 @@ func projectAuthorizationToken(t *testing.T, subject string, tenant string) stri
 	return token
 }
 
+func TestRegisterRoutesProjectsUseAdminDomainAndStatefulAuthentication(t *testing.T) {
+	repository := &projectAuthorizationRepository{projects: map[uint64]app.Project{
+		10001: {ID: 10001, TenantID: 1001, OwnerSubject: "owner-demo", Name: "Gosky"},
+	}}
+	validToken := projectAuthorizationToken(t, "owner-demo", "1001")
+
+	t.Run("retired versioned business route is absent", func(t *testing.T) {
+		server := newProjectAuthorizationServer(t, repository)
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/projects/10001", nil)
+		req.Header.Set(auth.AuthorizationHeader, auth.BearerValue(validToken))
+		recorder := httptest.NewRecorder()
+		server.Handler().ServeHTTP(recorder, req)
+		if recorder.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusNotFound, recorder.Body.String())
+		}
+	})
+
+	t.Run("admin business route rejects a revoked session before project lookup", func(t *testing.T) {
+		authenticationService := &projectRouteAuthenticationService{validationErr: errors.New("session revoked")}
+		server := newProjectAuthorizationServerWithAuthentication(t, repository, authenticationService)
+		req := httptest.NewRequest(http.MethodGet, "/api/admin/projects/10001", nil)
+		req.Header.Set(auth.AuthorizationHeader, auth.BearerValue(validToken))
+		recorder := httptest.NewRecorder()
+		server.Handler().ServeHTTP(recorder, req)
+		if recorder.Code != http.StatusUnauthorized {
+			t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusUnauthorized, recorder.Body.String())
+		}
+		if len(authenticationService.validated) != 1 {
+			t.Fatalf("stateful principal validations = %#v, want one", authenticationService.validated)
+		}
+		if len(repository.operations) != 0 {
+			t.Fatalf("project operations = %#v, want no persistence after session rejection", repository.operations)
+		}
+	})
+}
+
+type projectRouteAuthenticationService struct {
+	validationErr error
+	validated     []authn.RequestPrincipal
+}
+
+func (*projectRouteAuthenticationService) Login(context.Context, authn.LoginInput) (authn.TokenPair, error) {
+	return authn.TokenPair{}, errors.New("not implemented by project route test authentication")
+}
+
+func (*projectRouteAuthenticationService) Refresh(context.Context, authn.RefreshInput) (authn.TokenPair, error) {
+	return authn.TokenPair{}, errors.New("not implemented by project route test authentication")
+}
+
+func (*projectRouteAuthenticationService) Logout(context.Context, authn.LogoutInput) error {
+	return errors.New("not implemented by project route test authentication")
+}
+
+func (s *projectRouteAuthenticationService) ValidatePrincipal(_ context.Context, principal authn.RequestPrincipal) error {
+	s.validated = append(s.validated, principal)
+	return s.validationErr
+}
+
+func (*projectRouteAuthenticationService) JWTValidator() auth.Validator {
+	return auth.JWTValidator([]byte(projectAuthorizationTestSecret), auth.JWTOptions{Issuer: "gosky", Audience: "gosky-web", Now: time.Now})
+}
+
 type projectAuthorizationRepository struct {
 	projects   map[uint64]app.Project
-	members    map[projectMemberKey]bool
+	members    map[projectMemberKey]app.ProjectMemberRole
 	operations []app.ProjectOperation
 	auditErr   error
 }
@@ -166,7 +256,7 @@ func (r *projectAuthorizationRepository) GetProject(_ context.Context, id uint64
 	return project, nil
 }
 
-func (r *projectAuthorizationRepository) IsActiveMember(_ context.Context, projectID uint64, tenantID uint64, subject string) (bool, error) {
+func (r *projectAuthorizationRepository) GetActiveMemberRole(_ context.Context, projectID uint64, tenantID uint64, subject string) (app.ProjectMemberRole, error) {
 	return r.members[projectMemberKey{projectID: projectID, tenantID: tenantID, subject: subject}], nil
 }
 

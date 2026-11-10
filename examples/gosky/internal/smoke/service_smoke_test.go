@@ -239,14 +239,14 @@ func assertAuthorizationHTTPContract(t *testing.T, ctx context.Context, restAddr
 		token      string
 		wantStatus int
 	}{
-		{name: "missing JWT", wantStatus: http.StatusUnauthorized},
-		{name: "same tenant requires configured project persistence", token: validToken, wantStatus: http.StatusServiceUnavailable},
-		{name: "cross tenant requires configured project persistence", token: crossTenantToken, wantStatus: http.StatusServiceUnavailable},
+		{name: "missing identity store leaves admin business routes absent", wantStatus: http.StatusNotFound},
+		{name: "same tenant token cannot bypass absent identity store", token: validToken, wantStatus: http.StatusNotFound},
+		{name: "cross tenant token cannot bypass absent identity store", token: crossTenantToken, wantStatus: http.StatusNotFound},
 	}
 	client := &http.Client{Timeout: 5 * time.Second}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+restAddr+"/api/v1/projects/10001", nil)
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+restAddr+"/api/admin/projects/10001", nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -356,6 +356,12 @@ func rewriteSmokeConfigWithOperatorHistory(t *testing.T, repo string, restAddr s
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		t.Fatalf("decode generated config: %v", err)
 	}
+	// AUTHN-039: this runtime smoke exercises CSV demo policies and the absence
+	// of identity-backed HTTP routes. MySQL sessions/policy writes have their
+	// own integration tests; development defaults must not select this fixture.
+	cfg["authorization"] = map[string]any{"enabled": true, "policyBackend": "file", "jwtSecretEnv": "GOSKY_JWT_SECRET"}
+	cfg["identityStore"] = map[string]any{"enabled": false}
+	cfg["projectStore"] = map[string]any{"enabled": false}
 	restConfig := jsonObject(t, cfg, "rest")
 	restConfig["host"] = restHost
 	restConfig["port"] = restPort

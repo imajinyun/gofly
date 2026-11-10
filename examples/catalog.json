@@ -54,6 +54,7 @@
       "name": "gosky",
       "path": "examples/gosky",
       "kind": "reference",
+      "rootGate": false,
       "cli": true,
       "runCommand": "go run ./cmd/gosky",
       "description": "Canonical generated API and RPC reference service"

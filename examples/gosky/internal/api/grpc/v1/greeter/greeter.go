@@ -3,6 +3,7 @@ package greeterrpc
 import (
 	"context"
 
+	"github.com/imajinyun/gofly/examples/gosky/internal/authz"
 	"github.com/imajinyun/gofly/examples/gosky/internal/svc"
 	"github.com/imajinyun/gofly/rpc"
 )
@@ -15,7 +16,7 @@ type SayHelloResponse struct {
 	Message string `json:"message"`
 }
 
-const sayHelloAuthorizationResource = "rpc:greeter/SayHello"
+const sayHelloTransportIdentifier = "rpc:greeter/SayHello"
 
 func GreeterService(svcCtx *svc.ServiceContext) rpc.ServiceDesc {
 	method := rpc.MethodDesc{
@@ -36,7 +37,7 @@ func GreeterService(svcCtx *svc.ServiceContext) rpc.ServiceDesc {
 		},
 	}
 	if authorizer := svcCtx.CurrentAuthorizer(); authorizer != nil {
-		method.Middlewares = append(method.Middlewares, authorizer.RPCMiddleware(sayHelloAuthorizationResource))
+		method.Middlewares = append(method.Middlewares, authorizer.RegisteredRPCMiddleware(authz.DefaultCapabilityRegistry(), sayHelloTransportIdentifier))
 	}
 	return rpc.ServiceDesc{
 		Name:    "greeter",

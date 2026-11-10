@@ -1,18 +1,51 @@
-# Development-only tenant-scoped RBAC policy. Do not add production identities
-# or secrets to this file; production persistence is a separate rollout.
-g, writer, reader, tenant:demo
-g, admin, writer, tenant:demo
+# Explicit tenant roles: user assignments only; no role inheritance.
 g, demo-reader, reader, tenant:demo
+p, reader, tenant:demo, project.read, EXECUTE
+p, reader, tenant:demo, greeter.hello, EXECUTE
+p, reader, tenant:demo, greeter.watch, EXECUTE
 g, demo-writer, writer, tenant:demo
+p, writer, tenant:demo, project.read, EXECUTE
+p, writer, tenant:demo, project.update, EXECUTE
+p, writer, tenant:demo, project.member.manage, EXECUTE
+p, writer, tenant:demo, greeter.hello, EXECUTE
+p, writer, tenant:demo, greeter.watch, EXECUTE
 g, demo-admin, admin, tenant:demo
-p, reader, tenant:demo, rpc:greeter/SayHello, CALL
-p, reader, tenant:demo, rpc:greeter/Watch, STREAM
-
-# Project persistence uses BIGINT UNSIGNED tenant identifiers. Keep these
-# identities separate from the string-tenant generic RPC examples above.
-g, writer, reader, 1001
-g, admin, writer, 1001
+p, admin, tenant:demo, project.read, EXECUTE
+p, admin, tenant:demo, project.read.any, EXECUTE
+p, admin, tenant:demo, project.member.manage, EXECUTE
+p, admin, tenant:demo, authorization.role.manage, EXECUTE
+p, admin, tenant:demo, greeter.hello, EXECUTE
+p, admin, tenant:demo, greeter.watch, EXECUTE
+p, admin, tenant:demo, project.update, EXECUTE
+p, admin, tenant:demo, project.delete, EXECUTE
+p, admin, tenant:demo, project.manage.any, EXECUTE
+p, admin, tenant:demo, authorization.role.read, EXECUTE
+p, admin, tenant:demo, authorization.role.scope.manage, EXECUTE
+p, admin, tenant:demo, authorization.role.member.add, EXECUTE
+p, admin, tenant:demo, authorization.role.member.remove, EXECUTE
+p, admin, tenant:demo, authorization.policy.events.read, EXECUTE
 g, project-reader, reader, 1001
+p, reader, 1001, project.read, EXECUTE
+p, reader, 1001, greeter.hello, EXECUTE
+p, reader, 1001, greeter.watch, EXECUTE
 g, project-writer, writer, 1001
+p, writer, 1001, project.read, EXECUTE
+p, writer, 1001, project.update, EXECUTE
+p, writer, 1001, project.member.manage, EXECUTE
+p, writer, 1001, greeter.hello, EXECUTE
+p, writer, 1001, greeter.watch, EXECUTE
 g, project-admin, admin, 1001
-p, reader, 1001, /api/v1/projects/:id, GET
+p, admin, 1001, project.read, EXECUTE
+p, admin, 1001, project.read.any, EXECUTE
+p, admin, 1001, project.member.manage, EXECUTE
+p, admin, 1001, authorization.role.manage, EXECUTE
+p, admin, 1001, greeter.hello, EXECUTE
+p, admin, 1001, greeter.watch, EXECUTE
+p, admin, 1001, project.update, EXECUTE
+p, admin, 1001, project.delete, EXECUTE
+p, admin, 1001, project.manage.any, EXECUTE
+p, admin, 1001, authorization.role.read, EXECUTE
+p, admin, 1001, authorization.role.scope.manage, EXECUTE
+p, admin, 1001, authorization.role.member.add, EXECUTE
+p, admin, 1001, authorization.role.member.remove, EXECUTE
+p, admin, 1001, authorization.policy.events.read, EXECUTE

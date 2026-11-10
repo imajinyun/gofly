@@ -97,6 +97,40 @@ func TestProjectStoreConfig(t *testing.T) {
 	}
 }
 
+func TestAuthorizationConfigMySQLPolicyBackend(t *testing.T) {
+	tests := []struct {
+		name      string
+		config    AuthorizationConfig
+		setDSN    bool
+		wantError bool
+	}{
+		{name: "file backend remains default", config: AuthorizationConfig{Enabled: true, JWTSecretEnv: "GOSKY_JWT_SECRET"}},
+		{name: "unknown backend is rejected", config: AuthorizationConfig{Enabled: true, JWTSecretEnv: "GOSKY_JWT_SECRET", PolicyBackend: "redis"}, wantError: true},
+		{name: "mysql requires DSN", config: AuthorizationConfig{Enabled: true, JWTSecretEnv: "GOSKY_JWT_SECRET", PolicyBackend: "mysql", MySQL: MySQLPolicyStoreConfig{Driver: "mysql", DSNEnv: "GOSKY_MYSQL_DSN", WatcherEnabled: true, WatcherInterval: time.Second}}, wantError: true},
+		{name: "mysql watcher requires interval", config: AuthorizationConfig{Enabled: true, JWTSecretEnv: "GOSKY_JWT_SECRET", PolicyBackend: "mysql", MySQL: MySQLPolicyStoreConfig{Driver: "mysql", DSNEnv: "GOSKY_MYSQL_DSN", WatcherEnabled: true}}, setDSN: true, wantError: true},
+		{name: "mysql backend with watcher", config: AuthorizationConfig{Enabled: true, JWTSecretEnv: "GOSKY_JWT_SECRET", PolicyBackend: "mysql", MySQL: MySQLPolicyStoreConfig{Driver: "mysql", DSNEnv: "GOSKY_MYSQL_DSN", WatcherEnabled: true, WatcherInterval: time.Second}}, setDSN: true},
+		{name: "mysql backend with custom policy tables", config: AuthorizationConfig{Enabled: true, JWTSecretEnv: "GOSKY_JWT_SECRET", PolicyBackend: "mysql", MySQL: MySQLPolicyStoreConfig{Driver: "mysql", DSNEnv: "GOSKY_MYSQL_DSN", RulesTable: "tenant_policy_rules", EventsTable: "tenant_policy_events", WatcherEnabled: true, WatcherInterval: time.Second}}, setDSN: true},
+		{name: "mysql backend rejects partial custom policy tables", config: AuthorizationConfig{Enabled: true, JWTSecretEnv: "GOSKY_JWT_SECRET", PolicyBackend: "mysql", MySQL: MySQLPolicyStoreConfig{Driver: "mysql", DSNEnv: "GOSKY_MYSQL_DSN", RulesTable: "tenant_policy_rules", WatcherEnabled: true, WatcherInterval: time.Second}}, setDSN: true, wantError: true},
+		{name: "mysql backend rejects whitespace policy table", config: AuthorizationConfig{Enabled: true, JWTSecretEnv: "GOSKY_JWT_SECRET", PolicyBackend: "mysql", MySQL: MySQLPolicyStoreConfig{Driver: "mysql", DSNEnv: "GOSKY_MYSQL_DSN", RulesTable: " tenant_policy_rules", EventsTable: "tenant_policy_events", WatcherEnabled: true, WatcherInterval: time.Second}}, setDSN: true, wantError: true},
+		{name: "mysql backend rejects unsafe custom policy table", config: AuthorizationConfig{Enabled: true, JWTSecretEnv: "GOSKY_JWT_SECRET", PolicyBackend: "mysql", MySQL: MySQLPolicyStoreConfig{Driver: "mysql", DSNEnv: "GOSKY_MYSQL_DSN", RulesTable: "tenant_rules;DROP", EventsTable: "tenant_events", WatcherEnabled: true, WatcherInterval: time.Second}}, setDSN: true, wantError: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("GOSKY_MYSQL_DSN", "")
+			if tt.setDSN {
+				t.Setenv("GOSKY_MYSQL_DSN", "gosky:secret@tcp(127.0.0.1:3306)/gosky?parseTime=true")
+			}
+			err := ValidateAuthorizationConfig(tt.config)
+			if tt.wantError && err == nil {
+				t.Fatal("ValidateAuthorizationConfig error = nil, want error")
+			}
+			if !tt.wantError && err != nil {
+				t.Fatalf("ValidateAuthorizationConfig: %v", err)
+			}
+		})
+	}
+}
+
 func TestControlPlaneSnapshotExposesGeneratedContract(t *testing.T) {
 	cfg := Config{
 		Environment: "development",
@@ -114,6 +148,12 @@ func TestControlPlaneSnapshotExposesGeneratedContract(t *testing.T) {
 			RateLimit:      true,
 			MaxConcurrency: true,
 			Breaker:        true,
+		}},
+		Authorization: AuthorizationConfig{PolicyBackend: "mysql", MySQL: MySQLPolicyStoreConfig{
+			Driver:      "mysql",
+			DSNEnv:      "GOSKY_MYSQL_DSN",
+			RulesTable:  "tenant_policy_rules",
+			EventsTable: "tenant_policy_events",
 		}},
 	}
 	snapshot, err := cfg.ControlPlaneSnapshot(context.Background())
@@ -138,6 +178,16 @@ func TestControlPlaneSnapshotExposesGeneratedContract(t *testing.T) {
 	}
 	if string(snapshot.Configs["generated.rest"]) == "" || strings.Contains(string(snapshot.Configs["generated.rest"]), "change-me-admin-token") {
 		t.Fatalf("generated.rest config = %s, want sanitized runtime policy without admin token", snapshot.Configs["generated.rest"])
+	}
+	var authorization struct {
+		RulesTable  string `json:"rulesTable"`
+		EventsTable string `json:"eventsTable"`
+	}
+	if err := json.Unmarshal(snapshot.Configs["generated.authorization"], &authorization); err != nil {
+		t.Fatalf("decode generated.authorization config: %v", err)
+	}
+	if authorization.RulesTable != "tenant_policy_rules" || authorization.EventsTable != "tenant_policy_events" {
+		t.Fatalf("generated authorization table pair = %#v, want configured table names", authorization)
 	}
 	if len(snapshot.Services) != 1 || snapshot.Services[0].Name != "hello" || len(snapshot.Services[0].Endpoints) != 1 || snapshot.Services[0].Endpoints[0].Metadata["transport"] != "rest" {
 		t.Fatalf("snapshot services = %#v, want generated rest endpoint", snapshot.Services)

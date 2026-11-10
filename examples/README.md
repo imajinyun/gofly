@@ -5,13 +5,18 @@ module. The catalog is the machine-readable inventory; this page groups the
 same modules by adopter intent. Testing and fixture-placement rules are in
 [TESTING.md](TESTING.md).
 
-Run the repository gates:
+Run example checks explicitly:
 
 ```sh
 make examples-layout-check
 make examples-smoke
 make examples-copyable-check
 ```
+
+Gosky owns its scripts and business checks under `gosky/bin/scripts` and
+`gosky/Makefile`. Run `make -C examples/gosky check` from the repository root.
+Its catalog entry uses `rootGate: false`, so shared example execution gates
+exclude it while CLI discovery and layout validation retain it. The toolkit CI does not execute example checks or host example workflows.
 
 ## Canonical reference projects
 

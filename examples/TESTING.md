@@ -3,6 +3,12 @@
 The directories below `examples/` are independent Go modules. Repository-root
 Go package patterns do not cross those module boundaries, so every example
 gate must discover modules and execute Go commands from each module directory.
+Toolkit CI does not execute standalone example checks or host example workflows.
+Root build, vet, tests, formatting, and security exception inventories cover the
+framework. Example checks run only through explicit local targets. The catalog
+uses `rootGate: false` for applications excluded from the shared local example
+orchestrator; Gosky owns its full gate in `gosky/Makefile` and `gosky/bin/scripts`.
+Run `make -C examples/gosky check` independently.
 
 ## Failure-mode inventory
 
@@ -31,8 +37,8 @@ The example governance gates must detect the following failures:
 
 - Module tests remain next to the code they verify.
 - `examples-smoke` orchestrates module tests and bounded, machine-readable
-  behavior checks; it does not replace module-local assertions.
-- `examples-copyable-check` verifies that every catalogued module works after
+  behavior checks for root-governed modules; it does not replace module-local assertions.
+- `examples-copyable-check` verifies that each root-governed module works after
   being copied outside the repository tree.
 - Middleware preset templates are compiled in a temporary module and compared
   byte-for-byte with the maintained example implementations.

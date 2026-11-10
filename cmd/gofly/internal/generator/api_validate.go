@@ -71,7 +71,7 @@ func validateAPIIssues(doc IDLDocument) []string {
 		}
 		issues = append(issues, validateAPIServerRouteOptions(svc)...)
 		for _, method := range svc.Methods {
-			issues = append(issues, validateAPIMethod(method, types, routes, handlers)...)
+			issues = append(issues, validateAPIMethod(svc, method, types, routes, handlers)...)
 		}
 	}
 	return issues
@@ -355,6 +355,7 @@ func parseGoZeroAPIRangeBound(raw string) (float64, bool, error) {
 }
 
 func validateAPIMethod(
+	svc IDLService,
 	method IDLMethod,
 	types map[string]IDLMessage,
 	routes map[string]struct{},
@@ -365,7 +366,11 @@ func validateAPIMethod(
 	if strings.TrimSpace(method.HTTPMethod) == "" || strings.TrimSpace(method.HTTPPath) == "" {
 		issues = append(issues, fmt.Sprintf("route %s is incomplete", methodName))
 	} else {
-		normalizedPath := normalizeAPIRoutePath(method.HTTPPath)
+		// Route uniqueness is checked against the effective path, including the
+		// @server prefix, so imported front/admin services can safely reuse the
+		// same relative paths under different prefixes.
+		effective := effectiveAPIRouteAnnotation(svc.Server, method.Route)
+		normalizedPath := openAPIServicePath(IDLService{Server: effective}, method.HTTPPath)
 		issues = append(issues, validateAPIPathParams(methodName, normalizedPath)...)
 		routeKey := strings.ToUpper(method.HTTPMethod) + " " + normalizedPath
 		if _, ok := routes[routeKey]; ok {

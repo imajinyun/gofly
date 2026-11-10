@@ -51,8 +51,8 @@ func TestAPIMiddlewareNamesResolveImportsAndDeduplicate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("apiMiddlewareNames: %v", err)
 	}
-	if got := strings.Join(names, ","); got != "Audit,Trace" {
-		t.Fatalf("middleware names = %q, want Audit,Trace", got)
+	if got := strings.Join(names, ","); got != "Auth,Audit,Trace" {
+		t.Fatalf("middleware names = %q, want Auth,Audit,Trace", got)
 	}
 	if got := uniqueStrings([]string{" Auth ", "", "Auth", "Trace"}); strings.Join(got, ",") != "Auth,Trace" {
 		t.Fatalf("uniqueStrings = %v", got)

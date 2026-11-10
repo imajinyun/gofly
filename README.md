@@ -177,6 +177,10 @@ curl http://127.0.0.1:9090/admin/control-plane
 
 For runnable references, use the checked-in example directories and the CLI help output.
 
+### API service imports
+
+`.api` imports are resolved recursively and merge both type and service declarations. Imported services keep their own `@server` group, prefix, middleware and handlers, so front/admin contracts can live in separate files while one entry file drives generation. The root file may be import-only. Route uniqueness is checked against the effective `prefix + path`, and handler names remain globally unique. Imported files may omit `syntax`; when both root and import declare it, the versions must match. `api format` preserves imports and does not inline imported services.
+
 ---
 
 ## 🧰 Common commands

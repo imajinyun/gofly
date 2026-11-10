@@ -545,10 +545,10 @@ func readAPIFileWithImports(path string) (IDLDocument, error) {
 	if err != nil {
 		return IDLDocument{}, fmt.Errorf("resolve api file: %w", err)
 	}
-	return readAPIFileWithImportsSeen(absPath, map[string]struct{}{})
+	return readAPIFileWithImportsSeen(absPath, map[string]struct{}{}, "")
 }
 
-func readAPIFileWithImportsSeen(path string, seen map[string]struct{}) (IDLDocument, error) {
+func readAPIFileWithImportsSeen(path string, seen map[string]struct{}, rootSyntax string) (IDLDocument, error) {
 	if _, ok := seen[path]; ok {
 		return IDLDocument{Kind: "api"}, nil
 	}
@@ -567,19 +567,31 @@ func readAPIFileWithImportsSeen(path string, seen map[string]struct{}) (IDLDocum
 	if len(imports) == 0 {
 		return doc, nil
 	}
+	if rootSyntax == "" {
+		rootSyntax = doc.Syntax
+	}
 	importedMessages := make([]IDLMessage, 0)
+	importedServices := make([]IDLService, 0)
 	for _, imp := range imports {
 		importPath, err := resolveAPIImport(path, imp)
 		if err != nil {
 			return IDLDocument{}, err
 		}
-		imported, err := readAPIFileWithImportsSeen(importPath, seen)
+		imported, err := readAPIFileWithImportsSeen(importPath, seen, rootSyntax)
 		if err != nil {
 			return IDLDocument{}, err
 		}
+		if rootSyntax != "" && imported.Syntax != "" && imported.Syntax != rootSyntax {
+			return IDLDocument{}, fmt.Errorf("api import %s uses syntax %q, want %q", importPath, imported.Syntax, rootSyntax)
+		}
 		importedMessages = append(importedMessages, imported.Messages...)
+		importedServices = append(importedServices, imported.Services...)
 	}
 	doc.Messages = mergeAPIMessages(importedMessages, doc.Messages)
+	// Like goctl, imported services participate in the merged contract. The
+	// root document keeps its direct imports for formatting and diagnostics,
+	// while generation and validation see all reachable services.
+	doc.Services = append(importedServices, doc.Services...)
 	return doc, nil
 }
 

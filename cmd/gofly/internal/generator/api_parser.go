@@ -214,8 +214,8 @@ func ParseAPI(content string) (IDLDocument, error) {
 	if inTypeBlock {
 		return IDLDocument{}, fmt.Errorf("parse api: type block is not closed")
 	}
-	if len(doc.Services) == 0 && len(doc.Messages) == 0 {
-		return IDLDocument{}, fmt.Errorf("parse api: no type or service found")
+	if len(doc.Services) == 0 && len(doc.Messages) == 0 && len(apiImportPaths(content)) == 0 {
+		return IDLDocument{}, fmt.Errorf("parse api: no type, service, or import found")
 	}
 	return doc, nil
 }

@@ -122,6 +122,13 @@ func (r *KubernetesResolver) ResolveInstances(ctx context.Context) ([]ServiceIns
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= http.StatusBadRequest {
+		if resp.StatusCode == http.StatusForbidden {
+			return nil, fmt.Errorf(
+				"query kubernetes endpoints: status %d: serviceaccount is not allowed to read endpoints in namespace %q; grant get/list/watch on endpoints (or migrate to EndpointSlice RBAC)",
+				resp.StatusCode,
+				r.namespace,
+			)
+		}
 		return nil, fmt.Errorf("query kubernetes endpoints: status %d", resp.StatusCode)
 	}
 	var endpoints kubernetesEndpoints

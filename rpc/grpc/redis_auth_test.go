@@ -47,25 +47,26 @@ func TestRedisTokenValidator(t *testing.T) {
 	}
 }
 
-func TestRedisTokenValidatorStrictAndFailOpen(t *testing.T) {
+func TestRedisTokenValidatorFailsClosed(t *testing.T) {
 	backendErr := errors.New("redis unavailable")
 	for _, tc := range []struct {
-		name    string
-		strict  bool
-		wantErr bool
+		name   string
+		strict bool
+		err    error
 	}{
-		{name: "strict", strict: true, wantErr: true},
-		{name: "fail open", strict: false},
+		{name: "strict backend error", strict: true, err: backendErr},
+		{name: "non-strict backend error", strict: false, err: backendErr},
+		{name: "non-strict unknown app", strict: false, err: redisv9.Nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			validator, err := NewRedisTokenValidator(&fakeRedisHashReader{err: backendErr}, "rpc:tokens", tc.strict, time.Minute)
+			validator, err := NewRedisTokenValidator(&fakeRedisHashReader{err: tc.err}, "rpc:tokens", tc.strict, time.Minute)
 			if err != nil {
 				t.Fatal(err)
 			}
 			ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("app", "orders"))
-			_, err = validator.Validator()(ctx, "secret")
-			if (err != nil) != tc.wantErr {
-				t.Fatalf("Validator error = %v, wantErr %v", err, tc.wantErr)
+			next, err := validator.Validator()(ctx, "secret")
+			if err == nil {
+				t.Fatalf("Validator succeeded with principal %q, want fail-closed error", auth.SubjectFromContext(next))
 			}
 		})
 	}

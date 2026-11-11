@@ -35,6 +35,7 @@ func rpcProtocCommand(args []string) error {
 	m := fs.Bool("m", false, "generate multiple service packages")
 	client := fs.Bool("client", true, "generate client code")
 	c := fs.Bool("c", true, "generate client code")
+	clientOnly := fs.Bool("client-only", false, "not supported; use --client=false to omit clients")
 	verbose := fs.Bool("verbose", false, "print verbose output")
 	v := fs.Bool("v", false, "print verbose output")
 	nameFromFilename := fs.Bool("name-from-filename", false, "derive service name from filename")
@@ -55,6 +56,12 @@ func rpcProtocCommand(args []string) error {
 	}
 	goflyPlugin, useGoflyPlugin, externalPlugins := resolveGoflyProtocPlugin(*pluginArg)
 	zrpcScaffold := *zrpcOut != "" && !useGoflyPlugin
+	if *clientOnly {
+		if !*client {
+			return fmt.Errorf("%w: --client-only cannot be combined with --client=false", errUsage)
+		}
+		return fmt.Errorf("%w: --client-only is not supported; --zrpc_out generates a runnable server scaffold, use --client=false to omit clients", errUsage)
+	}
 	if *style != "go_zero" {
 		if zrpcScaffold {
 			return fmt.Errorf("%w: --zrpc_out currently requires --style go_zero", errUsage)

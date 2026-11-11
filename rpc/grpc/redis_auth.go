@@ -28,12 +28,11 @@ type redisTokenCacheEntry struct {
 
 // RedisTokenValidator validates bearer tokens against fields in a Redis hash.
 // The token subject is read from subjectMetadataKey and becomes the Principal
-// subject. Backend failures fail closed in strict mode and fail open otherwise.
+// subject. Backend failures always fail closed.
 type RedisTokenValidator struct {
 	client             RedisHashReader
 	hashKey            string
 	subjectMetadataKey string
-	strict             bool
 	cacheTTL           time.Duration
 	now                func() time.Time
 	mu                 sync.Mutex
@@ -42,6 +41,10 @@ type RedisTokenValidator struct {
 
 // NewRedisTokenValidator creates a compatibility validator for go-zero-style
 // app/token credentials stored in a Redis hash.
+//
+// Deprecated: the strict parameter is retained for source compatibility and is
+// ignored. Redis lookup failures and unknown apps always fail closed, matching
+// the go-zero Authenticator security fix.
 func NewRedisTokenValidator(client RedisHashReader, hashKey string, strict bool, cacheTTL time.Duration) (*RedisTokenValidator, error) {
 	if client == nil {
 		return nil, errors.New("redis token validator client is required")
@@ -52,9 +55,10 @@ func NewRedisTokenValidator(client RedisHashReader, hashKey string, strict bool,
 	if cacheTTL <= 0 {
 		cacheTTL = 5 * time.Minute
 	}
+	_ = strict
 	return &RedisTokenValidator{
 		client: client, hashKey: strings.TrimSpace(hashKey), subjectMetadataKey: "app",
-		strict: strict, cacheTTL: cacheTTL, now: time.Now, cache: make(map[string]redisTokenCacheEntry),
+		cacheTTL: cacheTTL, now: time.Now, cache: make(map[string]redisTokenCacheEntry),
 	}, nil
 }
 
@@ -71,9 +75,6 @@ func (v *RedisTokenValidator) Validator() auth.Validator {
 		}
 		expected, err := v.expectedTokenHash(ctx, subject)
 		if err != nil {
-			if !v.strict {
-				return auth.NewContext(ctx, auth.Principal{Subject: subject}), nil
-			}
 			return ctx, err
 		}
 		presented := sha256.Sum256([]byte(token))

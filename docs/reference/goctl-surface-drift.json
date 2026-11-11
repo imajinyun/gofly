@@ -78,7 +78,7 @@
       "goctl": ["new", "protoc", "template"],
       "gofly": ["breaking", "check", "client", "deps", "descriptor", "doc", "gen", "idl", "lint", "middleware", "new", "plugin", "protoc", "server", "template", "thrift"],
       "classification": "enhanced",
-      "nextParityFocus": ["goctl rpc protoc --multiple", "goctl rpc protoc --proto_path", "goctl rpc new --name-from-filename", "goctl rpc protoc --client"]
+      "nextParityFocus": ["goctl rpc protoc --multiple", "goctl rpc protoc --proto_path", "goctl rpc new --name-from-filename", "goctl rpc protoc --client", "goctl rpc protoc --client-only"]
     },
     "model": {
       "goctl": ["mongo", "mysql ddl", "mysql datasource", "pg datasource"],
@@ -100,6 +100,16 @@
     "goctl-only",
     "gofly-enhancement",
     "intentional-gap"
+  ],
+  "intentionalGaps": [
+    {
+      "id": "rpc-protoc-client-only",
+      "priority": "P2",
+      "surface": "goctl rpc protoc --client-only",
+      "status": "intentional-gap",
+      "reason": "gofly --zrpc_out generates a runnable server scaffold; --client=false omits clients, but there is no client-only mode.",
+      "followUp": "Revisit only when client SDK-only generation becomes a supported product mode."
+    }
   ],
   "nextActions": [
     {

@@ -136,6 +136,7 @@ func TestKubernetesResolverErrorResponses(t *testing.T) {
 		want   string
 	}{
 		{name: "status error", status: http.StatusForbidden, body: `{}`, want: "status 403"},
+		{name: "forbidden rbac hint", status: http.StatusForbidden, body: `{}`, want: "grant get/list/watch"},
 		{name: "invalid json", status: http.StatusOK, body: `{`, want: "decode kubernetes endpoints"},
 		{name: "no endpoints", status: http.StatusOK, body: `{"subsets":[]}`, want: "no rpc endpoints resolved"},
 		{name: "missing named port", status: http.StatusOK, body: `{"subsets":[{"addresses":[{"ip":"10.0.0.1"}],"ports":[{"name":"http","port":8080}]}]}`, want: "no rpc endpoints resolved"},

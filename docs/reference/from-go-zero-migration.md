@@ -402,6 +402,9 @@ The generic bearer/RBAC interceptor remains the default authentication model.
 Projects migrating go-zero app/token credentials can opt into
 `NewRedisTokenValidator` and `WithAppTokenCredentials`; transport security is
 required unless the client explicitly enables development-only insecure mode.
+`NewRedisTokenValidator` follows go-zero's fail-closed security fix: Redis
+lookup errors and unknown apps always reject the caller. The legacy `strict`
+argument is deprecated and ignored.
 
 `docs/reference/goctl-rpc-protoc-parity.json` separately tracks goctl-style
 `rpc protoc` flags. With `--zrpc_out`, gofly generates a runnable native gRPC
@@ -428,6 +431,10 @@ is set, aggregating server registration while retaining per-service logic and
 client packages. Each descriptor service full name is registered as a discovery
 alias for the shared server endpoint, including services added by incremental
 regeneration. It currently requires the `go_zero` style.
+`goctl rpc protoc --client-only` remains an intentional gap: gofly's
+`--zrpc_out` mode always emits a runnable server scaffold. `--client=false`
+omits clients, but there is no client-only mode. This decision is tracked in
+`docs/reference/goctl-surface-drift.json`.
 Projects generated before this discovery-alias hook keep their user-owned
 `main.go`; add
 `flygrpc.WithDiscoveryAliases(apprpc.DiscoveryAliases()...)` to the server

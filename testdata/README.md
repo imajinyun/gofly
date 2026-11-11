@@ -14,6 +14,7 @@ is enforced by `make testdata-layout-check`.
 | `api/middleware-presets` | Generated middleware HTTP, session, SSE and WebSocket behavior fixture | Middleware preset gate |
 | `api/openapi/roundtrip` | OpenAPI import/export round-trip fixtures | Generator OpenAPI tests and contract gate |
 | `api/semantic/goctl` | Pinned goctl API semantic oracle | Generator and REST runtime semantic tests |
+| `api/types` | Go-native `.api` alias, inline struct, and invalid-type fixtures | Generator type-system tests and semantic parity gate |
 | `compatibility/generated` | Old/current/future generated project inputs | Generated-version compatibility gates |
 | `migration/goctl-replay` | Pinned real-project migration inputs and provenance | goctl replay tests and gates |
 | `model/goctl/cache-key-oracle` | Primary and unique cache-key expectations | Model generator parity test |

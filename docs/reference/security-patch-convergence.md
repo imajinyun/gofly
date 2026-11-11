@@ -1,5 +1,11 @@
 # October 2026 security patch convergence
 
+> **Current status (November 2026):** the repository now uses
+> `toolchain go1.27.4`, `github.com/klauspost/compress v1.20.2`,
+> `golang.org/x/net v0.62.0`, and the fixed `golang.org/x/crypto`
+> pseudo-version; `COVERAGE_RATCHET` is `90.6%`. The October sections below
+> are retained as historical convergence evidence.
+
 The previous package-level scan reported vulnerabilities in Go 1.26.8 and
 `golang.org/x/net v0.59.0`. The reviewed fixes are Go 1.26.9 (or Go 1.27.2)
 and x/net v0.60.0:

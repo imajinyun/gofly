@@ -63,6 +63,8 @@ Tracked contracts consumed by Make gates:
 - [Middleware preset generation](reference/middleware-presets.md)
 - [API client generation](reference/api-client-generation.md)
 - [API semantic parity](reference/api-semantic-parity.md)
+- [API type system](reference/api-type-system.md)
+- [Security patch convergence](reference/security-patch-convergence.md)
 - [API client toolchain verification](reference/api-client-toolchains.md)
 - [gosky reference project](reference/gosky-reference-project.md)
 - [Reference app topology](reference/reference-app-topology.json)

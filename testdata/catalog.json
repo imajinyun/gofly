@@ -68,6 +68,17 @@
       ]
     },
     {
+      "id": "api-go-native-types",
+      "path": "testdata/api/types",
+      "kind": "fixture",
+      "owner": "API Go-native type system",
+      "gate": "make api-semantic-parity-check",
+      "consumers": [
+        "cmd/gofly/internal/generator/api_type_system_test.go",
+        "docs/reference/api-type-system.md"
+      ]
+    },
+    {
       "id": "generated-version-compatibility",
       "path": "testdata/compatibility/generated",
       "kind": "fixture",

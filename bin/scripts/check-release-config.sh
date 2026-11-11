@@ -9,7 +9,7 @@ import subprocess
 import sys
 
 checks = {
-    pathlib.Path(".goreleaser.yaml"): [
+    pathlib.Path(".goreleaser.yml"): [
         "project_name: gofly",
         "cmd/gofly",
         "darwin",

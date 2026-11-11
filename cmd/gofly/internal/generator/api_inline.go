@@ -6,17 +6,14 @@ import "strings"
 // flattened through anonymous embedded API types. It is used only by schema and
 // non-Go client generators; Go DTO generation keeps the original embedding.
 func apiDocumentWithResolvedInlineFields(doc IDLDocument) IDLDocument {
-	messages := make(map[string]IDLMessage, len(doc.Messages))
-	for _, msg := range doc.Messages {
-		messages[exportName(msg.Name)] = msg
-	}
+	scope, _ := apiBuildTypeScope(doc)
 	for index := range doc.Messages {
-		doc.Messages[index].Fields = resolveAPIInlineFields(doc.Messages[index], messages, map[string]bool{})
+		doc.Messages[index].Fields = resolveAPIInlineFields(doc.Messages[index], scope, map[string]bool{})
 	}
 	return doc
 }
 
-func resolveAPIInlineFields(msg IDLMessage, messages map[string]IDLMessage, resolving map[string]bool) []IDLField {
+func resolveAPIInlineFields(msg IDLMessage, scope apiTypeScope, resolving map[string]bool) []IDLField {
 	name := exportName(msg.Name)
 	if resolving[name] {
 		return nil
@@ -46,11 +43,11 @@ func resolveAPIInlineFields(msg IDLMessage, messages map[string]IDLMessage, reso
 		for embeddedType.Kind == apiTypeKindPointer {
 			embeddedType = apiTypeRefElement(embeddedType)
 		}
-		embedded, ok := messages[exportName(embeddedType.Name)]
+		embedded, _, ok := scope.resolveStruct(embeddedType.Name, nil)
 		if !ok || resolving[exportName(embedded.Name)] {
 			continue
 		}
-		for _, promoted := range resolveAPIInlineFields(embedded, messages, resolving) {
+		for _, promoted := range resolveAPIInlineFields(embedded, scope, resolving) {
 			key := apiInlineFieldKey(promoted)
 			if _, overridden := explicit[key]; overridden {
 				continue

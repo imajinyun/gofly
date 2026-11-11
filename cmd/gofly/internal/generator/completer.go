@@ -72,7 +72,7 @@ func readCompleterIDL(path string) (IDLDocument, error) {
 		return IDLDocument{}, fmt.Errorf("read idl file: %w", err)
 	}
 	if strings.EqualFold(filepath.Ext(path), ".api") {
-		return ParseAPI(string(data))
+		return ParseAPIFile(string(data), path)
 	}
 	return ReadRPCIDL(path)
 }

@@ -99,6 +99,7 @@ type ExperimentalMuxTransport struct {
 	connCredit chan struct{}
 	done       chan struct{}
 	once       sync.Once
+	loops      sync.WaitGroup
 
 	framesIn                                atomic.Int64
 	framesOut                               atomic.Int64
@@ -348,7 +349,11 @@ func NewExperimentalMuxTransport(conn net.Conn, opts ...ExperimentalMuxTransport
 	t.lastFrameWrittenAt.Store(now.UnixNano())
 	go t.readLoop()
 	if t.keepaliveInterval > 0 {
-		go t.keepaliveLoop()
+		t.loops.Add(1)
+		go func() {
+			defer t.loops.Done()
+			t.keepaliveLoop()
+		}()
 	}
 	return t
 }
@@ -741,6 +746,7 @@ func (t *ExperimentalMuxTransport) Close() error {
 		if t.conn != nil {
 			err = t.conn.Close()
 		}
+		t.loops.Wait()
 	})
 	return err
 }

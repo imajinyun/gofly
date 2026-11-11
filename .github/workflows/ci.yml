@@ -25,7 +25,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        go: ["1.26", "stable"]
+        go: ["1.27", "stable"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
@@ -49,19 +49,19 @@ jobs:
         run: make ci-fast
 
       - name: Generated project verification and service smoke matrix
-        if: matrix.go == '1.26'
+        if: matrix.go == '1.27'
         run: make test-generated-matrix
 
       - name: Generated project runtime control-plane smoke
-        if: matrix.go == '1.26'
+        if: matrix.go == '1.27'
         run: make generated-control-plane-smoke
 
       - name: Coverage gate
-        if: matrix.go == '1.26'
+        if: matrix.go == '1.27'
         run: make cover-check
 
       - name: Upload coverage artifacts
-        if: matrix.go == '1.26' && always()
+        if: matrix.go == '1.27' && always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: coverage-go-${{ matrix.go }}
@@ -421,7 +421,7 @@ jobs:
           from pathlib import Path
 
           expected = {
-              "build & test (go 1.26)",
+              "build & test (go 1.27)",
               "build & test (go stable)",
               "api client toolchain (javascript)",
               "api client toolchain (typescript)",

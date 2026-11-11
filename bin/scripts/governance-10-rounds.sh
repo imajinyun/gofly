@@ -38,7 +38,7 @@ govulncheck_scan="${GOVULNCHECK_SCAN:-package}"
 gosec_flags="${GOSEC_FLAGS:--quiet -exclude-generated -exclude-dir=testdata -exclude-dir=vendor -exclude-dir=.tmp-test}"
 gosec_inventory_baseline="${GOSEC_INVENTORY_BASELINE:-$root/bin/scripts/gosec-exception-baseline.json}"
 coverage_threshold="${COVERAGE_THRESHOLD:-60}"
-coverage_ratchet_default="90.5"
+coverage_ratchet_default="90.6"
 coverage_ratchet="${COVERAGE_RATCHET:-$coverage_ratchet_default}"
 skip_report="${GOVERNANCE_SKIP_REPORT:-$tmp/governance-skip-report.json}"
 

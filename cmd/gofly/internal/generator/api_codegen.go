@@ -108,12 +108,15 @@ type APIRouteInfo struct {
 }
 
 type APIDiffResult struct {
-	AddedRoutes   []APIRouteInfo      `json:"addedRoutes,omitempty"`
-	RemovedRoutes []APIRouteInfo      `json:"removedRoutes,omitempty"`
-	ChangedRoutes []APIRouteChange    `json:"changedRoutes,omitempty"`
-	AddedTypes    []IDLMessage        `json:"addedTypes,omitempty"`
-	RemovedTypes  []IDLMessage        `json:"removedTypes,omitempty"`
-	ChangedTypes  []APITypeDiffChange `json:"changedTypes,omitempty"`
+	AddedRoutes    []APIRouteInfo       `json:"addedRoutes,omitempty"`
+	RemovedRoutes  []APIRouteInfo       `json:"removedRoutes,omitempty"`
+	ChangedRoutes  []APIRouteChange     `json:"changedRoutes,omitempty"`
+	AddedTypes     []IDLMessage         `json:"addedTypes,omitempty"`
+	RemovedTypes   []IDLMessage         `json:"removedTypes,omitempty"`
+	ChangedTypes   []APITypeDiffChange  `json:"changedTypes,omitempty"`
+	AddedAliases   []IDLTypeAlias       `json:"addedAliases,omitempty"`
+	RemovedAliases []IDLTypeAlias       `json:"removedAliases,omitempty"`
+	ChangedAliases []APIAliasDiffChange `json:"changedAliases,omitempty"`
 }
 
 type APIRouteChange struct {
@@ -126,6 +129,12 @@ type APITypeDiffChange struct {
 	Name   string     `json:"name"`
 	Base   IDLMessage `json:"base"`
 	Target IDLMessage `json:"target"`
+}
+
+type APIAliasDiffChange struct {
+	Name   string       `json:"name"`
+	Base   IDLTypeAlias `json:"base"`
+	Target IDLTypeAlias `json:"target"`
 }
 
 func GenerateRESTFromAPI(opts APIOptions) error {
@@ -171,7 +180,7 @@ func FormatAPIFromFile(opts APIFormatOptions) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read api file: %w", err)
 	}
-	doc, err := ParseAPI(string(content))
+	doc, err := ParseAPIFile(string(content), opts.APIFile)
 	if err != nil {
 		return nil, err
 	}
@@ -251,19 +260,20 @@ func FormatAPIContent(content string, declare bool) ([]byte, error) {
 }
 
 func validateAPITypeDeclarations(doc IDLDocument) error {
-	declared := map[string]struct{}{}
-	for _, msg := range doc.Messages {
-		declared[exportName(msg.Name)] = struct{}{}
+	scope, _ := apiBuildTypeScope(doc)
+	if err := validateAPIDeclarationFields(scope); err != nil {
+		return err
 	}
-	for _, msg := range doc.Messages {
-		for _, field := range msg.Fields {
-			fieldType := strings.TrimPrefix(strings.TrimSpace(field.Type), "[]")
-			if isBuiltinAPIType(fieldType) {
+	for _, alias := range doc.Aliases {
+		ref, err := parseAPITypeRef(alias.Target)
+		if err != nil {
+			return fmt.Errorf("type alias %s has invalid target %q", alias.Name, alias.Target)
+		}
+		for _, name := range ref.BaseNames() {
+			if isBuiltinAPIType(name) || scope.declared(name) {
 				continue
 			}
-			if _, ok := declared[exportName(fieldType)]; !ok {
-				return fmt.Errorf("can not find declaration %q in context", fieldType)
-			}
+			return fmt.Errorf("can not find declaration %q in context", name)
 		}
 	}
 	for _, svc := range doc.Services {
@@ -272,10 +282,46 @@ func validateAPITypeDeclarations(doc IDLDocument) error {
 				if strings.TrimSpace(typ) == "" || isBuiltinAPIType(typ) {
 					continue
 				}
-				if _, ok := declared[exportName(typ)]; !ok {
+				if !scope.declared(typ) {
 					return fmt.Errorf("can not find declaration %q in context", typ)
 				}
 			}
+		}
+	}
+	return nil
+}
+
+func validateAPIDeclarationFields(scope apiTypeScope) error {
+	names := make([]string, 0, len(scope.messages))
+	for name := range scope.messages {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if err := validateAPIDeclarationFieldList(scope.messages[name].Fields, scope); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateAPIDeclarationFieldList(fields []IDLField, scope apiTypeScope) error {
+	for _, field := range fields {
+		if field.Nested != nil {
+			if err := validateAPIDeclarationFieldList(field.Nested.Fields, scope); err != nil {
+				return err
+			}
+			continue
+		}
+		ref, err := parseAPITypeRef(field.Type)
+		if err != nil {
+			return fmt.Errorf("field %s has invalid type %q", exportName(field.Name), field.Type)
+		}
+		for _, name := range ref.BaseNames() {
+			if isBuiltinAPIType(name) || scope.declared(name) {
+				continue
+			}
+			return fmt.Errorf("can not find declaration %q in context", name)
 		}
 	}
 	return nil
@@ -305,25 +351,15 @@ func FormatAPI(doc IDLDocument) []byte {
 		if i > 0 {
 			b.WriteByte('\n')
 		}
-		fprintf(&b, "type %s {\n", exportName(msg.Name))
-		for _, field := range msg.Fields {
-			if field.Inline {
-				if strings.TrimSpace(field.Tag) != "" {
-					fprintf(&b, "  %s %c%s%c\n", field.Type, byte(96), field.Tag, byte(96))
-				} else {
-					fprintf(&b, "  %s\n", field.Type)
-				}
-				continue
-			}
-			if strings.TrimSpace(field.Tag) != "" {
-				fprintf(&b, "  %s %s %c%s%c\n", exportName(field.Name), field.Type, byte(96), field.Tag, byte(96))
-				continue
-			}
-			fprintf(&b, "  %s %s\n", exportName(field.Name), field.Type)
-		}
-		fprintf(&b, "}\n")
+		writeAPITypeDeclaration(&b, msg)
 	}
-	if len(doc.Messages) > 0 && len(doc.Services) > 0 {
+	for i, alias := range doc.Aliases {
+		if i > 0 || len(doc.Messages) > 0 {
+			b.WriteByte('\n')
+		}
+		writeAPITypeAliasDeclaration(&b, alias)
+	}
+	if (len(doc.Messages) > 0 || len(doc.Aliases) > 0) && len(doc.Services) > 0 {
 		b.WriteByte('\n')
 	}
 	for i, svc := range doc.Services {
@@ -355,6 +391,61 @@ func FormatAPI(doc IDLDocument) []byte {
 		fprintf(&b, "}\n")
 	}
 	return b.Bytes()
+}
+
+func writeAPITypeDeclaration(b *bytes.Buffer, msg IDLMessage) {
+	if msg.Alias {
+		fprintf(b, "type %s = struct {\n", exportName(msg.Name))
+	} else {
+		fprintf(b, "type %s {\n", exportName(msg.Name))
+	}
+	for _, field := range msg.Fields {
+		writeAPIField(b, field, "  ")
+	}
+	fprintf(b, "}\n")
+}
+
+func writeAPITypeAliasDeclaration(b *bytes.Buffer, alias IDLTypeAlias) {
+	if alias.Alias {
+		fprintf(b, "type %s = %s\n", exportName(alias.Name), alias.Target)
+		return
+	}
+	fprintf(b, "type %s %s\n", exportName(alias.Name), alias.Target)
+}
+
+func writeAPIField(b *bytes.Buffer, field IDLField, indent string) {
+	if field.Nested != nil {
+		switch {
+		case field.NestedSlice:
+			fprintf(b, "%s%s []struct {\n", indent, exportName(field.Name))
+		case field.NestedMapKey != "":
+			fprintf(b, "%s%s map[%s]struct {\n", indent, exportName(field.Name), field.NestedMapKey)
+		default:
+			fprintf(b, "%s%s struct {\n", indent, exportName(field.Name))
+		}
+		for _, nested := range field.Nested.Fields {
+			writeAPIField(b, nested, indent+"  ")
+		}
+		if strings.TrimSpace(field.Tag) != "" {
+			fprintf(b, "%s} %c%s%c\n", indent, byte(96), field.Tag, byte(96))
+		} else {
+			fprintf(b, "%s}\n", indent)
+		}
+		return
+	}
+	if field.Inline {
+		if strings.TrimSpace(field.Tag) != "" {
+			fprintf(b, "%s%s %c%s%c\n", indent, field.Type, byte(96), field.Tag, byte(96))
+		} else {
+			fprintf(b, "%s%s\n", indent, field.Type)
+		}
+		return
+	}
+	if strings.TrimSpace(field.Tag) != "" {
+		fprintf(b, "%s%s %s %c%s%c\n", indent, exportName(field.Name), field.Type, byte(96), field.Tag, byte(96))
+		return
+	}
+	fprintf(b, "%s%s %s\n", indent, exportName(field.Name), field.Type)
 }
 
 func writeAPIServiceAnnotation(b *bytes.Buffer, annotation IDLServerAnnotation) {
@@ -558,7 +649,7 @@ func readAPIFileWithImportsSeen(path string, seen map[string]struct{}, rootSynta
 	if err != nil {
 		return IDLDocument{}, fmt.Errorf("read api file: %w", err)
 	}
-	doc, err := ParseAPI(string(content))
+	doc, err := ParseAPIFile(string(content), path)
 	if err != nil {
 		return IDLDocument{}, err
 	}
@@ -571,6 +662,7 @@ func readAPIFileWithImportsSeen(path string, seen map[string]struct{}, rootSynta
 		rootSyntax = doc.Syntax
 	}
 	importedMessages := make([]IDLMessage, 0)
+	importedAliases := make([]IDLTypeAlias, 0)
 	importedServices := make([]IDLService, 0)
 	for _, imp := range imports {
 		importPath, err := resolveAPIImport(path, imp)
@@ -585,9 +677,10 @@ func readAPIFileWithImportsSeen(path string, seen map[string]struct{}, rootSynta
 			return IDLDocument{}, fmt.Errorf("api import %s uses syntax %q, want %q", importPath, imported.Syntax, rootSyntax)
 		}
 		importedMessages = append(importedMessages, imported.Messages...)
+		importedAliases = append(importedAliases, imported.Aliases...)
 		importedServices = append(importedServices, imported.Services...)
 	}
-	doc.Messages = mergeAPIMessages(importedMessages, doc.Messages)
+	doc.Messages, doc.Aliases = mergeAPIDeclarations(importedMessages, importedAliases, doc.Messages, doc.Aliases)
 	// Like goctl, imported services participate in the merged contract. The
 	// root document keeps its direct imports for formatting and diagnostics,
 	// while generation and validation see all reachable services.
@@ -655,32 +748,73 @@ func resolveAPIImport(owner string, importPath string) (string, error) {
 	return target, nil
 }
 
-func mergeAPIMessages(imported []IDLMessage, local []IDLMessage) []IDLMessage {
-	out := make([]IDLMessage, 0, len(imported)+len(local))
-	seen := make(map[string]struct{}, len(imported)+len(local))
-	for _, msg := range imported {
+// mergeAPIDeclarations merges imported and local declarations across the
+// shared message/alias namespace. Local declarations override imported ones.
+// Within the imported set a message wins over an alias with the same name.
+func mergeAPIDeclarations(
+	importedMessages []IDLMessage,
+	importedAliases []IDLTypeAlias,
+	localMessages []IDLMessage,
+	localAliases []IDLTypeAlias,
+) ([]IDLMessage, []IDLTypeAlias) {
+	messages := make([]IDLMessage, 0, len(importedMessages)+len(localMessages))
+	aliases := make([]IDLTypeAlias, 0, len(importedAliases)+len(localAliases))
+	messageIndex := map[string]int{}
+	aliasIndex := map[string]int{}
+
+	addMessage := func(msg IDLMessage) {
 		name := exportName(msg.Name)
-		if _, ok := seen[name]; ok {
-			continue
+		if index, ok := messageIndex[name]; ok {
+			messages[index] = msg
+			return
 		}
-		seen[name] = struct{}{}
-		out = append(out, msg)
-	}
-	for _, msg := range local {
-		name := exportName(msg.Name)
-		if _, ok := seen[name]; ok {
-			for idx := range out {
-				if exportName(out[idx].Name) == name {
-					out[idx] = msg
-					break
+		if index, ok := aliasIndex[name]; ok {
+			aliases = append(aliases[:index], aliases[index+1:]...)
+			delete(aliasIndex, name)
+			for key, value := range aliasIndex {
+				if value > index {
+					aliasIndex[key] = value - 1
 				}
 			}
+		}
+		messageIndex[name] = len(messages)
+		messages = append(messages, msg)
+	}
+	addAlias := func(alias IDLTypeAlias) {
+		name := exportName(alias.Name)
+		if index, ok := aliasIndex[name]; ok {
+			aliases[index] = alias
+			return
+		}
+		if index, ok := messageIndex[name]; ok {
+			messages = append(messages[:index], messages[index+1:]...)
+			delete(messageIndex, name)
+			for key, value := range messageIndex {
+				if value > index {
+					messageIndex[key] = value - 1
+				}
+			}
+		}
+		aliasIndex[name] = len(aliases)
+		aliases = append(aliases, alias)
+	}
+
+	for _, msg := range importedMessages {
+		addMessage(msg)
+	}
+	for _, alias := range importedAliases {
+		if _, ok := messageIndex[exportName(alias.Name)]; ok {
 			continue
 		}
-		seen[name] = struct{}{}
-		out = append(out, msg)
+		addAlias(alias)
 	}
-	return out
+	for _, msg := range localMessages {
+		addMessage(msg)
+	}
+	for _, alias := range localAliases {
+		addAlias(alias)
+	}
+	return messages, aliases
 }
 
 func DiffAPI(base, target IDLDocument) APIDiffResult {
@@ -721,7 +855,46 @@ func DiffAPI(base, target IDLDocument) APIDiffResult {
 			diff.RemovedTypes = append(diff.RemovedTypes, baseTypes[name])
 		}
 	}
+	baseAliases := apiAliasMap(base.Aliases)
+	targetAliases := apiAliasMap(target.Aliases)
+	for _, name := range sortedAliasNames(targetAliases) {
+		targetAlias := targetAliases[name]
+		baseAlias, ok := baseAliases[name]
+		if !ok {
+			diff.AddedAliases = append(diff.AddedAliases, targetAlias)
+			continue
+		}
+		if apiAliasSignature(baseAlias) != apiAliasSignature(targetAlias) {
+			diff.ChangedAliases = append(diff.ChangedAliases, APIAliasDiffChange{Name: name, Base: baseAlias, Target: targetAlias})
+		}
+	}
+	for _, name := range sortedAliasNames(baseAliases) {
+		if _, ok := targetAliases[name]; !ok {
+			diff.RemovedAliases = append(diff.RemovedAliases, baseAliases[name])
+		}
+	}
 	return diff
+}
+
+func apiAliasMap(aliases []IDLTypeAlias) map[string]IDLTypeAlias {
+	out := make(map[string]IDLTypeAlias, len(aliases))
+	for _, alias := range aliases {
+		out[exportName(alias.Name)] = alias
+	}
+	return out
+}
+
+func sortedAliasNames(aliases map[string]IDLTypeAlias) []string {
+	names := make([]string, 0, len(aliases))
+	for name := range aliases {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func apiAliasSignature(alias IDLTypeAlias) string {
+	return alias.Target + "|alias=" + strconv.FormatBool(alias.Alias)
 }
 
 func apiRouteMap(routes []APIRouteInfo) map[string]APIRouteInfo {
@@ -774,10 +947,18 @@ func apiTypeMap(messages []IDLMessage) map[string]IDLMessage {
 func apiMessageSignature(msg IDLMessage) string {
 	fields := make([]string, 0, len(msg.Fields))
 	for _, field := range msg.Fields {
-		fields = append(fields, exportName(field.Name)+":"+field.Type)
+		fields = append(fields, apiFieldSignature(field))
 	}
 	sort.Strings(fields)
-	return strings.Join(fields, ";")
+	signature := strings.Join(fields, ";")
+	if msg.Alias {
+		return "alias;" + signature
+	}
+	return signature
+}
+
+func apiFieldSignature(field IDLField) string {
+	return exportName(field.Name) + ":" + apiFieldTypeSignature(field)
 }
 
 func formatAPIDiffText(diff APIDiffResult) []byte {
@@ -808,7 +989,26 @@ func formatAPIDiffText(diff APIDiffResult) []byte {
 			fprintf(&b, "  ~ %s: %s -> %s\n", change.Name, apiMessageSignature(change.Base), apiMessageSignature(change.Target))
 		}
 	}
+	writeAPIDiffTextAliases(&b, "Added aliases", diff.AddedAliases)
+	writeAPIDiffTextAliases(&b, "Removed aliases", diff.RemovedAliases)
+	if len(diff.ChangedAliases) > 0 {
+		fprintf(&b, "Changed aliases\n")
+		for _, change := range diff.ChangedAliases {
+			fprintf(&b, "  ~ %s: %s -> %s\n", change.Name, apiAliasSignature(change.Base), apiAliasSignature(change.Target))
+		}
+	}
 	return b.Bytes()
+}
+
+func writeAPIDiffTextAliases(b *bytes.Buffer, title string, aliases []IDLTypeAlias) {
+	if len(aliases) == 0 {
+		return
+	}
+	fprintf(b, "%s\n", title)
+	prefix := apiDiffListPrefix(title)
+	for _, alias := range aliases {
+		fprintf(b, "  %s %s %s\n", prefix, exportName(alias.Name), apiAliasSignature(alias))
+	}
 }
 
 func writeAPIDiffTextRoutes(b *bytes.Buffer, title string, routes []APIRouteInfo) {
@@ -869,7 +1069,26 @@ func formatAPIDiffMarkdown(diff APIDiffResult) []byte {
 			)
 		}
 	}
+	writeAPIDiffMarkdownAliases(&b, "Added aliases", diff.AddedAliases)
+	writeAPIDiffMarkdownAliases(&b, "Removed aliases", diff.RemovedAliases)
+	if len(diff.ChangedAliases) > 0 {
+		fprintf(&b, "## Changed aliases\n\n| Alias | Base | Target |\n| --- | --- | --- |\n")
+		for _, change := range diff.ChangedAliases {
+			fprintf(&b, "| `%s` | `%s` | `%s` |\n", change.Name, apiAliasSignature(change.Base), apiAliasSignature(change.Target))
+		}
+	}
 	return b.Bytes()
+}
+
+func writeAPIDiffMarkdownAliases(b *bytes.Buffer, title string, aliases []IDLTypeAlias) {
+	if len(aliases) == 0 {
+		return
+	}
+	fprintf(b, "## %s\n\n", title)
+	for _, alias := range aliases {
+		fprintf(b, "- `%s` `%s`\n", exportName(alias.Name), apiAliasSignature(alias))
+	}
+	b.WriteByte('\n')
 }
 
 func writeAPIDiffMarkdownRoutes(b *bytes.Buffer, title string, routes []APIRouteInfo) {
@@ -944,7 +1163,10 @@ func apiDiffEmpty(diff APIDiffResult) bool {
 		len(diff.ChangedRoutes) == 0 &&
 		len(diff.AddedTypes) == 0 &&
 		len(diff.RemovedTypes) == 0 &&
-		len(diff.ChangedTypes) == 0
+		len(diff.ChangedTypes) == 0 &&
+		len(diff.AddedAliases) == 0 &&
+		len(diff.RemovedAliases) == 0 &&
+		len(diff.ChangedAliases) == 0
 }
 
 func GenerateAPIDoc(opts APIDocOptions) error {
@@ -1131,7 +1353,7 @@ func GenerateAPITypes(opts APITypesOptions) error {
 	if err != nil {
 		return err
 	}
-	if len(doc.Messages) == 0 {
+	if len(doc.Messages) == 0 && len(doc.Aliases) == 0 {
 		return errors.New("api type is required")
 	}
 	pkg := lowerName(opts.Package)
@@ -1139,9 +1361,12 @@ func GenerateAPITypes(opts APITypesOptions) error {
 		pkg = "types"
 	}
 	var b bytes.Buffer
-	fprintf(&b, "package %s\n\n", pkg)
+	writeAPIGoPackage(&b, pkg, apiGoImports(doc))
 	for _, msg := range doc.Messages {
 		writeAPIMessage(&b, msg)
+	}
+	for _, alias := range doc.Aliases {
+		writeAPITypeAliasGo(&b, alias)
 	}
 	formatted, err := format.Source(b.Bytes())
 	if err != nil {
@@ -1428,12 +1653,13 @@ type openAPIMediaType struct {
 }
 
 type openAPISpecSchema struct {
-	Ref        string                       `json:"$ref" yaml:"$ref"`
-	Type       string                       `json:"type" yaml:"type"`
-	Format     string                       `json:"format" yaml:"format"`
-	Required   []string                     `json:"required" yaml:"required"`
-	Properties map[string]openAPISpecSchema `json:"properties" yaml:"properties"`
-	Items      *openAPISpecSchema           `json:"items" yaml:"items"`
+	Ref                  string                       `json:"$ref" yaml:"$ref"`
+	Type                 string                       `json:"type" yaml:"type"`
+	Format               string                       `json:"format" yaml:"format"`
+	Required             []string                     `json:"required" yaml:"required"`
+	Properties           map[string]openAPISpecSchema `json:"properties" yaml:"properties"`
+	Items                *openAPISpecSchema           `json:"items" yaml:"items"`
+	AdditionalProperties *openAPISpecSchema           `json:"additionalProperties" yaml:"additionalProperties"`
 }
 
 func parseOpenAPIToIDL(content []byte, serviceName string) (IDLDocument, error) {
@@ -1668,6 +1894,9 @@ func openAPISchemaType(schema openAPISpecSchema, components map[string]openAPISp
 	if schema.Ref != "" {
 		return exportName(openAPIRefName(schema.Ref))
 	}
+	if schema.Type == "" && schema.Format == "" && len(schema.Properties) == 0 && schema.Items == nil && schema.AdditionalProperties == nil {
+		return "any"
+	}
 	switch strings.ToLower(schema.Type) {
 	case "array":
 		if schema.Items == nil {
@@ -1687,7 +1916,13 @@ func openAPISchemaType(schema openAPISpecSchema, components map[string]openAPISp
 	case "boolean":
 		return "bool"
 	case "object":
-		return "string"
+		if len(schema.Properties) > 0 {
+			return "string"
+		}
+		if schema.AdditionalProperties != nil {
+			return "map[string]" + openAPISchemaType(*schema.AdditionalProperties, components)
+		}
+		return "any"
 	default:
 		return "string"
 	}
@@ -1974,10 +2209,13 @@ func generateTypeScriptClient(doc IDLDocument, baseURL string) []byte {
 	}
 	var b bytes.Buffer
 	fprintf(&b, "// Code generated by gofly api client. DO NOT EDIT.\n\n")
+	for _, alias := range doc.Aliases {
+		fprintf(&b, "export type %s = %s;\n\n", exportName(alias.Name), typeScriptType(alias.Target))
+	}
 	for _, msg := range doc.Messages {
 		fprintf(&b, "export interface %s {\n", exportName(msg.Name))
 		for _, field := range msg.Fields {
-			fprintf(&b, "  %s?: %s;\n", apiClientPropertyName(field), typeScriptType(field.Type))
+			fprintf(&b, "  %s?: %s;\n", apiClientPropertyName(field), typeScriptFieldType(field))
 		}
 		fprintf(&b, "}\n\n")
 	}
@@ -1991,6 +2229,31 @@ func generateTypeScriptClient(doc IDLDocument, baseURL string) []byte {
 	}
 	fprintf(&b, "}\n")
 	return b.Bytes()
+}
+
+func typeScriptFieldType(field IDLField) string {
+	if field.Nested == nil {
+		return typeScriptType(field.Type)
+	}
+	object := typeScriptNestedObject(field.Nested)
+	if field.NestedSlice {
+		return object + "[]"
+	}
+	if field.NestedMapKey != "" {
+		return "Record<" + typeScriptType(field.NestedMapKey) + ", " + object + ">"
+	}
+	return object
+}
+
+func typeScriptNestedObject(msg *IDLMessage) string {
+	if msg == nil || len(msg.Fields) == 0 {
+		return "Record<string, unknown>"
+	}
+	parts := make([]string, 0, len(msg.Fields))
+	for _, field := range msg.Fields {
+		parts = append(parts, apiClientPropertyName(field)+"?: "+typeScriptFieldType(field))
+	}
+	return "{ " + strings.Join(parts, "; ") + " }"
 }
 
 func writeTypeScriptMethod(b *bytes.Buffer, method IDLMethod, request IDLMessage) {
@@ -2178,8 +2441,12 @@ func generateDartClient(doc IDLDocument, baseURL string) []byte {
 	fprintf(&b, "// Code generated by gofly api dart. DO NOT EDIT.\n\n")
 	fprintf(&b, "import 'dart:convert';\n")
 	fprintf(&b, "import 'package:http/http.dart' as http;\n\n")
+	for _, alias := range doc.Aliases {
+		fprintf(&b, "typedef %s = %s;\n\n", exportName(alias.Name), dartType(alias.Target))
+	}
+	scope, _ := apiBuildTypeScope(doc)
 	for _, msg := range doc.Messages {
-		writeDartModel(&b, msg)
+		writeDartModel(&b, msg.Name, msg.Fields, scope)
 	}
 	fprintf(&b, "class APIClient {\n")
 	fprintf(&b, "  APIClient({this.baseURL = %q, http.Client? client}) : _client = client ?? http.Client();\n\n", baseURL)
@@ -2196,34 +2463,80 @@ func generateDartClient(doc IDLDocument, baseURL string) []byte {
 	return b.Bytes()
 }
 
-func writeDartModel(b *bytes.Buffer, msg IDLMessage) {
-	typeName := exportName(msg.Name)
+func writeDartModel(b *bytes.Buffer, name string, fields []IDLField, scope apiTypeScope) {
+	typeName := exportName(name)
 	fprintf(b, "class %s {\n", typeName)
 	fprintf(b, "  %s({", typeName)
-	for i, field := range msg.Fields {
+	for i, field := range fields {
 		if i > 0 {
 			fprintf(b, ", ")
 		}
 		fprintf(b, "this.%s", apiClientPropertyName(field))
 	}
 	fprintf(b, "});\n\n")
-	for _, field := range msg.Fields {
-		fprintf(b, "  final %s? %s;\n", dartType(field.Type), apiClientPropertyName(field))
+	for _, field := range fields {
+		fprintf(b, "  final %s? %s;\n", dartFieldType(scope, name, field), apiClientPropertyName(field))
 	}
 	fprintf(b, "\n  factory %s.fromJson(Map<String, dynamic> json) => %s(\n", typeName, typeName)
-	for _, field := range msg.Fields {
-		name := apiClientPropertyName(field)
+	for _, field := range fields {
+		fieldName := apiClientPropertyName(field)
 		wireName := apiClientJSONWireName(field)
-		fprintf(b, "        %s: %s,\n", name, dartFromJSON(field.Type, "json[\""+wireName+"\"]"))
+		fprintf(b, "        %s: %s,\n", fieldName, dartFromJSONField(scope, name, field, "json[\""+wireName+"\"]"))
 	}
 	fprintf(b, "      );\n\n")
 	fprintf(b, "  Map<String, dynamic> toJson() => {\n")
-	for _, field := range msg.Fields {
-		name := apiClientPropertyName(field)
-		fprintf(b, "        %q: %s,\n", apiClientJSONWireName(field), name)
+	for _, field := range fields {
+		fieldName := apiClientPropertyName(field)
+		fprintf(b, "        %q: %s,\n", apiClientJSONWireName(field), dartToJSONField(field, fieldName))
 	}
 	fprintf(b, "      };\n")
 	fprintf(b, "}\n\n")
+	for _, field := range fields {
+		if field.Nested != nil {
+			writeDartModel(b, name+field.Name, field.Nested.Fields, scope)
+		}
+	}
+}
+
+func dartFieldType(scope apiTypeScope, parent string, field IDLField) string {
+	if field.Nested == nil {
+		return dartType(field.Type)
+	}
+	companion := exportName(parent) + exportName(field.Name)
+	if field.NestedSlice {
+		return "List<" + companion + ">"
+	}
+	if field.NestedMapKey != "" {
+		return "Map<" + dartType(field.NestedMapKey) + ", " + companion + ">"
+	}
+	return companion
+}
+
+func dartFromJSONField(scope apiTypeScope, parent string, field IDLField, expr string) string {
+	if field.Nested == nil {
+		return dartFromJSONRef(apiClientTypeRef(scope, field.Type), expr, true)
+	}
+	companion := exportName(parent) + exportName(field.Name)
+	if field.NestedSlice {
+		return fmt.Sprintf("(%s as List<dynamic>?)?.map((e) => %s.fromJson(e as Map<String, dynamic>)).toList()", expr, companion)
+	}
+	if field.NestedMapKey != "" {
+		return fmt.Sprintf("(%s as Map<String, dynamic>?)?.map((key, value) => MapEntry(key, %s.fromJson(value as Map<String, dynamic>)))", expr, companion)
+	}
+	return fmt.Sprintf("%s == null ? null : %s.fromJson(%s as Map<String, dynamic>)", expr, companion, expr)
+}
+
+func dartToJSONField(field IDLField, expr string) string {
+	if field.Nested == nil {
+		return expr
+	}
+	if field.NestedSlice {
+		return expr + "?.map((e) => e.toJson()).toList()"
+	}
+	if field.NestedMapKey != "" {
+		return expr + "?.map((key, value) => MapEntry(key, value.toJson()))"
+	}
+	return expr + "?.toJson()"
 }
 
 func writeDartMethod(b *bytes.Buffer, method IDLMethod, request IDLMessage) {
@@ -2357,6 +2670,8 @@ func dartFromJSONRef(ref apiTypeRef, expr string, nullable bool) string {
 			return "(" + expr + " as num?)?.toDouble()"
 		}
 		return "(" + expr + " as num).toDouble()"
+	case "time.Time":
+		return expr + " as String" + nullableDartSuffix(nullable)
 	default:
 		if nullable {
 			return expr + " == null ? null : " + exportName(ref.Name) + ".fromJson(" + expr + " as Map<String, dynamic>)"
@@ -2392,8 +2707,9 @@ func generateJavaClient(doc IDLDocument, baseURL string) []byte {
 	fprintf(&b, "    this.baseURL = baseURL == null ? \"\" : baseURL.replaceAll(\"/+$\", \"\");\n")
 	fprintf(&b, "    this.client = HttpClient.newHttpClient();\n")
 	fprintf(&b, "  }\n\n")
+	scope, _ := apiBuildTypeScope(doc)
 	for _, msg := range doc.Messages {
-		writeJavaModel(&b, msg)
+		writeJavaModel(&b, msg.Name, msg.Fields, scope)
 	}
 	for _, svc := range doc.Services {
 		for _, method := range svc.Methods {
@@ -2406,12 +2722,32 @@ func generateJavaClient(doc IDLDocument, baseURL string) []byte {
 	return b.Bytes()
 }
 
-func writeJavaModel(b *bytes.Buffer, msg IDLMessage) {
-	fprintf(b, "  public static class %s {\n", exportName(msg.Name))
-	for _, field := range msg.Fields {
-		fprintf(b, "    public %s %s;\n", javaType(field.Type), apiClientPropertyName(field))
+func writeJavaModel(b *bytes.Buffer, name string, fields []IDLField, scope apiTypeScope) {
+	fprintf(b, "  public static class %s {\n", exportName(name))
+	for _, field := range fields {
+		fprintf(b, "    public %s %s;\n", javaFieldType(scope, name, field), apiClientPropertyName(field))
 	}
 	fprintf(b, "  }\n\n")
+	for _, field := range fields {
+		if field.Nested != nil {
+			writeJavaModel(b, name+field.Name, field.Nested.Fields, scope)
+		}
+	}
+}
+
+func javaFieldType(scope apiTypeScope, parent string, field IDLField) string {
+	if field.Nested == nil {
+		return apiJavaTypeRef(apiClientTypeRef(scope, field.Type))
+	}
+	companion := exportName(parent) + exportName(field.Name)
+	if field.NestedSlice {
+		return "java.util.List<" + companion + ">"
+	}
+	if field.NestedMapKey != "" {
+		key := apiJavaTypeRef(apiClientTypeRef(scope, field.NestedMapKey))
+		return "java.util.Map<" + key + ", " + companion + ">"
+	}
+	return companion
 }
 
 func writeJavaMethod(b *bytes.Buffer, method IDLMethod, request IDLMessage) {
@@ -2515,6 +2851,10 @@ func javaBoxedType(name string) string {
 		return "String"
 	case "bool":
 		return "Boolean"
+	case "any", "interface{}":
+		return "Object"
+	case "time.Time":
+		return "String"
 	case "int", "int8", "int16", "int32", "uint8", "uint16", "uint32":
 		return "Integer"
 	case "int64", "uint", "uint64":
@@ -2541,8 +2881,12 @@ func generateKotlinClient(doc IDLDocument, baseURL string) []byte {
 	fprintf(&b, "import java.net.http.HttpRequest\n")
 	fprintf(&b, "import java.net.http.HttpResponse\n\n")
 	fprintf(&b, "import java.nio.charset.StandardCharsets\n\n")
+	for _, alias := range doc.Aliases {
+		fprintf(&b, "typealias %s = %s\n\n", exportName(alias.Name), kotlinType(alias.Target))
+	}
+	scope, _ := apiBuildTypeScope(doc)
 	for _, msg := range doc.Messages {
-		writeKotlinModel(&b, msg)
+		writeKotlinModel(&b, msg.Name, msg.Fields, scope)
 	}
 	fprintf(&b, "class APIClient(private val baseURL: String = %q) {\n", baseURL)
 	fprintf(&b, "  private val client = HttpClient.newHttpClient()\n")
@@ -2558,17 +2902,37 @@ func generateKotlinClient(doc IDLDocument, baseURL string) []byte {
 	return b.Bytes()
 }
 
-func writeKotlinModel(b *bytes.Buffer, msg IDLMessage) {
+func writeKotlinModel(b *bytes.Buffer, name string, fields []IDLField, scope apiTypeScope) {
 	fprintf(b, "@Serializable\n")
-	fprintf(b, "data class %s(\n", exportName(msg.Name))
-	for i, field := range msg.Fields {
+	fprintf(b, "data class %s(\n", exportName(name))
+	for i, field := range fields {
 		comma := ","
-		if i == len(msg.Fields)-1 {
+		if i == len(fields)-1 {
 			comma = ""
 		}
-		fprintf(b, "  val %s: %s? = null%s\n", apiClientPropertyName(field), kotlinType(field.Type), comma)
+		fprintf(b, "  val %s: %s? = null%s\n", apiClientPropertyName(field), kotlinFieldType(scope, name, field), comma)
 	}
 	fprintf(b, ")\n\n")
+	for _, field := range fields {
+		if field.Nested != nil {
+			writeKotlinModel(b, name+field.Name, field.Nested.Fields, scope)
+		}
+	}
+}
+
+func kotlinFieldType(scope apiTypeScope, parent string, field IDLField) string {
+	if field.Nested == nil {
+		return apiKotlinTypeRef(apiClientTypeRef(scope, field.Type))
+	}
+	companion := exportName(parent) + exportName(field.Name)
+	if field.NestedSlice {
+		return "List<" + companion + ">"
+	}
+	if field.NestedMapKey != "" {
+		key := apiKotlinTypeRef(apiClientTypeRef(scope, field.NestedMapKey))
+		return "Map<" + key + ", " + companion + ">"
+	}
+	return companion
 }
 
 func writeKotlinMethod(b *bytes.Buffer, method IDLMethod, request IDLMessage) {
@@ -2702,12 +3066,35 @@ func generateAPIMarkdown(doc IDLDocument) []byte {
 			fprintf(&b, "### %s\n\n", exportName(msg.Name))
 			fprintf(&b, "| Field | Type |\n| --- | --- |\n")
 			for _, field := range msg.Fields {
-				fprintf(&b, "| %s | `%s` |\n", exportName(field.Name), field.Type)
+				fprintf(&b, "| %s | `%s` |\n", exportName(field.Name), apiFieldTypeDisplay(field))
 			}
 			b.WriteByte('\n')
 		}
 	}
+	if len(doc.Aliases) > 0 {
+		fprintf(&b, "## Aliases\n\n")
+		for _, alias := range doc.Aliases {
+			operator := ""
+			if alias.Alias {
+				operator = "= "
+			}
+			fprintf(&b, "### %s\n\n`type %s %s%s`\n\n", exportName(alias.Name), exportName(alias.Name), operator, alias.Target)
+		}
+	}
 	return b.Bytes()
+}
+
+func apiFieldTypeDisplay(field IDLField) string {
+	if field.Nested == nil {
+		return field.Type
+	}
+	if field.NestedSlice {
+		return "[]struct{...}"
+	}
+	if field.NestedMapKey != "" {
+		return "map[" + field.NestedMapKey + "]struct{...}"
+	}
+	return "struct{...}"
 }
 
 func generateAPIOpenAPI(doc IDLDocument) ([]byte, error) {
@@ -2790,7 +3177,21 @@ func buildAPIOpenAPISpec(doc IDLDocument) map[string]any {
 	for _, msg := range doc.Messages {
 		schemas[exportName(msg.Name)] = openAPIMessageSchema(msg, messageNames)
 	}
+	for _, alias := range doc.Aliases {
+		schemas[exportName(alias.Name)] = openAPIAliasSchema(alias, messageNames)
+	}
 	return spec
+}
+
+func openAPIAliasSchema(alias IDLTypeAlias, messageNames map[string]struct{}) map[string]any {
+	ref, err := parseAPITypeRef(alias.Target)
+	if err != nil {
+		return map[string]any{}
+	}
+	if ref.Kind == apiTypeKindNamed && exportName(ref.Name) == exportName(alias.Name) {
+		return map[string]any{}
+	}
+	return apiOpenAPISchemaRef(ref, messageNames)
 }
 
 func openAPIResponsesForMethod(method IDLMethod, doc IDLDocument, messageNames map[string]struct{}) map[string]any {
@@ -2909,9 +3310,12 @@ func openAPIServicePath(svc IDLService, path string) string {
 }
 
 func openAPIMessageNames(doc IDLDocument) map[string]struct{} {
-	out := make(map[string]struct{}, len(doc.Messages))
+	out := make(map[string]struct{}, len(doc.Messages)+len(doc.Aliases))
 	for _, msg := range doc.Messages {
 		out[exportName(msg.Name)] = struct{}{}
+	}
+	for _, alias := range doc.Aliases {
+		out[exportName(alias.Name)] = struct{}{}
 	}
 	return out
 }
@@ -2949,7 +3353,7 @@ func openAPIRequestParameters(method IDLMethod, msg IDLMessage, messageNames map
 				"name":     field.WireName,
 				"in":       string(location),
 				"required": location == apiClientFieldPath || openAPIFieldRequired(field.Field),
-				"schema":   openAPISchema(field.Field.Type, messageNames),
+				"schema":   openAPIFieldSchema(field.Field, messageNames),
 			}
 			if example, ok := openAPIFieldExample(field.Field, messageNames); ok {
 				parameter["example"] = example
@@ -2968,7 +3372,7 @@ func apiRequestJSONContent(name string, msg IDLMessage, fields []apiClientField,
 	required := make([]string, 0, len(fields))
 	example := make(map[string]any, len(fields))
 	for _, clientField := range fields {
-		properties[clientField.WireName] = openAPISchema(clientField.Field.Type, messageNames)
+		properties[clientField.WireName] = openAPIFieldSchema(clientField.Field, messageNames)
 		if openAPIFieldRequired(clientField.Field) {
 			required = append(required, clientField.WireName)
 		}
@@ -3036,9 +3440,11 @@ func openAPIMessageSchema(msg IDLMessage, messageNames map[string]struct{}) map[
 		if fieldName == "-" || fieldName == "" {
 			continue
 		}
-		schema := openAPISchema(field.Type, messageNames)
-		if example, ok := openAPIFieldExample(field, messageNames); ok {
-			schema["example"] = example
+		schema := openAPIFieldSchema(field, messageNames)
+		if field.Nested == nil {
+			if example, ok := openAPIFieldExample(field, messageNames); ok {
+				schema["example"] = example
+			}
 		}
 		props[fieldName] = schema
 		if openAPIFieldRequired(field) {
@@ -3065,6 +3471,10 @@ func openAPIMessageExample(msg IDLMessage, messageNames map[string]struct{}) map
 		if fieldName == "" || fieldName == "-" {
 			continue
 		}
+		if field.Nested != nil {
+			out[fieldName] = openAPINestedDefaultExample(field)
+			continue
+		}
 		if example, ok := openAPIFieldExample(field, messageNames); ok {
 			out[fieldName] = example
 			continue
@@ -3072,6 +3482,13 @@ func openAPIMessageExample(msg IDLMessage, messageNames map[string]struct{}) map
 		out[fieldName] = openAPIDefaultExample(field.Type, messageNames)
 	}
 	return out
+}
+
+func openAPINestedDefaultExample(field IDLField) any {
+	if field.NestedSlice {
+		return []any{}
+	}
+	return map[string]any{}
 }
 
 func openAPIFieldName(field IDLField) string {
@@ -3162,6 +3579,20 @@ func openAPISchema(name string, messageNames map[string]struct{}) map[string]any
 	return apiOpenAPISchemaRef(apiTypeRefOrNamed(name), messageNames)
 }
 
+func openAPIFieldSchema(field IDLField, messageNames map[string]struct{}) map[string]any {
+	if field.Nested != nil {
+		schema := openAPIMessageSchema(*field.Nested, messageNames)
+		if field.NestedSlice {
+			return map[string]any{"type": "array", "items": schema}
+		}
+		if field.NestedMapKey != "" {
+			return map[string]any{"type": "object", "additionalProperties": schema}
+		}
+		return schema
+	}
+	return openAPISchema(field.Type, messageNames)
+}
+
 func apiOpenAPISchemaRef(ref apiTypeRef, messageNames map[string]struct{}) map[string]any {
 	switch ref.Kind {
 	case apiTypeKindPointer:
@@ -3174,6 +3605,9 @@ func apiOpenAPISchemaRef(ref apiTypeRef, messageNames map[string]struct{}) map[s
 		return map[string]any{"type": "object", "additionalProperties": apiOpenAPISchemaRef(apiTypeRefElement(ref), messageNames)}
 	}
 	name := ref.Name
+	if name == "any" || name == "interface{}" {
+		return map[string]any{}
+	}
 	if _, ok := messageNames[exportName(name)]; ok {
 		return map[string]any{"$ref": "#/components/schemas/" + exportName(name)}
 	}
@@ -3276,9 +3710,12 @@ func writeRESTFiles(doc IDLDocument, opts APIOptions) error {
 
 func writeTypesFile(dir string, doc IDLDocument, pkg string) error {
 	var b bytes.Buffer
-	fprintf(&b, "package %s\n\n", pkg)
+	writeAPIGoPackage(&b, pkg, apiGoImports(doc))
 	for _, msg := range doc.Messages {
 		writeAPIMessage(&b, msg)
+	}
+	for _, alias := range doc.Aliases {
+		writeAPITypeAliasGo(&b, alias)
 	}
 	formatted, err := format.Source(b.Bytes())
 	if err != nil {
@@ -3291,9 +3728,23 @@ func writeGroupedTypesFiles(dir string, doc IDLDocument, pkg string) error {
 	if len(doc.Messages) == 0 {
 		return writeTypesFile(dir, doc, pkg)
 	}
+	if len(doc.Aliases) > 0 {
+		var b bytes.Buffer
+		writeAPIGoPackage(&b, pkg, apiGoImportsForAliases(doc.Aliases))
+		for _, alias := range doc.Aliases {
+			writeAPITypeAliasGo(&b, alias)
+		}
+		formatted, err := format.Source(b.Bytes())
+		if err != nil {
+			return fmt.Errorf("format grouped api aliases: %w", err)
+		}
+		if err := writeGeneratedFile(filepath.Join(dir, "types_aliases.go"), formatted); err != nil {
+			return fmt.Errorf("write grouped api aliases: %w", err)
+		}
+	}
 	for _, msg := range doc.Messages {
 		var b bytes.Buffer
-		fprintf(&b, "package %s\n\n", pkg)
+		writeAPIGoPackage(&b, pkg, apiGoImportsForMessages([]IDLMessage{msg}))
 		writeAPIMessage(&b, msg)
 		formatted, err := format.Source(b.Bytes())
 		if err != nil {
@@ -4749,16 +5200,123 @@ func writeRESTGatewayConverters(b *bytes.Buffer, msg IDLMessage, rpcAlias string
 	fprintf(b, "}\n\n")
 }
 
-func writeAPIMessage(b *bytes.Buffer, msg IDLMessage) {
-	fprintf(b, "type %s struct {\n", exportName(msg.Name))
+func writeAPIGoPackage(b *bytes.Buffer, pkg string, imports []string) {
+	fprintf(b, "package %s\n\n", pkg)
+	if len(imports) == 0 {
+		return
+	}
+	fprintf(b, "import (\n")
+	for _, imported := range imports {
+		fprintf(b, "\t%q\n", imported)
+	}
+	fprintf(b, ")\n\n")
+}
+
+func apiGoImports(doc IDLDocument) []string {
+	imports := make([]string, 0, 1)
+	if apiGoImportsForMessages(doc.Messages) != nil || apiGoImportsForAliases(doc.Aliases) != nil {
+		imports = append(imports, "time")
+	}
+	return imports
+}
+
+func apiGoImportsForMessages(messages []IDLMessage) []string {
+	for _, msg := range messages {
+		if apiMessageUsesTime(msg) {
+			return []string{"time"}
+		}
+	}
+	return nil
+}
+
+func apiGoImportsForAliases(aliases []IDLTypeAlias) []string {
+	for _, alias := range aliases {
+		if apiTypeUsesTime(alias.Target) {
+			return []string{"time"}
+		}
+	}
+	return nil
+}
+
+func apiMessageUsesTime(msg IDLMessage) bool {
 	for _, field := range msg.Fields {
-		if field.Inline {
-			fprintf(b, "\t%s\n", apiGoType(field.Type))
+		if field.Nested != nil {
+			if apiMessageUsesTime(*field.Nested) {
+				return true
+			}
 			continue
 		}
-		fprintf(b, "\t%s %s `%s`\n", exportName(field.Name), apiGoType(field.Type), apiFieldStructTag(field))
+		if apiTypeUsesTime(field.Type) {
+			return true
+		}
+	}
+	return false
+}
+
+func apiTypeUsesTime(raw string) bool {
+	ref, err := parseAPITypeRef(raw)
+	if err != nil {
+		return false
+	}
+	for _, name := range ref.BaseNames() {
+		if name == "time.Time" {
+			return true
+		}
+	}
+	return false
+}
+
+func writeAPITypeAliasGo(b *bytes.Buffer, alias IDLTypeAlias) {
+	target := apiGoType(alias.Target)
+	if alias.Alias {
+		fprintf(b, "type %s = %s\n\n", exportName(alias.Name), target)
+		return
+	}
+	fprintf(b, "type %s %s\n\n", exportName(alias.Name), target)
+}
+
+func writeAPIMessage(b *bytes.Buffer, msg IDLMessage) {
+	if msg.Alias {
+		fprintf(b, "type %s = struct {\n", exportName(msg.Name))
+	} else {
+		fprintf(b, "type %s struct {\n", exportName(msg.Name))
+	}
+	for _, field := range msg.Fields {
+		writeAPIGoField(b, field, "\t")
 	}
 	fprintf(b, "}\n\n")
+}
+
+func writeAPIGoField(b *bytes.Buffer, field IDLField, indent string) {
+	if field.Nested != nil {
+		wrapper := ""
+		if field.NestedSlice {
+			wrapper = "[]"
+		}
+		if field.NestedMapKey != "" {
+			wrapper = "map[" + field.NestedMapKey + "]"
+		}
+		fprintf(b, "%s%s %sstruct {\n", indent, exportName(field.Name), wrapper)
+		for _, nested := range field.Nested.Fields {
+			writeAPIGoField(b, nested, indent+"\t")
+		}
+		tag := apiFieldStructTag(field)
+		if strings.TrimSpace(tag) != "" {
+			fprintf(b, "%s} `%s`\n", indent, tag)
+		} else {
+			fprintf(b, "%s}\n", indent)
+		}
+		return
+	}
+	if field.Inline {
+		if strings.TrimSpace(field.Tag) != "" {
+			fprintf(b, "%s%s `%s`\n", indent, apiGoType(field.Type), field.Tag)
+		} else {
+			fprintf(b, "%s%s\n", indent, apiGoType(field.Type))
+		}
+		return
+	}
+	fprintf(b, "%s%s %s `%s`\n", indent, exportName(field.Name), apiGoType(field.Type), apiFieldStructTag(field))
 }
 
 func apiFieldStructTag(field IDLField) string {

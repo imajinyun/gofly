@@ -57,3 +57,30 @@ gosec. No governance stage was skipped. the former root `make gosky-check` targe
 required disposable-MySQL suites. The separate `tests/integration/zrpc-interop`
 module passed its six integration suites with `-tags=integration -race
 -shuffle=on -count=1`, covering unary calls, all stream modes and discovery.
+
+## November 2026 follow-up
+
+A later `govulncheck` run reported module advisories in addition to the two
+reachable ones:
+
+- `GO-2026-6865` in `github.com/klauspost/compress v1.20.1`, fixed in
+  `v1.20.2`
+- `GO-2026-6859` in the Go 1.27.3 `net/http` standard library, fixed in
+  `go1.27.4`
+- `GO-2026-6866` and `GO-2026-6860` in `golang.org/x/net v0.61.0`, fixed in
+  `v0.62.0`
+- `GO-2026-5932` in `golang.org/x/crypto v0.58.0`, fixed in
+  `v0.58.1-0.20261009181718-2f1f834330b2`
+
+All are now remediated:
+
+- root and Gosky modules resolve `github.com/klauspost/compress v1.20.2`
+- root and Gosky modules resolve `golang.org/x/net v0.62.0`
+- root and Gosky modules resolve the fixed `golang.org/x/crypto` pseudo-version
+- root and Gosky modules declare `toolchain go1.27.4`
+- the CI matrix and required status checks use `1.27` and `stable`
+- `make govulncheck` reports zero affected packages and no module advisories
+
+`GOTOOLCHAIN=go1.27.4` is the preferred verification override. The CLI Docker
+builder now pins `golang:1.27.4-alpine` by the verified multi-platform digest
+returned by the Docker Hub tag manifest.

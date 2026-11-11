@@ -149,7 +149,7 @@ connection settings.
 Full-repository `make cover-check` also starts disposable MySQL and PostgreSQL
 containers pinned by digest and runs these E2Es with coverage enabled. It merges
 fresh counters into the ordinary test profile while rejecting unknown source
-blocks or changed statement counts; the denominator and 90.5% ratchet remain
+blocks or changed statement counts; the denominator and 90.6% ratchet remain
 unchanged. This full coverage gate, and therefore `make governance-10-rounds`,
 requires a reachable Docker daemon. Profiles and database reports are retained
 under `.tmp-test/migration-coverage/`. Targeted package coverage does not start

@@ -187,6 +187,44 @@ func apiTypeRefElement(ref apiTypeRef) apiTypeRef {
 	return *ref.Elem
 }
 
+// apiClientTypeRef expands top-level aliases so target languages without an
+// alias construct (Java) can inline them. Recursive alias references stop at
+// the first repeated name; validation rejects cycles before generation.
+func apiClientTypeRef(scope apiTypeScope, raw string) apiTypeRef {
+	return apiExpandTypeRef(scope, apiTypeRefOrNamed(raw), map[string]bool{})
+}
+
+func apiExpandTypeRef(scope apiTypeScope, ref apiTypeRef, seen map[string]bool) apiTypeRef {
+	switch ref.Kind {
+	case apiTypeKindNamed:
+		alias, ok := scope.aliases[exportName(ref.Name)]
+		if !ok {
+			return ref
+		}
+		if seen[exportName(ref.Name)] {
+			return ref
+		}
+		seen[exportName(ref.Name)] = true
+		target, err := parseAPITypeRef(alias.Target)
+		if err != nil {
+			return ref
+		}
+		return apiExpandTypeRef(scope, target, seen)
+	case apiTypeKindPointer:
+		element := apiExpandTypeRef(scope, apiTypeRefElement(ref), seen)
+		return apiTypeRef{Kind: apiTypeKindPointer, Elem: &element}
+	case apiTypeKindSlice:
+		element := apiExpandTypeRef(scope, apiTypeRefElement(ref), seen)
+		return apiTypeRef{Kind: apiTypeKindSlice, Elem: &element}
+	case apiTypeKindMap:
+		key := apiExpandTypeRef(scope, *ref.Key, seen)
+		value := apiExpandTypeRef(scope, apiTypeRefElement(ref), seen)
+		return apiTypeRef{Kind: apiTypeKindMap, Key: &key, Elem: &value}
+	default:
+		return ref
+	}
+}
+
 func apiGoTypeRef(ref apiTypeRef) string {
 	switch ref.Kind {
 	case apiTypeKindPointer:
@@ -227,6 +265,8 @@ func apiTypeScriptTypeRef(ref apiTypeRef) string {
 			return "number"
 		case "any", "interface{}":
 			return "unknown"
+		case "time.Time":
+			return "string"
 		default:
 			return exportName(ref.Name)
 		}
@@ -253,6 +293,8 @@ func apiDartTypeRef(ref apiTypeRef) string {
 			return "double"
 		case "any", "interface{}":
 			return "Object"
+		case "time.Time":
+			return "String"
 		default:
 			return exportName(ref.Name)
 		}
@@ -296,6 +338,8 @@ func apiKotlinTypeRef(ref apiTypeRef) string {
 			return "Double"
 		case "any", "interface{}":
 			return "Any"
+		case "time.Time":
+			return "String"
 		default:
 			return exportName(ref.Name)
 		}

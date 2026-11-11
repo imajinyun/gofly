@@ -1,0 +1,25 @@
+{
+  "schema": "gofly.api_type_system_fixture.v1",
+  "fixtures": [
+    {
+      "file": "aliases.api",
+      "messages": ["Meta", "MetaAlias", "AliasHolder"],
+      "aliases": ["JSONValue", "RawJSON", "UserID", "Tags", "MetaPtr"]
+    },
+    {
+      "file": "inline-struct.api",
+      "messages": ["InlineHolder"],
+      "aliases": []
+    },
+    {
+      "file": "multi-name.api",
+      "messages": ["Audit", "MultiNameHolder"],
+      "aliases": []
+    }
+  ],
+  "invalid": [
+    {"file": "invalid/generics.api", "error": "generics are not supported"},
+    {"file": "invalid/multi-name-tag.api", "error": "must not share tag json"},
+    {"file": "invalid/func-type.api", "error": "unsupported Go type in .api: func"}
+  ]
+}

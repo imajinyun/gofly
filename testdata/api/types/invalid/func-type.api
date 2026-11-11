@@ -1,0 +1,5 @@
+/* leading
+   block comment */
+type User {
+  Broken func()
+}

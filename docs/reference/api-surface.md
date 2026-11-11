@@ -18,6 +18,9 @@ rules stay in [generated-service-layout.md](generated-service-layout.md).
 
 - Scaffold: `gofly quickstart`, `gofly new service --style production`
 - REST: `gofly api gen`, `gofly api diff`, `gofly api breaking`
+- API types: `gofly api format`, `gofly api types`, `gofly api doc`, `gofly api client`
+  (Go-native declarations: `any`, aliases, defined types, inline structs;
+  see [api-type-system.md](api-type-system.md))
 - RPC: `gofly rpc gen`, `gofly rpc protoc`, `gofly rpc check`
 - Model: `gofly model mysql ddl`, `gofly model mysql datasource`
 - Operators: `gofly doctor --json`, `gofly release check --strict`

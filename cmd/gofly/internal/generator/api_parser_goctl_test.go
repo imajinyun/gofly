@@ -268,13 +268,12 @@ func TestParseAPICompositeSyntaxErrors(t *testing.T) {
 		content string
 		wantErr string
 	}{
-		{name: "grouped alias", content: "type (\nUserID = string\n)", wantErr: "unsupported api type alias UserID"},
-		{name: "invalid grouped declaration", content: "type (\n!\n)", wantErr: "invalid grouped type"},
+		{name: "invalid grouped declaration", content: "type (\n!\n)", wantErr: "parse api type"},
 		{name: "unclosed import block", content: "import (\n\"types.api\"", wantErr: "import block is not closed"},
 		{name: "unclosed type block", content: "type (", wantErr: "type block is not closed"},
-		{name: "field with invalid name", content: "type Request {\n1Name string\n}", wantErr: "invalid field"},
-		{name: "field with invalid type", content: "type Request {\nName []\n}", wantErr: "type name is required"},
-		{name: "field with invalid tag", content: "type Request {\nName string `json:\"name\"` trailing\n}", wantErr: "invalid field tag"},
+		{name: "field with invalid name", content: "type Request {\n1Name string\n}", wantErr: "parse api type"},
+		{name: "field with invalid type", content: "type Request {\nName []\n}", wantErr: "parse api type"},
+		{name: "field with invalid tag", content: "type Request {\nName string `json:\"name\"` trailing\n}", wantErr: "parse api type"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -418,10 +417,13 @@ func restRouteForTest(t *testing.T, root, methodMarker, path string) string {
 	return ""
 }
 
-func TestParseAPIRejectsUnsupportedTypeAlias(t *testing.T) {
-	_, err := ParseAPI("type UserID = string\n")
-	if err == nil || !strings.Contains(err.Error(), "unsupported api type alias UserID") {
-		t.Fatalf("alias error = %v, want stable unsupported alias error", err)
+func TestParseAPIAcceptsTypeAlias(t *testing.T) {
+	doc, err := ParseAPI("type UserID = string\n")
+	if err != nil {
+		t.Fatalf("alias parse error = %v, want acceptance", err)
+	}
+	if len(doc.Aliases) != 1 || doc.Aliases[0].Name != "UserID" || doc.Aliases[0].Target != "string" || !doc.Aliases[0].Alias {
+		t.Fatalf("aliases = %#v, want UserID = string", doc.Aliases)
 	}
 }
 

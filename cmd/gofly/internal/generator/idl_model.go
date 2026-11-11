@@ -8,8 +8,21 @@ type IDLDocument struct {
 	Imports        []string
 	ImportedProtos []IDLImportedProto
 	Messages       []IDLMessage
-	Enums          []IDLEnum
-	Services       []IDLService
+	// Aliases holds non-struct type declarations such as "type UserID int64"
+	// and "type RawJSON = any". Named struct declarations, including struct
+	// aliases, live in Messages with IDLMessage.Alias set so every existing
+	// message consumer sees them.
+	Aliases  []IDLTypeAlias
+	Enums    []IDLEnum
+	Services []IDLService
+}
+
+// IDLTypeAlias describes a non-struct .api type declaration. Alias reports
+// whether the declaration used "=" (a Go alias) or a plain defined type.
+type IDLTypeAlias struct {
+	Name   string
+	Target string // canonical single-line Go type expression
+	Alias  bool
 }
 
 // IDLImportedProto describes a locally resolved imported Proto package used by
@@ -33,6 +46,8 @@ type IDLEnumValue struct {
 type IDLMessage struct {
 	Name   string
 	Fields []IDLField
+	// Alias reports that the declaration used "type X = struct{...}".
+	Alias bool
 }
 
 type IDLField struct {
@@ -44,6 +59,12 @@ type IDLField struct {
 	// fields are preserved as Go embeddings and flattened only by consumers
 	// whose schema formats do not support Go field promotion.
 	Inline bool
+	// Nested carries an inline anonymous struct payload. Type holds a
+	// single-line placeholder (struct{}, []struct{}, map[K]struct{}) for display
+	// and diff purposes; schema and code generators must inspect Nested first.
+	Nested       *IDLMessage
+	NestedSlice  bool
+	NestedMapKey string
 }
 
 type IDLService struct {

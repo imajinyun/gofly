@@ -3982,7 +3982,7 @@ func TestOpenAPISchemaType(t *testing.T) {
 		{openAPISpecSchema{Type: "number"}, "float64"},
 		{openAPISpecSchema{Type: "number", Format: "float"}, "float32"},
 		{openAPISpecSchema{Type: "boolean"}, "bool"},
-		{openAPISpecSchema{Type: "object"}, "string"},
+		{openAPISpecSchema{Type: "object"}, "any"},
 		{openAPISpecSchema{Type: "string"}, "string"},
 	}
 	for _, tt := range tests {

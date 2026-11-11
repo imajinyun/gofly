@@ -320,7 +320,10 @@ func waitStreamHandler(errCh <-chan error, timeout time.Duration) {
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {
-	case <-errCh:
+	case err := <-errCh:
+		// The handler goroutine owns error reporting; this helper only waits
+		// for the handler or timeout to finish.
+		_ = err
 	case <-timer.C:
 	}
 }

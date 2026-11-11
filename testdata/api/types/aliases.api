@@ -1,0 +1,23 @@
+type (
+  JSONValue any
+  RawJSON   = any
+  UserID    int64
+  Tags      []string
+  Meta struct {
+    Source string `json:"source"`
+  }
+  MetaAlias = struct {
+    Detail any `json:"detail"`
+  }
+  MetaPtr = *Meta
+)
+
+type AliasHolder {
+  ID      UserID    `json:"id"`
+  Payload JSONValue `json:"payload"`
+  Tags    Tags      `json:"tags"`
+}
+
+service AliasDemo {
+  post /alias (AliasHolder) returns (MetaAlias)
+}

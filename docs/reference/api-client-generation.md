@@ -15,6 +15,17 @@ The fixture source of truth is `testdata/api/client/matrix/shop.api`. It covers
 path parameters, query parameters, repeated query values, header-tagged fields,
 JSON request bodies, nested DTOs, and list response DTOs.
 
+Type mapping follows the Go-native `.api` type system documented in
+[api-type-system.md](api-type-system.md):
+
+- `any` / `interface{}` maps to `unknown` (TypeScript), `Object` (Dart and
+  Java), and `Any` (Kotlin).
+- `type X T` / `type X = T` emits `export type` (TypeScript), `typedef`
+  (Dart), or `typealias` (Kotlin); Java inlines aliases because it has no
+  alias construct.
+- Inline anonymous structs emit inline TypeScript object types and deterministic
+  companion classes for Dart, Java, and Kotlin.
+
 ## Verification
 
 The focused gate is:

@@ -32,6 +32,7 @@ const (
 	CategoryMethod    ChangeCategory = "method"
 	CategoryStream    ChangeCategory = "stream"
 	CategoryType      ChangeCategory = "type"
+	CategoryAlias     ChangeCategory = "alias"
 	CategoryField     ChangeCategory = "field"
 	CategoryEnum      ChangeCategory = "enum"
 	CategoryPackage   ChangeCategory = "package"
@@ -453,6 +454,29 @@ func reportIDLChanges(base, target IDLDocument) BreakingChangesReport {
 		r.compareFields(name, b.Fields, t.Fields)
 	}
 
+	// 别名 / 定义类型：删除、目标变更。被路由直接使用的别名目标变更视为破坏性。
+	routeTypes := apiRouteTypeNames(base)
+	for name := range apiRouteTypeNames(target) {
+		routeTypes[name] = struct{}{}
+	}
+	for name, b := range apiAliasMap(base.Aliases) {
+		t, ok := apiAliasMap(target.Aliases)[name]
+		if !ok {
+			r.add(CategoryAlias, SeverityBreaking, "alias "+name, "删除了类型别名")
+			continue
+		}
+		if apiAliasSignature(b) == apiAliasSignature(t) {
+			continue
+		}
+		severity := SeverityWarning
+		if _, used := routeTypes[name]; used {
+			severity = SeverityBreaking
+		}
+		r.add(CategoryAlias, severity,
+			"alias "+name,
+			fmt.Sprintf("类型别名从 %s 变更为 %s", apiAliasSignature(b), apiAliasSignature(t)))
+	}
+
 	// 枚举：删除值或改变 number（proto 语义）
 	baseEnums := enumMap(base.Enums)
 	targetEnums := enumMap(target.Enums)
@@ -528,6 +552,11 @@ func reportIDLChanges(base, target IDLDocument) BreakingChangesReport {
 			r.add(CategoryType, SeverityInfo, "type "+name, "新增类型")
 		}
 	}
+	for name, t := range apiAliasMap(target.Aliases) {
+		if _, ok := apiAliasMap(base.Aliases)[name]; !ok {
+			r.add(CategoryAlias, SeverityInfo, "alias "+name, "新增类型别名 "+apiAliasSignature(t))
+		}
+	}
 	for name, t := range targetServices {
 		if _, ok := baseServices[name]; !ok {
 			r.add(CategoryService, SeverityInfo, "service "+name,
@@ -579,10 +608,10 @@ func (r *BreakingChangesReport) compareFields(typeName string, base, target []ID
 		if !ok {
 			continue
 		}
-		if bf.Type != tf.Type {
+		if apiFieldTypeSignature(bf) != apiFieldTypeSignature(tf) {
 			r.add(CategoryField, SeverityBreaking,
 				fmt.Sprintf("%s.%s", typeName, name),
-				fmt.Sprintf("字段类型从 %s 变更为 %s", bf.Type, tf.Type))
+				fmt.Sprintf("字段类型从 %s 变更为 %s", apiFieldTypeSignature(bf), apiFieldTypeSignature(tf)))
 		}
 		// proto 的 field number 变更也被视为破坏
 		if bf.Number > 0 && tf.Number > 0 && bf.Number != tf.Number {
@@ -597,6 +626,35 @@ func (r *BreakingChangesReport) compareFields(typeName string, base, target []ID
 			r.add(CategoryField, SeverityInfo, fmt.Sprintf("%s.%s", typeName, name), "新增字段")
 		}
 	}
+}
+
+func apiFieldTypeSignature(field IDLField) string {
+	if field.Nested == nil {
+		return field.Type
+	}
+	signature := "struct{" + apiMessageSignature(*field.Nested) + "}"
+	if field.NestedSlice {
+		signature = "[]" + signature
+	}
+	if field.NestedMapKey != "" {
+		signature = "map[" + field.NestedMapKey + "]" + signature
+	}
+	return signature
+}
+
+func apiRouteTypeNames(doc IDLDocument) map[string]struct{} {
+	names := map[string]struct{}{}
+	for _, svc := range doc.Services {
+		for _, method := range svc.Methods {
+			if method.Request != "" {
+				names[exportName(method.Request)] = struct{}{}
+			}
+			if method.Response != "" {
+				names[exportName(method.Response)] = struct{}{}
+			}
+		}
+	}
+	return names
 }
 
 func (r *BreakingChangesReport) compareEnumValues(enumName string, base, target []IDLEnumValue) {
@@ -649,7 +707,7 @@ func FormatBreakingText(r BreakingChangesReport) []byte {
 	order := []ChangeSeverity{SeverityBreaking, SeverityWarning, SeverityInfo}
 	categoryOrder := []ChangeCategory{
 		CategoryPackage, CategoryService, CategoryMethod, CategoryRoute,
-		CategoryStream, CategorySignature, CategoryType, CategoryField, CategoryEnum,
+		CategoryStream, CategorySignature, CategoryType, CategoryAlias, CategoryField, CategoryEnum,
 	}
 	for _, sev := range order {
 		perCat, ok := groups[sev]

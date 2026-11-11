@@ -11,7 +11,7 @@ mkdir -p "$GOCACHE" "$GOTMPDIR"
 report="${API_SEMANTIC_REPORT:-$tmp/api-semantic-parity-report.json}"
 
 cd "$root"
-go test -count=1 -shuffle=on ./cmd/gofly/internal/generator -run 'Test(APITypeRef|ParseAPIGoctl|ParseAPIRouteLocal|ParseAPIRoutesWithout|FormatAPIGoctl|GenerateAPISemanticFixture|APISemanticReplay)'
+go test -count=1 -shuffle=on ./cmd/gofly/internal/generator -run 'Test(APITypeRef|APITypeAST|APITypeSystem|ParseAPIGoctl|ParseAPIRouteLocal|ParseAPIRoutesWithout|FormatAPIGoctl|GenerateAPISemanticFixture|APISemanticReplay)'
 go test -count=1 -shuffle=on ./rest -run 'Test(ContextBindGoZeroRequest|BindRequestSourceOrderingAndMethodBodyBranches|OpenAPI.*Struct|RuntimeSemanticFailureModes)'
 
 python3 - "$root" "$report" <<'PY'

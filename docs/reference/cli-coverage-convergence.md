@@ -97,3 +97,11 @@ every source block and statement count from the fresh baseline profile. The
 repeatable profiles and database reports are written to
 `.tmp-test/migration-coverage/` by the existing coverage gate. Keep the ratchet
 at 90.5% until a later run establishes a larger, stable margin.
+
+## November 2026 ratchet update
+
+The Go-native API type coverage round added alias, nested-struct, OpenAPI,
+client, diff, and rollback helper tests. A fresh full run measured
+**45,001 / 49,605 statements = 90.7187%**, so `COVERAGE_RATCHET` is now
+**90.6%**. The gate keeps the same statement denominator rules and does not
+exclude any profile blocks.

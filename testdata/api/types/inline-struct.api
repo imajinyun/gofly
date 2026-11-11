@@ -1,0 +1,16 @@
+type InlineHolder {
+  Attrs struct {
+    Source string `json:"source"`
+    Detail any    `json:"detail"`
+  } `json:"attrs"`
+  Items []struct {
+    Name string `json:"name"`
+  } `json:"items"`
+  Index map[string]struct {
+    Count int `json:"count"`
+  } `json:"index"`
+}
+
+service InlineDemo {
+  post /inline (InlineHolder) returns (InlineHolder)
+}

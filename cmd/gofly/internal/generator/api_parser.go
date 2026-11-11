@@ -1,7 +1,6 @@
 package generator
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"regexp"
@@ -9,10 +8,6 @@ import (
 )
 
 var (
-	apiTypeRE          = regexp.MustCompile(`^type\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:struct\s*)?\{`)
-	apiGroupedTypeRE   = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\s*(?:struct\s*)?\{`)
-	apiTypeAliasRE     = regexp.MustCompile(`^type\s+([A-Za-z_][A-Za-z0-9_]*)\s+(?:=\s*)?(.+)$`)
-	apiGroupedAliasRE  = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\s+(?:=\s*)?(.+)$`)
 	apiSyntaxRE        = regexp.MustCompile(`^syntax\s*=\s*["']([^"']+)["']`)
 	apiServiceRE       = regexp.MustCompile(`^service\s+([A-Za-z_][A-Za-z0-9_-]*)\s*\{`)
 	apiInlineFieldRE   = regexp.MustCompile("^(\\*?[A-Za-z_][A-Za-z0-9_]*)(?:\\s+(`[^`]*`))?$")
@@ -22,9 +17,26 @@ var (
 )
 
 func ParseAPI(content string) (IDLDocument, error) {
+	return ParseAPIFile(content, "")
+}
+
+// ParseAPIFile parses an .api contract and uses filename for type-declaration
+// diagnostics. Go-parser errors are mapped back to the original source through
+// //line directives.
+func ParseAPIFile(content, filename string) (IDLDocument, error) {
+	decls, err := apiScanTypeDeclarations(content, filename)
+	if err != nil {
+		return IDLDocument{}, err
+	}
 	doc := IDLDocument{Kind: "api"}
-	scanner := bufio.NewScanner(strings.NewReader(stripBlockComments(content)))
-	var currentMessage *IDLMessage
+	rawLines := strings.Split(content, "\n")
+	const apiMaxLineBytes = 64 * 1024
+	for index, rawLine := range rawLines {
+		if len(rawLine) > apiMaxLineBytes {
+			return IDLDocument{}, fmt.Errorf("scan api: line %d exceeds %d bytes", index+1, apiMaxLineBytes)
+		}
+	}
+	lexer := &apiLineLexer{}
 	var currentService *IDLService
 	var handler string
 	var methodDoc map[string]string
@@ -33,11 +45,20 @@ func ParseAPI(content string) (IDLDocument, error) {
 	var serverAnnotation strings.Builder
 	var docAnnotation strings.Builder
 	var inImportBlock bool
-	var inTypeBlock bool
-	lineNo := 0
-	for scanner.Scan() {
-		lineNo++
-		line := strings.TrimSpace(stripLineComment(scanner.Text()))
+	skipUntil := 0
+	for index, rawLine := range rawLines {
+		lineNo := index + 1
+		code, _ := lexer.line(strings.TrimSuffix(rawLine, "\r"))
+		if lineNo <= skipUntil {
+			continue
+		}
+		if decl, ok := decls[lineNo]; ok {
+			doc.Messages = append(doc.Messages, decl.Messages...)
+			doc.Aliases = append(doc.Aliases, decl.Aliases...)
+			skipUntil = decl.EndLine
+			continue
+		}
+		line := strings.TrimSpace(code)
 		if line == "" {
 			continue
 		}
@@ -63,30 +84,6 @@ func ParseAPI(content string) (IDLDocument, error) {
 				serverAnnotation.Reset()
 			}
 			continue
-		}
-		if currentMessage != nil {
-			if line == "}" || line == "};" {
-				doc.Messages = append(doc.Messages, *currentMessage)
-				currentMessage = nil
-				continue
-			}
-			if field, ok, err := parseAPIField(line); err != nil {
-				return IDLDocument{}, fmt.Errorf("parse api line %d: %w", lineNo, err)
-			} else if ok {
-				currentMessage.Fields = append(currentMessage.Fields, field)
-				continue
-			}
-			if match := apiInlineFieldRE.FindStringSubmatch(line); match != nil {
-				typeName := strings.TrimSpace(match[1])
-				currentMessage.Fields = append(currentMessage.Fields, IDLField{
-					Name:   strings.TrimPrefix(typeName, "*"),
-					Type:   typeName,
-					Tag:    strings.Trim(match[2], "`"),
-					Inline: true,
-				})
-				continue
-			}
-			return IDLDocument{}, fmt.Errorf("parse api line %d: invalid field", lineNo)
 		}
 		if currentService != nil {
 			if line == "}" || line == "};" {
@@ -162,39 +159,11 @@ func ParseAPI(content string) (IDLDocument, error) {
 			pendingServer = mergeAPIServerAnnotation(pendingServer, parseAPIServerAnnotation(line))
 			continue
 		}
-		if inTypeBlock {
-			if line == ")" {
-				inTypeBlock = false
-				continue
-			}
-			if match := apiGroupedTypeRE.FindStringSubmatch(line); match != nil {
-				currentMessage = &IDLMessage{Name: match[1]}
-				continue
-			}
-			if match := apiGroupedAliasRE.FindStringSubmatch(line); match != nil {
-				return IDLDocument{}, fmt.Errorf("unsupported api type alias %s", match[1])
-			}
-			return IDLDocument{}, fmt.Errorf("parse api line %d: invalid grouped type", lineNo)
-		}
-		if isAPIBlockStart(line, "type") {
-			inTypeBlock = true
-			continue
-		}
-		if match := apiTypeRE.FindStringSubmatch(line); match != nil {
-			currentMessage = &IDLMessage{Name: match[1]}
-			continue
-		}
-		if match := apiTypeAliasRE.FindStringSubmatch(line); match != nil {
-			return IDLDocument{}, fmt.Errorf("unsupported api type alias %s", match[1])
-		}
 		if match := apiServiceRE.FindStringSubmatch(line); match != nil {
 			currentService = &IDLService{Name: match[1], Server: pendingServer}
 			pendingServer = IDLServerAnnotation{}
 			continue
 		}
-	}
-	if err := scanner.Err(); err != nil {
-		return IDLDocument{}, fmt.Errorf("scan api: %w", err)
 	}
 	if serverAnnotation.Len() > 0 {
 		return IDLDocument{}, fmt.Errorf("parse api: server annotation is not closed")
@@ -202,19 +171,13 @@ func ParseAPI(content string) (IDLDocument, error) {
 	if docAnnotation.Len() > 0 {
 		return IDLDocument{}, fmt.Errorf("parse api: doc annotation is not closed")
 	}
-	if currentMessage != nil {
-		return IDLDocument{}, fmt.Errorf("parse api: type %s is not closed", currentMessage.Name)
-	}
 	if currentService != nil {
 		return IDLDocument{}, fmt.Errorf("parse api: service %s is not closed", currentService.Name)
 	}
 	if inImportBlock {
 		return IDLDocument{}, fmt.Errorf("parse api: import block is not closed")
 	}
-	if inTypeBlock {
-		return IDLDocument{}, fmt.Errorf("parse api: type block is not closed")
-	}
-	if len(doc.Services) == 0 && len(doc.Messages) == 0 && len(apiImportPaths(content)) == 0 {
+	if len(doc.Services) == 0 && len(doc.Messages) == 0 && len(doc.Aliases) == 0 && len(apiImportPaths(content)) == 0 {
 		return IDLDocument{}, fmt.Errorf("parse api: no type, service, or import found")
 	}
 	return doc, nil

@@ -196,6 +196,26 @@ project to a goctl layout. Do not combine it with a different explicit profile.
 (shared DTOs remain in `types.go`), and `--test` writes handler smoke tests
 next to the generated handlers under `internal/api/http/v1`.
 
+### Go-native type declarations
+
+gofly parses `.api` type declarations with Go's standard parser. This is a
+gofly extension, not a goctl type-grammar compatibility claim:
+
+- `any`, `interface{}`, defined types (`type X int64`), and aliases
+  (`type X = int64`) are supported.
+- Inline anonymous structs, `[]struct{...}`, `map[K]struct{...}`, multi-name
+  fields, and embedded fields are supported.
+- Routes still require a named struct; alias chains are resolved and a
+  non-struct terminal target is rejected.
+- Multi-name fields may not share a real wire tag (`json`, `form`, `path`,
+  `header`) because Go would drop duplicate JSON names.
+- goctl continues to reject aliases and several of these Go-native forms. Keep
+  alias fixtures out of `testdata/api/semantic/goctl/`, which is replayed
+  against the pinned goctl oracle.
+
+See [api-type-system.md](api-type-system.md) for the supported subset and
+stable error classes.
+
 ## Model Layout
 
 The `go_zero` model profile keeps generated table structs separate from

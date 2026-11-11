@@ -26,7 +26,7 @@ DEPENDENCY_UPGRADE_RUN_INTEGRATION ?= true
 
 # Minimum total line coverage (percent). COVERAGE_RATCHET prevents regression once raised.
 COVERAGE_THRESHOLD ?= 60
-COVERAGE_RATCHET ?= 90.5
+COVERAGE_RATCHET ?= 90.6
 
 # Build metadata injected via -ldflags.
 PKG_ROOT   := github.com/imajinyun/gofly/cmd/gofly/internal/command
@@ -540,6 +540,7 @@ fuzz-smoke: ## Run bounded fuzz smoke for public parser and REST binding surface
 
 .PHONY: stable-surface-check
 stable-surface-check: cli-json-contract-goldens-check test-generated-matrix ## Validate stable surface through executable contracts
+	sh $(SCRIPTS_DIR)/check-stable-surface.sh
 
 .PHONY: deprecation-lifecycle-check
 deprecation-lifecycle-check: ## Compatibility no-op; docs-backed deprecation metadata was removed

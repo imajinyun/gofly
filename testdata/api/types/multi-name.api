@@ -1,0 +1,12 @@
+type Audit {
+  Actor string `json:"actor"`
+}
+
+type MultiNameHolder {
+  A, B string `json:"-"`
+  *Audit `json:"audit"`
+}
+
+service MultiNameDemo {
+  post /multi (MultiNameHolder) returns (MultiNameHolder)
+}

@@ -81,7 +81,7 @@ func TestOpenAPIConversionContractBoundaries(t *testing.T) {
 		openAPISchemaType(openAPISpecSchema{Type: "array", Items: &openAPISpecSchema{Ref: "#/components/schemas/User"}}, components) != "[]User" ||
 		openAPISchemaType(openAPISpecSchema{Type: "integer"}, components) != "int64" ||
 		openAPISchemaType(openAPISpecSchema{Type: "number"}, components) != "float64" ||
-		openAPISchemaType(openAPISpecSchema{Type: "object"}, components) != "string" {
+		openAPISchemaType(openAPISpecSchema{Type: "object"}, components) != "any" {
 		t.Fatal("OpenAPI schema type mapping drifted")
 	}
 

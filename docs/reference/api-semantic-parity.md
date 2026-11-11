@@ -27,6 +27,8 @@ documented contract-only mode. CI pins go-zero commit
 
 - grouped imports and grouped type blocks
 - pointer, slice, nested map, and imported inline types
+- Go-native type declarations: `any`, `interface{}`, defined types, aliases,
+  inline anonymous structs, multi-name fields, and embedded fields
 - path, form/query, header, and JSON body locations
 - request-less and response-less routes
 - native and gozero-compatible generated modules
@@ -39,7 +41,10 @@ documented contract-only mode. CI pins go-zero commit
   gofly preserves `@doc(respCode: ...)`, including 204 with no response body.
 - gofly accepts route-local `@server` metadata as an enhancement. The pinned
   goctl execution path uses service-level `@server` plus route `@handler`.
-- Type aliases and source-comment round-trip fidelity are not claimed.
+- gofly follows Go type semantics for `.api` type declarations (including
+  aliases, defined types, and inline anonymous structs). goctl's type grammar is
+  not a compatibility target; source-comment round-trip fidelity is still not
+  claimed.
 
 The machine-readable status and rollback contract is
 `docs/reference/api-semantic-parity.json`.

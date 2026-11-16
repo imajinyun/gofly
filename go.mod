@@ -12,8 +12,8 @@ require (
 	github.com/gofiber/fiber/v2 v2.52.16
 	github.com/golang-migrate/migrate/v4 v4.20.1
 	github.com/hashicorp/consul/api v1.35.0
-	github.com/jackc/pgx/v5 v5.12.0
-	github.com/labstack/echo/v4 v4.16.3
+	github.com/jackc/pgx/v5 v5.13.0
+	github.com/labstack/echo/v4 v4.16.4
 	github.com/nacos-group/nacos-sdk-go/v2 v2.3.6
 	github.com/prometheus/client_golang v1.25.0
 	github.com/rabbitmq/amqp091-go v1.16.0
@@ -214,14 +214,14 @@ require (
 	golang.org/x/arch v0.22.0 // indirect
 	golang.org/x/crypto v0.58.1-0.20261009181718-2f1f834330b2 // indirect
 	golang.org/x/exp v0.0.0-20260611194520-c48552f49976 // indirect
-	golang.org/x/mod v0.42.0
+	golang.org/x/mod v0.43.0
 	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
-	golang.org/x/telemetry v0.0.0-20260924152758-ed294f943157 // indirect
+	golang.org/x/telemetry v0.0.0-20261009151841-97e8ea77aa2a // indirect
 	golang.org/x/text v0.43.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
-	golang.org/x/tools v0.51.0 // indirect
+	golang.org/x/tools v0.52.0 // indirect
 	golang.org/x/vuln v1.6.0 // indirect
 	google.golang.org/api v0.293.0 // indirect
 	google.golang.org/genai v1.58.0 // indirect

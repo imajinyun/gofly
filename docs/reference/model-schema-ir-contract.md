@@ -68,6 +68,16 @@ by `TestGoctlDatasourceReplayFixtureModelSchemaIR`. Empty fields mean
 
 `SQLColumn.DefaultExpr` is metadata collected from DDL or information schema. It is never used to synthesize Go values or interpolate generated SQL; database defaults remain authoritative.
 
+`SQLColumn.Generated` marks computed columns. DDL columns declaring
+`GENERATED ALWAYS AS (...)` and datasource columns reporting `STORED GENERATED`,
+`VIRTUAL GENERATED` (MySQL) or `is_generated = ALWAYS` (PostgreSQL) are marked
+generated. Generated columns stay readable — they are kept in the entity struct
+and in `Columns()` — but are excluded from `Insert`, `InsertMany`, `Update`,
+`UpdateFields` and GORM update maps, because MySQL rejects writing to them with
+error 3105. Identity columns (`GENERATED ALWAYS AS IDENTITY`) are auto-increment
+columns, not generated columns, and stay excluded from inserts through
+`AutoIncrement`.
+
 `ModelConfig.TypeOverrides` is applied after the legacy `TypesMap` for the same
 normalized SQL type. The selected value is `nullableType`, `unsignedType`, then
 `type`; an explicitly selected nullable type is not pointer-wrapped. `importPath`

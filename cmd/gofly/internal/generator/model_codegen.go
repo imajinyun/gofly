@@ -110,10 +110,13 @@ type SQLColumn struct {
 	AutoIncrement bool
 	Unsigned      bool
 	WriteIgnored  bool
-	Unique        bool
-	GoType        string
-	GoImport      string
-	NullableType  bool
+	// Generated marks STORED or VIRTUAL generated columns. They are readable but
+	// must never appear in INSERT or UPDATE statements.
+	Generated    bool
+	Unique       bool
+	GoType       string
+	GoImport     string
+	NullableType bool
 }
 
 type SQLUniqueIndex struct {
@@ -603,8 +606,9 @@ func introspectSQLTables(ctx context.Context, db *sql.DB, opts datasourceIntrosp
 			DefaultExpr:   strings.TrimSpace(columnDefault),
 			PrimaryKey:    strings.EqualFold(columnKey, "PRI"),
 			Nullable:      strings.EqualFold(nullable, "YES"),
-			AutoIncrement: strings.Contains(strings.ToLower(columnExtra), "auto_increment") || isPostgresGeneratedColumn(columnDefault),
+			AutoIncrement: strings.Contains(strings.ToLower(columnExtra), "auto_increment") || isPostgresGeneratedColumn(columnDefault) || datasourceExtraHasToken(columnExtra, "yes"),
 			Unsigned:      strings.Contains(strings.ToLower(columnType), "unsigned"),
+			Generated:     isGeneratedColumnExtra(columnExtra),
 		}
 		if column.PrimaryKey && table.PrimaryKey == "" {
 			table.PrimaryKey = column.Name
@@ -741,7 +745,8 @@ WHERE table_schema = DATABASE()`
 		query += " ORDER BY table_name, ordinal_position"
 		return query, args, nil
 	case "pg", "postgres", "postgresql":
-		query := `SELECT c.table_name, c.column_name, c.data_type, c.udt_name, COALESCE(c.column_default, ''), COALESCE(c.is_identity, ''),
+		query := `SELECT c.table_name, c.column_name, c.data_type, c.udt_name, COALESCE(c.column_default, ''),
+       COALESCE(c.is_identity, 'NO') || ' ' || COALESCE(c.is_generated, 'NEVER'),
        CASE WHEN tc.constraint_type = 'PRIMARY KEY' THEN 'PRI' ELSE '' END AS column_key,
        c.is_nullable, c.ordinal_position
 FROM information_schema.columns c
@@ -872,6 +877,36 @@ func normalizeDatasourceType(value string) string {
 func isPostgresGeneratedColumn(defaultValue string) bool {
 	defaultValue = strings.ToLower(strings.TrimSpace(defaultValue))
 	return strings.HasPrefix(defaultValue, "nextval(") || defaultValue == "yes"
+}
+
+// datasourceExtraHasToken reports whether information_schema EXTRA contains an
+// exact token. MySQL emits "auto_increment", "STORED GENERATED" or
+// "DEFAULT_GENERATED"; PostgreSQL identity columns emit "YES".
+func datasourceExtraHasToken(extra string, token string) bool {
+	for _, field := range strings.Fields(strings.ToLower(extra)) {
+		if field == token {
+			return true
+		}
+	}
+	return false
+}
+
+// isGeneratedColumnExtra reports whether an information_schema EXTRA value
+// describes a computed column. MySQL reports "STORED GENERATED" or
+// "VIRTUAL GENERATED"; PostgreSQL reports is_generated = ALWAYS.
+func isGeneratedColumnExtra(extra string) bool {
+	hasGenerated, hasStorage := false, false
+	for _, field := range strings.Fields(strings.ToLower(extra)) {
+		switch field {
+		case "generated":
+			hasGenerated = true
+		case "stored", "virtual":
+			hasStorage = true
+		case "always":
+			return true
+		}
+	}
+	return hasGenerated && hasStorage
 }
 
 func filterSQLTables(tables []SQLTable, names []string) []SQLTable {
@@ -2324,7 +2359,7 @@ func writeSQLIndexWhereFilters(b *bytes.Buffer, columns []SQLColumn) {
 
 func claimableStatusColumn(columns []SQLColumn) (SQLColumn, bool) {
 	for _, column := range columns {
-		if column.WriteIgnored {
+		if column.WriteIgnored || column.Generated {
 			continue
 		}
 		switch strings.ToLower(column.Name) {
@@ -3357,10 +3392,39 @@ func parseSQLColumn(def string) SQLColumn {
 		DefaultExpr:   sqlDefaultExpr(fields),
 		PrimaryKey:    strings.Contains(lower, "primary key"),
 		Nullable:      !strings.Contains(lower, "not null") && !strings.Contains(lower, "primary key"),
-		AutoIncrement: strings.Contains(lower, "auto_increment"),
+		AutoIncrement: strings.Contains(lower, "auto_increment") || isIdentityColumnDDL(lower),
 		Unsigned:      strings.Contains(lower, " unsigned"),
+		Generated:     isGeneratedColumnDDL(lower),
 		Unique:        strings.Contains(lower, " unique"),
 	}
+}
+
+// isGeneratedColumnDDL reports whether a column definition declares a computed
+// column such as MySQL "GENERATED ALWAYS AS (expr) STORED". Identity columns
+// ("GENERATED ALWAYS AS IDENTITY") are auto-increment, not computed.
+func isGeneratedColumnDDL(lowerDef string) bool {
+	if strings.Contains(lowerDef, "as identity") {
+		return false
+	}
+	if !strings.Contains(lowerDef, "as (") && !strings.Contains(lowerDef, "as(") {
+		return false
+	}
+	if strings.Contains(lowerDef, "generated") {
+		return true
+	}
+	// MySQL allows the optional "[GENERATED ALWAYS]" keywords to be omitted, but
+	// still requires STORED or VIRTUAL for a computed column.
+	return strings.Contains(lowerDef, " stored") || strings.Contains(lowerDef, " virtual")
+}
+
+// isIdentityColumnDDL reports whether a column definition declares an identity
+// column, which the database assigns like an auto-increment column.
+func isIdentityColumnDDL(lowerDef string) bool {
+	if !strings.Contains(lowerDef, "identity") {
+		return false
+	}
+	return strings.Contains(lowerDef, "generated always as identity") ||
+		strings.Contains(lowerDef, "generated by default as identity")
 }
 
 func sqlDefaultExpr(fields []string) string {
@@ -3927,7 +3991,7 @@ func nonPrimaryColumns(table SQLTable) []SQLColumn {
 func insertColumns(table SQLTable) []SQLColumn {
 	columns := make([]SQLColumn, 0, len(table.Columns))
 	for _, column := range table.Columns {
-		if !column.WriteIgnored && !column.AutoIncrement {
+		if !column.WriteIgnored && !column.AutoIncrement && !column.Generated {
 			columns = append(columns, column)
 		}
 	}
@@ -3945,7 +4009,7 @@ func insertColumnsExpression(table SQLTable, typeName string) string {
 func updateColumns(table SQLTable) []SQLColumn {
 	columns := make([]SQLColumn, 0, len(table.Columns))
 	for _, column := range table.Columns {
-		if column.Name == table.PrimaryKey || column.Name == table.SoftDeleteColumn || column.WriteIgnored {
+		if column.Name == table.PrimaryKey || column.Name == table.SoftDeleteColumn || column.WriteIgnored || column.Generated {
 			continue
 		}
 		columns = append(columns, column)
@@ -4345,7 +4409,7 @@ func gormUpdateMap(receiver string, columns []SQLColumn) string {
 
 func gormColumnTag(column SQLColumn) string {
 	tag := "column:" + column.Name
-	if column.WriteIgnored {
+	if column.WriteIgnored || column.Generated {
 		tag += ";->"
 	}
 	if column.PrimaryKey {
@@ -4623,6 +4687,11 @@ func sqlGoTypeKnown(sqlType string) (string, bool) {
 func singularize(name string) string {
 	if strings.HasSuffix(name, "ies") && len(name) > 3 {
 		return strings.TrimSuffix(name, "ies") + "y"
+	}
+	// Words ending in "ss", "us" or "is" are already singular but end in "s",
+	// for example "progress", "status" and "analysis".
+	if strings.HasSuffix(name, "ss") || strings.HasSuffix(name, "us") || strings.HasSuffix(name, "is") {
+		return name
 	}
 	if strings.HasSuffix(name, "s") && len(name) > 1 {
 		return strings.TrimSuffix(name, "s")

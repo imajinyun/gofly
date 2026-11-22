@@ -35,7 +35,7 @@ func TestBuildMicroshopServerExposesRouteAndControlPlane(t *testing.T) {
 	}
 
 	cp := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/admin/control-plane", nil)
+	req := httptest.NewRequest(http.MethodGet, "/gofly/admin/control-plane", nil)
 	req.Header.Set("Authorization", "Bearer microshop-token")
 	server.Handler().ServeHTTP(cp, req)
 	if cp.Code != http.StatusOK {

@@ -23,7 +23,8 @@ import (
 
 // ObserverConfig bundles all observability knobs for a service. The zero value
 // produces sensible defaults: Default metrics registry, text slog, no
-// sampling, pprof exposed under the /debug/pprof/ prefix.
+// sampling, pprof exposed under the mount's /pprof/ subpath (mount the
+// observer at /gofly to serve profiling at /gofly/debug/pprof).
 type ObserverConfig struct {
 	Service    string
 	Registry   *metrics.Registry
@@ -72,9 +73,9 @@ type RotateConfig struct {
 
 // Observe wires together metrics, logging, tracing, and (optionally) pprof
 // diagnostics behind a single http.Handler. Mount it on an internal admin
-// port or under /debug on your main server. This is the "single object"
-// companion to the more granular Observer/Operation API defined in
-// observability.go; pick whichever fits your wiring style.
+// port or under the shared /gofly prefix on your main server. This is the
+// "single object" companion to the more granular Observer/Operation API
+// defined in observability.go; pick whichever fits your wiring style.
 type Observe struct {
 	service  string
 	registry *metrics.Registry
@@ -114,7 +115,7 @@ func (o *Observe) Registry() *metrics.Registry { return o.registry }
 func (o *Observe) Handler() http.Handler { return o.handler }
 
 // Register attaches the observer's handler onto an existing mux using the
-// given prefix (typically "/debug"). Empty prefix is treated as "/".
+// given prefix (typically "/gofly"). Empty prefix is treated as "/".
 func (o *Observe) Register(mux *http.ServeMux, prefix string) {
 	if prefix == "" {
 		prefix = "/"

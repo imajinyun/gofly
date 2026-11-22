@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+
+	coreendpoint "github.com/imajinyun/gofly/core/endpoint"
 )
 
 // OpenAPIInfo describes the API metadata.
@@ -224,7 +226,7 @@ func isBuiltInHealthRoute(route RouteSpec) bool {
 		return false
 	}
 	switch route.Path {
-	case "/startupz", "/healthz", "/readyz", "/metrics", "/metrics.json":
+	case coreendpoint.StartupzPath, coreendpoint.HealthzPath, coreendpoint.ReadyzPath, coreendpoint.MetricsPath, coreendpoint.MetricsJSONPath:
 		return true
 	default:
 		return false

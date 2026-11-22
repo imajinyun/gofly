@@ -8,7 +8,7 @@ release checks, generated smoke tests, and AI agents.
 Generated production services expose the runtime snapshot at:
 
 ```text
-GET /admin/control-plane
+GET /gofly/admin/control-plane
 ```
 
 ## Snapshot object
@@ -69,7 +69,7 @@ warning payloads, audit schemas, or generated support-bundle guidance.
 ## Support Bundle Fields
 
 `gofly bug --json` points users to include generated control-plane evidence from
-`/admin/control-plane` after redaction. A useful support bundle for generated RPC
+`/gofly/admin/control-plane` after redaction. A useful support bundle for generated RPC
 mux warning issues includes:
 
 ```text

@@ -1,7 +1,7 @@
 {
   "admin": {
     "enabled": true,
-    "pathPrefix": "/admin",
+    "pathPrefix": "/gofly/admin",
     "tokenEnv": "ORDERS_ADMIN_TOKEN"
   },
   "module": "example.com/orders",

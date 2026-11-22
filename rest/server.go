@@ -21,6 +21,7 @@ import (
 	"github.com/imajinyun/gofly/core/auth"
 	"github.com/imajinyun/gofly/core/breaker"
 	"github.com/imajinyun/gofly/core/controlplane"
+	coreendpoint "github.com/imajinyun/gofly/core/endpoint"
 	coreerrors "github.com/imajinyun/gofly/core/errors"
 	"github.com/imajinyun/gofly/core/governance"
 	"github.com/imajinyun/gofly/core/limit"
@@ -404,12 +405,22 @@ func (s *Server) isAdminRequest(req *http.Request) bool {
 	if s == nil || req == nil || !s.conf.Admin.Enabled {
 		return false
 	}
+	path := req.URL.Path
+	if path == coreendpoint.PprofPrefix || strings.HasPrefix(path, coreendpoint.PprofPrefix+"/") {
+		return true
+	}
+	prefix := s.adminPrefix()
+	return path == prefix || strings.HasPrefix(path, prefix+"/")
+}
+
+// adminPrefix returns the effective admin route prefix, applying the shared
+// /gofly/admin default when AdminConfig.PathPrefix is unset.
+func (s *Server) adminPrefix() string {
 	prefix := cleanPrefix(s.conf.Admin.PathPrefix)
 	if prefix == "" {
-		prefix = "/debug"
+		return coreendpoint.AdminPrefix
 	}
-	path := req.URL.Path
-	return path == prefix || strings.HasPrefix(path, prefix+"/")
+	return prefix
 }
 
 func routeTags(tags []string) map[string]string {
@@ -432,40 +443,43 @@ func (s *Server) AddRoutes(routes []Route, opts ...RouteOption) {
 	}
 }
 
-// AddHealthRoutes registers /startupz, /healthz, /readyz, /metrics, and /metrics.json.
+// AddHealthRoutes registers the operational probe and metrics endpoints under
+// the shared /gofly prefix: /gofly/startupz, /gofly/healthz, /gofly/readyz,
+// /gofly/metrics, and /gofly/metrics.json.
 func (s *Server) AddHealthRoutes() {
-	s.AddRoute(Route{Method: http.MethodGet, Path: "/startupz", Handler: func(ctx *Context) {
+	s.AddRoute(Route{Method: http.MethodGet, Path: coreendpoint.StartupzPath, Handler: func(ctx *Context) {
 		writeCheckReport(ctx, s.runChecks(ctx.Request.Context(), s.health))
 	}})
-	s.AddRoute(Route{Method: http.MethodGet, Path: "/healthz", Handler: func(ctx *Context) {
+	s.AddRoute(Route{Method: http.MethodGet, Path: coreendpoint.HealthzPath, Handler: func(ctx *Context) {
 		writeCheckReport(ctx, s.runChecks(ctx.Request.Context(), s.health))
 	}})
-	s.AddRoute(Route{Method: http.MethodGet, Path: "/readyz", Handler: func(ctx *Context) {
+	s.AddRoute(Route{Method: http.MethodGet, Path: coreendpoint.ReadyzPath, Handler: func(ctx *Context) {
 		writeCheckReport(ctx, s.runChecks(ctx.Request.Context(), s.ready))
 	}})
-	s.AddRoute(Route{Method: http.MethodGet, Path: "/metrics", Handler: PrometheusMetricsHandler(nil)})
-	s.AddRoute(Route{Method: http.MethodGet, Path: "/metrics.json", Handler: MetricsHandler(nil)})
+	s.AddRoute(Route{Method: http.MethodGet, Path: coreendpoint.MetricsPath, Handler: PrometheusMetricsHandler(nil)})
+	s.AddRoute(Route{Method: http.MethodGet, Path: coreendpoint.MetricsJSONPath, Handler: MetricsHandler(nil)})
 }
 
-// AddAdminRoutes registers admin endpoints such as /config, /runtime, /state, /health,
-// /governance, /routes, /openapi.json, /diagnostics, and optional pprof handlers.
+// AddAdminRoutes registers admin endpoints such as /config, /runtime, /state,
+// /health, /governance, /routes, /openapi.json, /diagnostics, and
+// /control-plane under the configured admin prefix (default /gofly/admin).
+// When Pprof is enabled, profiling endpoints are mounted under the shared
+// /gofly/debug/pprof namespace with the same token/localhost protection.
 func (s *Server) AddAdminRoutes(c AdminConfig) {
-	prefix := cleanPrefix(c.PathPrefix)
-	if prefix == "" {
-		prefix = "/debug"
-	}
-	opts := []RouteOption{WithPrefix(prefix)}
+	prefix := s.adminPrefix()
 	if c.Audit && s.adminAudit == nil {
 		s.adminAudit = controladmin.SlogAuditSink(nil)
 	}
+	authOpts := make([]RouteOption, 0, 2)
 	if s.adminAudit != nil {
-		opts = append(opts, WithMiddlewares(controladmin.AuditMiddleware("rest", s.adminAudit)))
+		authOpts = append(authOpts, WithMiddlewares(controladmin.AuditMiddleware("rest", s.adminAudit)))
 	}
 	if c.Token != "" {
-		opts = append(opts, WithAuth(auth.StaticTokenValidator(c.Token, "admin")))
+		authOpts = append(authOpts, WithAuth(auth.StaticTokenValidator(c.Token, "admin")))
 	} else {
-		opts = append(opts, WithMiddlewares(localAdminOnlyMiddleware()))
+		authOpts = append(authOpts, WithMiddlewares(localAdminOnlyMiddleware()))
 	}
+	opts := append([]RouteOption{WithPrefix(prefix)}, authOpts...)
 	s.AddRoute(Route{Method: http.MethodGet, Path: "/config", Handler: func(ctx *Context) {
 		ctx.JSON(http.StatusOK, s.conf)
 	}}, opts...)
@@ -517,27 +531,27 @@ func (s *Server) AddAdminRoutes(c AdminConfig) {
 		ctx.JSON(http.StatusOK, snapshot)
 	}}, opts...)
 	if c.Pprof {
-		s.AddRoute(Route{Method: http.MethodGet, Path: "/pprof/", Handler: func(ctx *Context) {
+		s.AddRoute(Route{Method: http.MethodGet, Path: coreendpoint.PprofPrefix + "/", Handler: func(ctx *Context) {
 			pprof.Index(ctx.Response, ctx.Request)
-		}}, opts...)
-		s.AddRoute(Route{Method: http.MethodGet, Path: "/pprof/{name}", Handler: func(ctx *Context) {
+		}}, authOpts...)
+		s.AddRoute(Route{Method: http.MethodGet, Path: coreendpoint.PprofPrefix + "/{name}", Handler: func(ctx *Context) {
 			pprof.Index(ctx.Response, ctx.Request)
-		}}, opts...)
-		s.AddRoute(Route{Method: http.MethodGet, Path: "/pprof/cmdline", Handler: func(ctx *Context) {
+		}}, authOpts...)
+		s.AddRoute(Route{Method: http.MethodGet, Path: coreendpoint.PprofPrefix + "/cmdline", Handler: func(ctx *Context) {
 			pprof.Cmdline(ctx.Response, ctx.Request)
-		}}, opts...)
-		s.AddRoute(Route{Method: http.MethodGet, Path: "/pprof/profile", Handler: func(ctx *Context) {
+		}}, authOpts...)
+		s.AddRoute(Route{Method: http.MethodGet, Path: coreendpoint.PprofPrefix + "/profile", Handler: func(ctx *Context) {
 			pprof.Profile(ctx.Response, ctx.Request)
-		}}, opts...)
-		s.AddRoute(Route{Method: http.MethodGet, Path: "/pprof/symbol", Handler: func(ctx *Context) {
+		}}, authOpts...)
+		s.AddRoute(Route{Method: http.MethodGet, Path: coreendpoint.PprofPrefix + "/symbol", Handler: func(ctx *Context) {
 			pprof.Symbol(ctx.Response, ctx.Request)
-		}}, opts...)
-		s.AddRoute(Route{Method: http.MethodPost, Path: "/pprof/symbol", Handler: func(ctx *Context) {
+		}}, authOpts...)
+		s.AddRoute(Route{Method: http.MethodPost, Path: coreendpoint.PprofPrefix + "/symbol", Handler: func(ctx *Context) {
 			pprof.Symbol(ctx.Response, ctx.Request)
-		}}, opts...)
-		s.AddRoute(Route{Method: http.MethodGet, Path: "/pprof/trace", Handler: func(ctx *Context) {
+		}}, authOpts...)
+		s.AddRoute(Route{Method: http.MethodGet, Path: coreendpoint.PprofPrefix + "/trace", Handler: func(ctx *Context) {
 			pprof.Trace(ctx.Response, ctx.Request)
-		}}, opts...)
+		}}, authOpts...)
 	}
 }
 
@@ -801,7 +815,7 @@ func (s *Server) registerRuntime() {
 				"stateSince":   state.Since,
 				"routes":       len(s.Routes()),
 				"adminEnabled": s.conf.Admin.Enabled,
-				"adminPrefix":  cleanPrefix(s.conf.Admin.PathPrefix),
+				"adminPrefix":  s.adminPrefix(),
 				"preset":       s.conf.Preset,
 			},
 		}
@@ -819,7 +833,7 @@ func (s *Server) ControlPlaneRuntime() ControlPlaneRuntimeSnapshot {
 		Config:       s.sanitizedConfig(),
 		Routes:       s.Routes(),
 		AdminEnabled: s.conf.Admin.Enabled,
-		AdminPrefix:  cleanPrefix(s.conf.Admin.PathPrefix),
+		AdminPrefix:  s.adminPrefix(),
 		Middlewares:  s.conf.Middlewares,
 	}
 }

@@ -9,12 +9,13 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/imajinyun/gofly/core/endpoint"
 	"github.com/imajinyun/gofly/core/governance"
 	controladmin "github.com/imajinyun/gofly/ops/admin"
 	"github.com/imajinyun/gofly/rest"
 )
 
-const defaultAdminPathPrefix = "/_gofly/gateway"
+const defaultAdminPathPrefix = endpoint.AdminPrefix + "/gateway"
 
 // RegisterAdmin registers gateway admin endpoints on s.
 func (g *Gateway) RegisterAdmin(s *rest.Server, pathPrefix string, token string, opts ...rest.RouteOption) {

@@ -115,7 +115,7 @@ func TestDefaultServerAdaptiveLimiterSnapshot(t *testing.T) {
 		t.Fatalf("adaptive snapshot=%+v", adaptive)
 	}
 	recorder := httptest.NewRecorder()
-	newAdminServer("127.0.0.1:0", nil, nil, server).Handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/runtime", nil))
+	newAdminServer("127.0.0.1:0", nil, nil, server).Handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/gofly/admin/runtime", nil))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("runtime status=%d body=%s", recorder.Code, recorder.Body.String())
 	}

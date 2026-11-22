@@ -875,13 +875,13 @@ func TestAdminDiagnostics(t *testing.T) {
 	if err := apprpc.RegisterServices(rpcServer, svc.NewServiceContext(cfg)); err != nil {
 		t.Fatal(err)
 	}
-	adminServer := NewServer("", "/admin", rpcServer, WithControlPlaneSnapshot(func(ctx context.Context) (controlplane.Snapshot, error) {
+	adminServer := NewServer("", "/gofly", rpcServer, WithControlPlaneSnapshot(func(ctx context.Context) (controlplane.Snapshot, error) {
 		return cfg.ControlPlaneSnapshot(ctx)
 	}))
 	handler := adminServer.Handler()
 
 	metricsRec := httptest.NewRecorder()
-	handler.ServeHTTP(metricsRec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	handler.ServeHTTP(metricsRec, httptest.NewRequest(http.MethodGet, "/gofly/metrics", nil))
 	if metricsRec.Code != http.StatusOK ||
 		!strings.Contains(metricsRec.Body.String(), "gofly_requests_total") ||
 		!strings.Contains(metricsRec.Body.String(), "gofly_rpc_mux_candidate_connections{frame_codec=\"binary\",payload_codec=\"identity\",downgraded=\"false\"} 1") ||
@@ -894,13 +894,13 @@ func TestAdminDiagnostics(t *testing.T) {
 	}
 
 	pprofRec := httptest.NewRecorder()
-	handler.ServeHTTP(pprofRec, httptest.NewRequest(http.MethodGet, "/debug/pprof/goroutine?debug=1", nil))
+	handler.ServeHTTP(pprofRec, httptest.NewRequest(http.MethodGet, "/gofly/debug/pprof/goroutine?debug=1", nil))
 	if pprofRec.Code != http.StatusOK || !strings.Contains(pprofRec.Body.String(), "goroutine") {
 		t.Fatalf("goroutine pprof response = %d %q", pprofRec.Code, pprofRec.Body.String())
 	}
 
 	controlPlaneRec := httptest.NewRecorder()
-	handler.ServeHTTP(controlPlaneRec, httptest.NewRequest(http.MethodGet, "/admin/control-plane", nil))
+	handler.ServeHTTP(controlPlaneRec, httptest.NewRequest(http.MethodGet, "/gofly/control-plane", nil))
 	if controlPlaneRec.Code != http.StatusOK {
 		t.Fatalf("control-plane status = %d body=%q", controlPlaneRec.Code, controlPlaneRec.Body.String())
 	}
@@ -913,7 +913,7 @@ func TestAdminDiagnostics(t *testing.T) {
 	}
 
 	descRec := httptest.NewRecorder()
-	handler.ServeHTTP(descRec, httptest.NewRequest(http.MethodGet, "/admin/rpc/admin/descriptors/greeter", nil))
+	handler.ServeHTTP(descRec, httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/descriptors/greeter", nil))
 	if descRec.Code != http.StatusOK {
 		t.Fatalf("descriptor status = %d body=%q", descRec.Code, descRec.Body.String())
 	}
@@ -926,7 +926,7 @@ func TestAdminDiagnostics(t *testing.T) {
 	}
 
 	diagnosisRec := httptest.NewRecorder()
-	handler.ServeHTTP(diagnosisRec, httptest.NewRequest(http.MethodGet, "/admin/rpc/admin/diagnosis", nil))
+	handler.ServeHTTP(diagnosisRec, httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/diagnosis", nil))
 	if diagnosisRec.Code != http.StatusOK {
 		t.Fatalf("diagnosis status = %d body=%q", diagnosisRec.Code, diagnosisRec.Body.String())
 	}

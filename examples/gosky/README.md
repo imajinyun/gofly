@@ -629,8 +629,8 @@ Recommended upper bounds for generated production config are `maxActions <= 1024
 
 The RPC admin control plane exposes read-only operator history evidence:
 
-- `GET /rpc/admin/mux/operator-actions/audit-schemas` returns the stable audit detail schemas (for example `gofly.rpc_mux_operator_debug_replay_audit.v1`) so external audit systems can parse operator action details without guessing field names.
-- `GET /rpc/admin/mux/operator-actions/history/replay` returns integrity verification for the primary and backup history files plus the debug replay cooldown (`cooldownSeconds`, `cooldownRemainingSeconds`). By default it does not return recorded actions.
+- `GET /gofly/rpc/admin/mux/operator-actions/audit-schemas` returns the stable audit detail schemas (for example `gofly.rpc_mux_operator_debug_replay_audit.v1`) so external audit systems can parse operator action details without guessing field names.
+- `GET /gofly/rpc/admin/mux/operator-actions/history/replay` returns integrity verification for the primary and backup history files plus the debug replay cooldown (`cooldownSeconds`, `cooldownRemainingSeconds`). By default it does not return recorded actions.
 
 Replaying recorded actions requires an explicit, higher-privilege opt-in: add `?debugActions=true` together with a valid `token` matching the configured operator approval token. Debug replay is rate limited by the cooldown and every attempt (approved, denied, or rate-limited) is recorded to operator audit history without the action payload.
 

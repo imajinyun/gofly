@@ -48,7 +48,7 @@ assert {svc['name'] for svc in topology} >= {'gateway', 'users', 'orders', 'inve
 with open(workdir / 'ai-governed-contract.json', encoding='utf-8') as f:
     contract = json.load(f)
 assert contract['service'] == 'ai-governed-service', contract
-assert contract['adminPath'] == '/admin/control-plane', contract
+assert contract['adminPath'] == '/gofly/admin/control-plane', contract
 
 with open(workdir / 'cache-local.json', encoding='utf-8') as f:
     cache_local = json.load(f)

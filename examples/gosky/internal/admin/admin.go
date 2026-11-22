@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/imajinyun/gofly/core/controlplane"
+	coreendpoint "github.com/imajinyun/gofly/core/endpoint"
 	"github.com/imajinyun/gofly/core/observability/metrics"
 	"github.com/imajinyun/gofly/rpc"
 )
@@ -37,6 +38,9 @@ func NewServer(addr string, pathPrefix string, rpcServer *rpc.HTTPServer, opts .
 		addr = defaultAddr
 	}
 	pathPrefix = strings.TrimRight(strings.TrimSpace(pathPrefix), "/")
+	if pathPrefix == "" {
+		pathPrefix = coreendpoint.RootPrefix
+	}
 	s := &Server{addr: addr, pathPrefix: pathPrefix, rpcServer: rpcServer}
 	for _, opt := range opts {
 		if opt != nil {
@@ -63,10 +67,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	s.mount(mux, "")
-	if s.pathPrefix != "" {
-		s.mount(mux, s.pathPrefix)
-	}
+	// All operational endpoints live under the shared /gofly namespace
+	// (coreendpoint.RootPrefix); the configured pathPrefix defaults to it.
+	s.mount(mux, s.pathPrefix)
 	return mux
 }
 
@@ -115,10 +118,15 @@ func (s *Server) serveRPCAdmin(prefix string) http.HandlerFunc {
 			http.Error(w, "rpc server is not configured", http.StatusServiceUnavailable)
 			return
 		}
-		if prefix != "" {
-			r = r.Clone(r.Context())
-			r.URL.Path = strings.TrimPrefix(r.URL.Path, prefix)
+		// Rewrite the mounted path back to the canonical /gofly/rpc/admin
+		// namespace understood by the gofly RPC runtime. With the default
+		// prefix this rewrite is an identity operation.
+		suffix := strings.TrimPrefix(r.URL.Path, prefix+"/rpc/admin")
+		if !strings.HasPrefix(r.URL.Path, prefix+"/rpc/admin") {
+			suffix = r.URL.Path
 		}
+		r = r.Clone(r.Context())
+		r.URL.Path = coreendpoint.RPCAdminPrefix + suffix
 		s.rpcServer.ServeHTTP(w, r)
 	}
 }

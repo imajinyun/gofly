@@ -16,7 +16,7 @@ spec:
         app.kubernetes.io/name: gosky
       annotations:
         prometheus.io/scrape: "true"
-        prometheus.io/path: /admin/metrics
+        prometheus.io/path: /gofly/metrics
         prometheus.io/port: "9090"
     spec:
       containers:
@@ -35,11 +35,11 @@ spec:
                   key: admin-token
           readinessProbe:
             httpGet:
-              path: /healthz
+              path: /gofly/healthz
               port: http
           livenessProbe:
             httpGet:
-              path: /healthz
+              path: /gofly/healthz
               port: http
           resources:
             requests:
@@ -94,5 +94,5 @@ spec:
       app.kubernetes.io/name: gosky
   endpoints:
     - port: http
-      path: /admin/metrics
+      path: /gofly/metrics
       interval: 30s

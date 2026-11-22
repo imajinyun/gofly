@@ -109,7 +109,7 @@ for needle in [
     "trace id",
     "latency",
     "in-flight requests",
-    "/admin/control-plane",
+    "/gofly/control-plane",
 ]:
     require(needle in operations, f"docs/operations/observability.md missing {needle!r}")
 
@@ -228,7 +228,7 @@ assets = {
 	],
 	"examples/http/observability/prometheus.yaml": [
 		"host.docker.internal:8081",
-		"/debug/metrics",
+		"/gofly/metrics",
 	],
     "examples/http/observability/otel-collector.yaml": [
         "otlp",

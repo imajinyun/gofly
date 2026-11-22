@@ -152,7 +152,7 @@ func main() {
 
 const gatewayConfigTemplate = `{
 	"environment": "development",
-	"service": {"name": "{{.Name}}", "mode": "dev", "environment": "development", "startupTimeout": 5000000000, "shutdownTimeout": 10000000000, "log": {"level": "info", "format": "json", "trace": true}, "metrics": {"enabled": true}, "profile": {"enabled": false, "addr": "127.0.0.1:6060", "pathPrefix": "/debug/pprof"}, "health": {"timeout": 1000000000}},
+	"service": {"name": "{{.Name}}", "mode": "dev", "environment": "development", "startupTimeout": 5000000000, "shutdownTimeout": 10000000000, "log": {"level": "info", "format": "json", "trace": true}, "metrics": {"enabled": true}, "profile": {"enabled": false, "addr": "127.0.0.1:6060", "pathPrefix": "/gofly/debug/pprof"}, "health": {"timeout": 1000000000}},
 	"mq": {"enabled": true, "driver": "memory", "service": "{{.Name}}", "trace": true, "log": true, "timeout": 3000000000, "tags": {"component": "gateway-mq"}, "kafka": {"brokers": ["127.0.0.1:9092"], "writeTimeout": 10000000000, "readTimeout": 10000000000}, "rabbitmq": {"url": "amqp://guest:guest@127.0.0.1:5672/", "prefetch": 32}, "redisstream": {"redis": {"addr": "127.0.0.1:6379"}, "blockInterval": 2000000000, "readCount": 16}},
   "rest": {
     "name": "{{.Name}}",
@@ -180,7 +180,7 @@ const gatewayConfigTemplate = `{
   "governance": {
     "rules": {{.GatewayGovernanceRulesJSON}}
   },
-  "gatewayAdmin": {"enabled": true, "pathPrefix": "/_gofly/gateway", "token": ""}
+  "gatewayAdmin": {"enabled": true, "pathPrefix": "/gofly/admin/gateway", "token": ""}
 }
 `
 

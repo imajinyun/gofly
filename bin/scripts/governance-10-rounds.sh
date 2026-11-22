@@ -371,7 +371,7 @@ with open(path, encoding="utf-8") as f:
     data=json.load(f)
 data.setdefault("rest", {})["host"]="127.0.0.1"
 data["rest"]["port"]=port
-data["rest"]["admin"]={"enabled": True, "pathPrefix": "/admin", "token": "smoke-token"}
+data["rest"]["admin"]={"enabled": True, "pathPrefix": "/gofly/admin", "token": "smoke-token"}
 data.setdefault("service", {}).setdefault("trace", {}).pop("sampler", None)
 with open(path, "w", encoding="utf-8") as f:
     json.dump(data, f)
@@ -393,7 +393,7 @@ PY
 	trap 'cleanup_smoke; chmod -R u+w "$tmp" 2>/dev/null || true; rm -rf "$tmp"' EXIT INT TERM
 	python3 - "$port" <<'PY'
 import json,sys,time,urllib.request
-url=f"http://127.0.0.1:{sys.argv[1]}/admin/control-plane"
+url=f"http://127.0.0.1:{sys.argv[1]}/gofly/admin/control-plane"
 last=None
 for _ in range(60):
     try:

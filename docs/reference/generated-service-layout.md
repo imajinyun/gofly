@@ -29,7 +29,7 @@ The generated service must keep these stable responsibilities:
 | RPC adapter | `internal/api/grpc/v1/greeter/greeter.go` | Adapts the default RPC service to shared application logic. |
 | Admin control-plane | `internal/admin/admin.go` | Registers generated admin and control-plane contributors. |
 | Discovery | `internal/discovery/registry.go` | Provides generated service-discovery wiring. |
-| Smoke test | `internal/smoke/service_smoke_test.go` | Verifies `/healthz`, `/admin/control-plane`, and runtime governance metadata. |
+| Smoke test | `internal/smoke/service_smoke_test.go` | Verifies `/gofly/healthz`, `/gofly/control-plane`, and runtime governance metadata. |
 | Production check | `internal/config/production_check.go` and `bin/production-check.sh` | Fail closed on unsafe production config defaults. |
 | Deployment | `deploy/k8s/<name>.yaml` and `deploy/helm/Chart.yaml` | Provide checked-in production deployment starters. |
 | Observability | `deploy/observability/prometheus.yaml` and `deploy/observability/otel-collector.yaml` | Provide production observability starters. |
@@ -61,8 +61,8 @@ The generated `cmd/<name>/main.go` must preserve these wiring points:
 
 The generated smoke test must preserve these runtime assertions:
 
-- `/healthz` responds through the generated REST runtime.
-- `/admin/control-plane` exposes a `gofly-control-plane.v1` snapshot.
+- `/gofly/healthz` responds through the generated REST runtime.
+- `/gofly/control-plane` exposes a `gofly-control-plane.v1` snapshot.
 - `assertControlPlaneResilience` validates generated timeout, rate-limit,
   concurrency, breaker, and retry metadata.
 
@@ -91,7 +91,7 @@ make generated-output-governance
 
 1. Additive files are allowed when they do not change the Tier 0 paths.
 2. Moving a Tier 0 path requires a migration note and release evidence.
-3. Removing `/admin/control-plane` from the golden path is a breaking change.
+3. Removing `/gofly/control-plane` from the golden path is a breaking change.
 4. Production defaults must remain testable without Docker or network access.
 5. Generated project dependencies must stay in the generated project's own
    `go.mod`; root-module dependency changes require separate governance.

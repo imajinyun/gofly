@@ -8085,14 +8085,14 @@ func TestRPCDescriptorCommandReadsAdminBaseURL(t *testing.T) {
 		t.Fatal(err)
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/admin/rpc/admin/descriptors/greeter" {
+		if r.URL.Path != "/gofly/rpc/admin/descriptors/greeter" {
 			t.Fatalf("descriptor URL path = %q, want admin descriptor path", r.URL.Path)
 		}
 		_, _ = io.WriteString(w, basePayload)
 	}))
 	defer server.Close()
 
-	err := Execute([]string{"rpc", "descriptor", "--url", server.URL + "/admin", "--service", "greeter", "--target", targetPath})
+	err := Execute([]string{"rpc", "descriptor", "--url", server.URL + "/gofly", "--service", "greeter", "--target", targetPath})
 	if !errors.Is(err, generator.ErrBreakingChanges) {
 		t.Fatalf("rpc descriptor admin URL err = %v, want ErrBreakingChanges", err)
 	}

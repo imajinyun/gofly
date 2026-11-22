@@ -91,7 +91,7 @@ func TestProjectMySQLAuthorizationIntegration(t *testing.T) {
 			stopGeneratedService(t, cmd, &output)
 		}
 	})
-	waitHTTPStatus(t, ctx, "http://"+restAddr+"/healthz", http.StatusOK, &output)
+	waitHTTPStatus(t, ctx, "http://"+restAddr+"/gofly/healthz", http.StatusOK, &output)
 
 	client := &http.Client{Timeout: 5 * time.Second}
 	tests := []struct {

@@ -134,9 +134,9 @@ func TestHTTPMiddlewareServerContracts(t *testing.T) {
 	}
 
 	metrics := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(metrics, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	srv.Handler().ServeHTTP(metrics, httptest.NewRequest(http.MethodGet, "/gofly/metrics", nil))
 	if metrics.Code != http.StatusOK || !strings.Contains(metrics.Body.String(), "gofly_requests_total") {
-		t.Fatalf("GET /metrics = %d %s", metrics.Code, metrics.Body.String())
+		t.Fatalf("GET /gofly/metrics = %d %s", metrics.Code, metrics.Body.String())
 	}
 
 	openapi := httptest.NewRecorder()

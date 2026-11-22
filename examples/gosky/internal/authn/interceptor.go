@@ -160,7 +160,7 @@ const (
 )
 
 // ClassifyBusinessRouteDomain accepts only explicit gosky business prefixes.
-// Infrastructure control-plane paths such as `/admin/control-plane` are not
+// Infrastructure control-plane paths such as `/gofly/control-plane` are not
 // part of this namespace and therefore return ok=false.
 func ClassifyBusinessRouteDomain(path string) (RouteDomain, bool) {
 	segments := strings.Split(strings.TrimSpace(path), "/")

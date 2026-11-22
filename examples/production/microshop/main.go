@@ -73,7 +73,7 @@ func buildMicroshopServer(spec serviceSpec, port int) *rest.Server {
 		Host:    "0.0.0.0",
 		Port:    port,
 		Timeout: 3 * time.Second,
-		Admin:   rest.AdminConfig{Enabled: true, PathPrefix: "/admin", Token: "microshop-token", Audit: true},
+		Admin:   rest.AdminConfig{Enabled: true, PathPrefix: "/gofly/admin", Token: "microshop-token", Audit: true},
 		Middlewares: rest.MiddlewaresConfig{
 			Recover:   true,
 			Trace:     true,

@@ -233,7 +233,7 @@ func main() {
 	restSrv := buildRESTServer(cfg, registry, discoveryRegistry, outboxStore, relay, newOrderStore(), topology)
 
 	adminMux := http.NewServeMux()
-	obs.Register(adminMux, "/debug")
+	obs.Register(adminMux, "/gofly")
 	adminSrv := &httpServer{
 		name:   "orders-admin",
 		server: &http.Server{Addr: fmt.Sprintf(":%d", cfg.Admin.Port), Handler: adminMux, ReadHeaderTimeout: 3 * time.Second},
@@ -273,7 +273,7 @@ func buildRESTServer(
 		Port: cfg.REST.Port,
 		Admin: rest.AdminConfig{
 			Enabled:    true,
-			PathPrefix: "/admin",
+			PathPrefix: "/gofly/admin",
 			Token:      "orders-token",
 			Audit:      true,
 		},
@@ -511,7 +511,7 @@ func loadProductionTopology() productionTopology {
 				{Component: "SQL outbox", Mode: "memory", Endpoint: "memory", Validation: "go test -C examples/production/production-orders ./...", FallbackNote: "no external SQL dependency in memory mode"},
 				{Component: "Redis cache", Mode: "memory", Endpoint: "memory", Validation: "REFERENCE_APP_MODE=memory make reference-app-smoke", FallbackNote: "read-through cache boundary uses in-process state"},
 				{Component: "MQ", Mode: "memory", Endpoint: "memory", Validation: "outbox relay publishes orders.created in unit smoke", FallbackNote: "broker adapters are represented by Docker topology evidence"},
-				{Component: "Discovery", Mode: "memory", Endpoint: "memory", Validation: "/admin/control-plane reports registered inventory endpoint", FallbackNote: "external discovery is disabled for local smoke"},
+				{Component: "Discovery", Mode: "memory", Endpoint: "memory", Validation: "/gofly/control-plane reports registered inventory endpoint", FallbackNote: "external discovery is disabled for local smoke"},
 				{Component: "OpenTelemetry collector", Mode: "memory", Endpoint: "local-admin", Validation: "/debug/metrics and trace propagation smoke", FallbackNote: "OTLP export is replaced by local admin observability"},
 			},
 		}

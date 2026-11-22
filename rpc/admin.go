@@ -11,10 +11,15 @@ import (
 	"strings"
 	"time"
 
+	coreendpoint "github.com/imajinyun/gofly/core/endpoint"
 	"github.com/imajinyun/gofly/core/governance"
 	coreruntime "github.com/imajinyun/gofly/core/runtime"
 	controladmin "github.com/imajinyun/gofly/ops/admin"
 )
+
+// rpcAdminPrefix is the canonical mount point for HTTP-RPC administration
+// endpoints, shared with the generated admin server and control-plane docs.
+const rpcAdminPrefix = coreendpoint.RPCAdminPrefix
 
 const maxDescriptorCompatibilityBytes = 1 << 20
 
@@ -106,19 +111,19 @@ func (s *HTTPServer) serveAdminRoute(w http.ResponseWriter, r *http.Request) {
 	if !s.authorizeAdmin(w, r) {
 		return
 	}
-	if r.URL.Path == "/rpc/admin/governance" || strings.HasPrefix(r.URL.Path, "/rpc/admin/governance/") {
+	if r.URL.Path == rpcAdminPrefix+"/governance" || strings.HasPrefix(r.URL.Path, rpcAdminPrefix+"/governance/") {
 		s.governanceAdmin().ServeHTTP(w, r)
 		return
 	}
-	if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/rpc/admin/descriptors/") && strings.HasSuffix(r.URL.Path, "/compatibility") {
+	if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, rpcAdminPrefix+"/descriptors/") && strings.HasSuffix(r.URL.Path, "/compatibility") {
 		s.serveDescriptorCompatibility(w, r)
 		return
 	}
-	if r.Method == http.MethodPost && r.URL.Path == "/rpc/admin/mux/operator-actions" {
+	if r.Method == http.MethodPost && r.URL.Path == rpcAdminPrefix+"/mux/operator-actions" {
 		s.serveMuxOperatorAction(w, r)
 		return
 	}
-	if r.Method == http.MethodPost && r.URL.Path == "/rpc/admin/mux/operator-actions/audit-schemas/validate" {
+	if r.Method == http.MethodPost && r.URL.Path == rpcAdminPrefix+"/mux/operator-actions/audit-schemas/validate" {
 		s.serveMuxOperatorAuditValidate(w, r)
 		return
 	}
@@ -127,7 +132,7 @@ func (s *HTTPServer) serveAdminRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch {
-	case strings.HasPrefix(r.URL.Path, "/rpc/admin/descriptors/"):
+	case strings.HasPrefix(r.URL.Path, rpcAdminPrefix+"/descriptors/"):
 		serviceName, ok := serviceDescriptorNameFromPath(r.URL.Path)
 		if !ok {
 			writeRPCError(w, http.StatusBadRequest, CodeInvalidArgument, "service descriptor name is invalid")
@@ -139,13 +144,13 @@ func (s *HTTPServer) serveAdminRoute(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeAdminJSON(w, http.StatusOK, desc)
-	case r.URL.Path == "/rpc/admin/state":
+	case r.URL.Path == rpcAdminPrefix+"/state":
 		writeAdminJSON(w, http.StatusOK, s.State())
-	case r.URL.Path == "/rpc/admin/services":
+	case r.URL.Path == rpcAdminPrefix+"/services":
 		writeAdminJSON(w, http.StatusOK, s.ServiceSnapshots())
-	case r.URL.Path == "/rpc/admin/descriptors":
+	case r.URL.Path == rpcAdminPrefix+"/descriptors":
 		writeAdminJSON(w, http.StatusOK, s.GetServiceDescriptors())
-	case r.URL.Path == "/rpc/admin/health":
+	case r.URL.Path == rpcAdminPrefix+"/health":
 		state := s.State()
 		status := "ok"
 		code := http.StatusOK
@@ -158,17 +163,17 @@ func (s *HTTPServer) serveAdminRoute(w http.ResponseWriter, r *http.Request) {
 			State:    state,
 			Services: s.ServiceSnapshots(),
 		})
-	case r.URL.Path == "/rpc/admin/runtime":
+	case r.URL.Path == rpcAdminPrefix+"/runtime":
 		writeAdminJSON(w, http.StatusOK, s.RuntimeSnapshot(r.Context()))
-	case r.URL.Path == "/rpc/admin/mux/operator-actions/audit-schemas":
+	case r.URL.Path == rpcAdminPrefix+"/mux/operator-actions/audit-schemas":
 		writeAdminJSON(w, http.StatusOK, RPCMuxDiagnosisOperatorAuditSchemas())
-	case r.URL.Path == "/rpc/admin/mux/operator-actions/history/replay":
+	case r.URL.Path == rpcAdminPrefix+"/mux/operator-actions/history/replay":
 		s.serveMuxOperatorActionHistoryReplay(w, r)
-	case r.URL.Path == "/rpc/admin/mux/operator-actions/history":
+	case r.URL.Path == rpcAdminPrefix+"/mux/operator-actions/history":
 		writeAdminJSON(w, http.StatusOK, s.MuxDiagnosisOperatorActionHistorySnapshot(parsePositiveIntQuery(r.URL.Query().Get("limit"))))
-	case r.URL.Path == "/rpc/admin/mux/operator-actions":
+	case r.URL.Path == rpcAdminPrefix+"/mux/operator-actions":
 		writeAdminJSON(w, http.StatusOK, s.MuxDiagnosisOperatorActions(r.Context()))
-	case r.URL.Path == "/rpc/admin/diagnosis":
+	case r.URL.Path == rpcAdminPrefix+"/diagnosis":
 		query := r.URL.Query()
 		snapshot := s.DiagnosisProbeWithOptions(RPCDiagnosisProbeOptions{
 			Service:          query.Get("service"),
@@ -188,12 +193,12 @@ func (s *HTTPServer) serveAdminRoute(w http.ResponseWriter, r *http.Request) {
 }
 
 func serviceDescriptorNameFromPath(path string) (string, bool) {
-	encodedName := strings.TrimPrefix(path, "/rpc/admin/descriptors/")
+	encodedName := strings.TrimPrefix(path, rpcAdminPrefix+"/descriptors/")
 	return decodeServiceDescriptorName(encodedName)
 }
 
 func serviceDescriptorCompatibilityNameFromPath(path string) (string, bool) {
-	encodedName := strings.TrimPrefix(path, "/rpc/admin/descriptors/")
+	encodedName := strings.TrimPrefix(path, rpcAdminPrefix+"/descriptors/")
 	encodedName = strings.TrimSuffix(encodedName, "/compatibility")
 	return decodeServiceDescriptorName(encodedName)
 }
@@ -570,7 +575,7 @@ func (s *HTTPServer) serveMuxOperatorAction(w http.ResponseWriter, r *http.Reque
 		Transport: governance.TransportRPC,
 		Service:   "rpc.mux.sink",
 		Method:    strings.TrimSpace(approval.Action),
-		Path:      "/rpc/admin/mux/operator-actions",
+		Path:      rpcAdminPrefix + "/mux/operator-actions",
 	})
 	s.mu.RLock()
 	exporter := s.opts.muxEventExporter
@@ -817,7 +822,7 @@ func (s *HTTPServer) governanceAdmin() *governance.Admin {
 		s.opts.rules,
 		s.opts.governance,
 		governance.WithAdminManager(s.opts.manager),
-		governance.WithAdminPathPrefix("/rpc/admin/governance"),
+		governance.WithAdminPathPrefix(rpcAdminPrefix+"/governance"),
 		governance.WithAdminDefaultRequest(governance.Request{Transport: governance.TransportRPC}),
 	)
 }

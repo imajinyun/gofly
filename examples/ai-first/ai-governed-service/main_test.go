@@ -20,7 +20,7 @@ func TestAIGovernedServiceStateAndControlPlane(t *testing.T) {
 	}
 
 	cp := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/admin/control-plane", nil)
+	req := httptest.NewRequest(http.MethodGet, "/gofly/admin/control-plane", nil)
 	req.Header.Set("Authorization", "Bearer test-token")
 	server.Handler().ServeHTTP(cp, req)
 	if cp.Code != http.StatusOK {
@@ -37,7 +37,7 @@ func TestAIGovernedServiceStateAndControlPlane(t *testing.T) {
 
 func TestExpectedControlPlaneContract(t *testing.T) {
 	contract := expectedControlPlaneContract()
-	if contract["service"] != "ai-governed-service" || contract["adminPath"] != "/admin/control-plane" {
+	if contract["service"] != "ai-governed-service" || contract["adminPath"] != "/gofly/admin/control-plane" {
 		t.Fatalf("contract = %#v, want service and admin path", contract)
 	}
 }

@@ -1750,7 +1750,7 @@ func TestAINewTextHelpAndManifestContract(t *testing.T) {
 			},
 		}.WithChecksum()
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodGet || r.URL.Path != "/admin/control-plane" {
+			if r.Method != http.MethodGet || r.URL.Path != "/gofly/admin/control-plane" {
 				t.Fatalf("runtime source request = %s %s", r.Method, r.URL.Path)
 			}
 			if got := r.Header.Get("Authorization"); got != "Bearer runtime-token" {
@@ -1764,7 +1764,7 @@ func TestAINewTextHelpAndManifestContract(t *testing.T) {
 		defer server.Close()
 
 		var stdout bytes.Buffer
-		args := []string{"ai", "control-plane", "--source", server.URL + "/admin/control-plane", "--admin-token", "runtime-token", "--json"}
+		args := []string{"ai", "control-plane", "--source", server.URL + "/gofly/admin/control-plane", "--admin-token", "runtime-token", "--json"}
 		if err := ExecuteWithIO(args, IOStreams{Out: &stdout}); err != nil {
 			t.Fatalf("ai control-plane --source: %v", err)
 		}
@@ -1779,7 +1779,7 @@ func TestAINewTextHelpAndManifestContract(t *testing.T) {
 		if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
 			t.Fatalf("decode ai control-plane source output: %v\n%s", err, stdout.String())
 		}
-		if envelope.Data.Source != server.URL+"/admin/control-plane" || envelope.Data.Snapshot.Checksum != wantSnapshot.Checksum {
+		if envelope.Data.Source != server.URL+"/gofly/admin/control-plane" || envelope.Data.Snapshot.Checksum != wantSnapshot.Checksum {
 			t.Fatalf("runtime source envelope = %+v, want source URL and runtime checksum", envelope.Data)
 		}
 		if envelope.Data.Snapshot.Metadata["rest.runtime"] != "available" || !json.Valid(envelope.Data.Snapshot.Configs["rest.runtime"]) {
@@ -2254,7 +2254,7 @@ func TestAIControlPlaneTextAndErrorCoverageBuffer(t *testing.T) {
 		}{
 			{name: "bad format", args: []string{"ai", "control-plane", "--format", "xml"}, want: "unsupported --format"},
 			{name: "bad schema", args: []string{"ai", "control-plane", "--schema", "openapi"}, want: "unsupported --schema"},
-			{name: "relative source", args: []string{"ai", "control-plane", "--source", "/admin/control-plane"}, want: "absolute http(s) URL"},
+			{name: "relative source", args: []string{"ai", "control-plane", "--source", "/gofly/admin/control-plane"}, want: "absolute http(s) URL"},
 			{name: "bad scheme", args: []string{"ai", "control-plane", "--source", "ftp://example.com/control-plane.json"}, want: "only http and https"},
 			{name: "bad timeout", args: []string{"ai", "control-plane", "--watch", "--timeout", "0s"}, want: "positive duration"},
 		}
@@ -3869,10 +3869,14 @@ func TestRPCDescriptorURLAndAIDoctorConfigBoundaries(t *testing.T) {
 		wantPath    string
 		wantErrPart string
 	}{
-		{name: "already service descriptor", raw: "http://127.0.0.1/rpc/admin/descriptors/greeter", wantPath: "/rpc/admin/descriptors/greeter"},
-		{name: "descriptor collection requires service", raw: "http://127.0.0.1/rpc/admin/descriptors/", wantErrPart: "--service is required"},
-		{name: "descriptor collection appends escaped service", raw: "http://127.0.0.1/rpc/admin/descriptors", service: "user service", wantPath: "/rpc/admin/descriptors/user%20service"},
-		{name: "admin base requires service", raw: "http://127.0.0.1/admin", wantErrPart: "admin base"},
+		{name: "canonical service descriptor", raw: "http://127.0.0.1/gofly/rpc/admin/descriptors/greeter", wantPath: "/gofly/rpc/admin/descriptors/greeter"},
+		{name: "canonical descriptor collection appends escaped service", raw: "http://127.0.0.1/gofly/rpc/admin/descriptors", service: "user service", wantPath: "/gofly/rpc/admin/descriptors/user%20service"},
+		{name: "canonical admin base requires service", raw: "http://127.0.0.1/gofly/admin", wantErrPart: "admin base"},
+		{name: "bare host appends canonical descriptor namespace", raw: "http://127.0.0.1/", service: "greeter", wantPath: "/gofly/rpc/admin/descriptors/greeter"},
+		{name: "legacy service descriptor", raw: "http://127.0.0.1/rpc/admin/descriptors/greeter", wantPath: "/rpc/admin/descriptors/greeter"},
+		{name: "legacy descriptor collection requires service", raw: "http://127.0.0.1/rpc/admin/descriptors/", wantErrPart: "--service is required"},
+		{name: "legacy descriptor collection appends escaped service", raw: "http://127.0.0.1/rpc/admin/descriptors", service: "user service", wantPath: "/rpc/admin/descriptors/user%20service"},
+		{name: "legacy admin base requires service", raw: "http://127.0.0.1/admin", wantErrPart: "admin base"},
 		{name: "custom base appends service descriptor", raw: "http://127.0.0.1/custom/", service: "greeter", wantPath: "/custom/rpc/admin/descriptors/greeter"},
 		{name: "custom base without service unchanged", raw: "http://127.0.0.1/custom/", wantPath: "/custom/"},
 	}

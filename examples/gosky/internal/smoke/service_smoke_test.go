@@ -85,12 +85,12 @@ func runGeneratedControlPlaneSmoke(t *testing.T, binary string, repo string, res
 			stopGeneratedService(t, cmd, &output)
 		}
 	})
-	waitHTTPStatus(t, ctx, "http://"+restAddr+"/healthz", http.StatusOK, &output)
+	waitHTTPStatus(t, ctx, "http://"+restAddr+"/gofly/healthz", http.StatusOK, &output)
 	assertAuthorizationHTTPContract(t, ctx, restAddr, &output)
 	assertAuthorizationRPCContract(t, ctx, rpcAddr, &output)
 	assertAuthorizationMuxContract(t, ctx, muxAddr, &output)
 	waitOpenAPI(t, ctx, "http://"+restAddr+"/openapi.json", &output)
-	controlPlane := waitControlPlane(t, ctx, "http://"+adminAddr+"/admin/control-plane", &output)
+	controlPlane := waitControlPlane(t, ctx, "http://"+adminAddr+"/gofly/control-plane", &output)
 	stopGeneratedService(t, cmd, &output)
 	stopped = true
 	return controlPlane

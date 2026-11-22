@@ -35,14 +35,14 @@ func TestNewObservabilityDemoHandlers(t *testing.T) {
 	}
 
 	metricsJSON := httptest.NewRecorder()
-	admin.Handler.ServeHTTP(metricsJSON, httptest.NewRequest(http.MethodGet, "/debug/metrics.json", nil))
+	admin.Handler.ServeHTTP(metricsJSON, httptest.NewRequest(http.MethodGet, "/gofly/metrics.json", nil))
 	if metricsJSON.Code != http.StatusOK || !strings.Contains(metricsJSON.Body.String(), "requests") {
-		t.Fatalf("GET /debug/metrics.json = %d %s, want metrics json", metricsJSON.Code, metricsJSON.Body.String())
+		t.Fatalf("GET /gofly/metrics.json = %d %s, want metrics json", metricsJSON.Code, metricsJSON.Body.String())
 	}
 
 	health := httptest.NewRecorder()
-	admin.Handler.ServeHTTP(health, httptest.NewRequest(http.MethodGet, "/debug/healthz", nil))
+	admin.Handler.ServeHTTP(health, httptest.NewRequest(http.MethodGet, "/gofly/healthz", nil))
 	if health.Code != http.StatusOK {
-		t.Fatalf("GET /debug/healthz = %d %s, want 200", health.Code, health.Body.String())
+		t.Fatalf("GET /gofly/healthz = %d %s, want 200", health.Code, health.Body.String())
 	}
 }

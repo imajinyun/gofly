@@ -17,7 +17,7 @@ checks = {
         'error.code',
     ],
     'docs/reference/control-plane-contracts.md': [
-        'GET /admin/control-plane',
+        'GET /gofly/admin/control-plane',
         '## Snapshot object',
         '## Diff object',
         '## Consumer action object',

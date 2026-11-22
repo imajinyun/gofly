@@ -146,11 +146,11 @@ func TestStabilityMiddlewares(t *testing.T) {
 
 func TestPprofAndCatalogHandlers(t *testing.T) {
 	srv := rest.MustNewServer(rest.Config{Preset: rest.PresetCustom, Name: "middleware-test"})
-	RegisterPprofRoutes(srv, "/debug/pprof")
+	RegisterPprofRoutes(srv, "/gofly/debug/pprof")
 	srv.AddRoute(rest.Route{Method: http.MethodGet, Path: "/middleware/catalog", Handler: MiddlewareCatalogHandler()})
 
 	pprofRec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(pprofRec, httptest.NewRequest(http.MethodGet, "/debug/pprof/", nil))
+	srv.Handler().ServeHTTP(pprofRec, httptest.NewRequest(http.MethodGet, "/gofly/debug/pprof/", nil))
 	if pprofRec.Code != http.StatusOK || !strings.Contains(pprofRec.Body.String(), "profile") {
 		t.Fatalf("pprof route = %d %s", pprofRec.Code, pprofRec.Body.String())
 	}

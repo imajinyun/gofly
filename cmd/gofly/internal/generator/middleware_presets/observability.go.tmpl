@@ -29,7 +29,7 @@ func RegisterPprofRoutes(srv *rest.Server, prefix string, middlewares ...rest.Mi
 	}
 	prefix = strings.TrimRight("/"+strings.Trim(prefix, "/"), "/")
 	if prefix == "" {
-		prefix = "/debug/pprof"
+		prefix = "/gofly/debug/pprof"
 	}
 	addPprofRoute := func(method, path string, handler http.HandlerFunc) {
 		srv.AddRoute(rest.Route{Method: method, Path: prefix + path, Middlewares: middlewares, Handler: func(c *rest.Context) {

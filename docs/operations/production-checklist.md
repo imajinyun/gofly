@@ -4,7 +4,7 @@ Use this list after `gofly new service --style production` or before promoting
 an example into a real environment.
 
 1. `go test ./...` passes in the service module.
-2. `/healthz` and `/admin/control-plane` respond.
+2. `/gofly/healthz` and `/gofly/admin/control-plane` respond.
 3. `bin/production-check.sh` or `make production-check` fails closed on unsafe
    defaults (open admin, skipped TLS, unbounded body limits).
 4. Generated `deploy/k8s/` and `deploy/helm/` are reviewed before apply.

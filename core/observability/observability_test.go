@@ -128,12 +128,12 @@ func TestObserveRegisterAndAccessors(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	observe.Register(mux, "/debug")
+	observe.Register(mux, "/gofly")
 	observe.Register(mux, "")
 	observe.Register(mux, "/admin")
 
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/debug/healthz", nil))
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/gofly/healthz", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("register healthz status = %d", rec.Code)
 	}

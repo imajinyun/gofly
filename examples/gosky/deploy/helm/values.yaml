@@ -16,15 +16,15 @@ service:
 
 probes:
   readiness:
-    path: /healthz
+    path: /gofly/healthz
     initialDelaySeconds: 3
     periodSeconds: 5
   liveness:
-    path: /healthz
+    path: /gofly/healthz
     initialDelaySeconds: 10
     periodSeconds: 10
   startup:
-    path: /healthz
+    path: /gofly/healthz
     failureThreshold: 30
     periodSeconds: 2
 
@@ -59,4 +59,4 @@ secret:
 serviceMonitor:
   enabled: true
   interval: 30s
-  path: /admin/metrics
+  path: /gofly/metrics

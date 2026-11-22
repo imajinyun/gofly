@@ -44,7 +44,7 @@ spec:
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8081"
-        prometheus.io/path: "/metrics"
+        prometheus.io/path: "/gofly/metrics"
     spec:
       serviceAccountName: default
       securityContext:
@@ -70,7 +70,7 @@ spec:
               value: info
           livenessProbe:
             httpGet:
-              path: /healthz
+              path: /gofly/healthz
               port: 8080
             initialDelaySeconds: 10
             periodSeconds: 10
@@ -78,7 +78,7 @@ spec:
             failureThreshold: 6
           readinessProbe:
             httpGet:
-              path: /readyz
+              path: /gofly/readyz
               port: 8080
             initialDelaySeconds: 5
             periodSeconds: 5
@@ -86,7 +86,7 @@ spec:
             failureThreshold: 3
           startupProbe:
             httpGet:
-              path: /startupz
+              path: /gofly/startupz
               port: 8080
             initialDelaySeconds: 2
             periodSeconds: 2

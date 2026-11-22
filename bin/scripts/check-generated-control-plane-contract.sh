@@ -67,7 +67,7 @@ for token in ("runGeneratedControlPlaneSmoke", "restoreRecommendedSmokeConfig", 
     if token not in template or token not in service_test:
         missing.append(f"generated admin smoke helper marker missing {token!r}")
 
-for token in ("curl -fsS http://127.0.0.1:9090/admin/control-plane", "generated.rpcMuxConfigWarningSchema", "generated.controlPlaneSchemaChecksums"):
+for token in ("curl -fsS http://127.0.0.1:9090/gofly/control-plane", "generated.rpcMuxConfigWarningSchema", "generated.controlPlaneSchemaChecksums"):
     if token not in bug:
         missing.append(f"bug support bundle guidance missing {token!r}")
 

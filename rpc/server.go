@@ -405,7 +405,7 @@ func (s *HTTPServer) serviceNames() []string {
 
 // ServeHTTP implements http.Handler and dispatches RPC, stream, and admin requests.
 func (s *HTTPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if strings.HasPrefix(r.URL.Path, "/rpc/admin/") {
+	if strings.HasPrefix(r.URL.Path, rpcAdminPrefix+"/") {
 		s.serveAdmin(w, r)
 		return
 	}

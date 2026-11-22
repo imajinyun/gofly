@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	coreendpoint "github.com/imajinyun/gofly/core/endpoint"
 	"github.com/imajinyun/gofly/core/limit"
 )
 
@@ -120,7 +121,7 @@ func (p *shadowPool) Shutdown(ctx context.Context) error {
 
 func normalizeActiveHealthConfig(conf ActiveHealthConfig) ActiveHealthConfig {
 	if conf.Path == "" {
-		conf.Path = "/healthz"
+		conf.Path = coreendpoint.HealthzPath
 	}
 	if conf.Timeout <= 0 {
 		conf.Timeout = time.Second

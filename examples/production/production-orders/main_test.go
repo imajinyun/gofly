@@ -96,7 +96,7 @@ func TestBuildRESTServerOrderRouteBoundaries(t *testing.T) {
 	}
 
 	controlPlane := httptest.NewRecorder()
-	cpReq := httptest.NewRequest(http.MethodGet, "/admin/control-plane", nil)
+	cpReq := httptest.NewRequest(http.MethodGet, "/gofly/admin/control-plane", nil)
 	cpReq.Header.Set("Authorization", "Bearer orders-token")
 	srv.Handler().ServeHTTP(controlPlane, cpReq)
 	if controlPlane.Code != http.StatusOK {

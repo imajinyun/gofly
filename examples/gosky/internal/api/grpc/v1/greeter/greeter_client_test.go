@@ -27,7 +27,7 @@ func TestGreeterRPCClient(t *testing.T) {
 	httpServer := httptest.NewServer(server)
 	defer httpServer.Close()
 
-	descriptorResp, err := http.Get(httpServer.URL + "/rpc/admin/descriptors/greeter")
+	descriptorResp, err := http.Get(httpServer.URL + "/gofly/rpc/admin/descriptors/greeter")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestGreeterRPCClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compatResp, err := http.Post(httpServer.URL+"/rpc/admin/descriptors/greeter/compatibility", "application/json", bytes.NewReader(descriptorPayload))
+	compatResp, err := http.Post(httpServer.URL+"/gofly/rpc/admin/descriptors/greeter/compatibility", "application/json", bytes.NewReader(descriptorPayload))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -89,7 +89,7 @@ func TestDoctorFamilySupportBundleContract(t *testing.T) {
 			t.Fatalf("supportBundle.redaction missing %q: %#v", want, report.SupportBundle.Redaction)
 		}
 	}
-	for _, want := range []string{"gofly doctor --json", "gofly env check --json", "gofly release check --json --strict", "gofly bug --json", "curl -fsS http://127.0.0.1:9090/admin/control-plane"} {
+	for _, want := range []string{"gofly doctor --json", "gofly env check --json", "gofly release check --json --strict", "gofly bug --json", "curl -fsS http://127.0.0.1:9090/gofly/control-plane"} {
 		if !containsDoctorSplitString(report.SupportBundle.Commands, want) {
 			t.Fatalf("supportBundle.commands missing %q: %#v", want, report.SupportBundle.Commands)
 		}

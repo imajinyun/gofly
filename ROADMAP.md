@@ -10,7 +10,7 @@ The production golden path is already the Tier 0 contract:
 
 - `gofly new service --style production` layout in `docs/reference/generated-service-layout.md`
 - `examples/production/production-orders` as the compact production reference app
-- generated `/healthz` and `/admin/control-plane` smoke
+- generated `/gofly/healthz` and `/gofly/control-plane` smoke
 - Helm, Kustomize-ready deploy starters, and `bin/production-check.sh`
 
 Hold: RPC unary and stream latency stay report-only. Do not promote RPC to

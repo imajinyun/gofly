@@ -20,7 +20,7 @@ func TestServiceConfWithDefaultsWiresRuntimePrimitives(t *testing.T) {
 	if conf.Metrics.Enabled || conf.Trace.Enabled || conf.Trace.ServiceName != "orders" || conf.Trace.SampleRatio != 1 {
 		t.Fatalf("service observability defaults metrics=%+v trace=%+v", conf.Metrics, conf.Trace)
 	}
-	if conf.Profile.Addr != "127.0.0.1:6060" || conf.Profile.PathPrefix != "/debug/pprof" || conf.Profile.ReadHeaderTimeout != 5*time.Second {
+	if conf.Profile.Addr != "127.0.0.1:6060" || conf.Profile.PathPrefix != "/gofly/debug/pprof" || conf.Profile.ReadHeaderTimeout != 5*time.Second {
 		t.Fatalf("service profile defaults = %+v", conf.Profile)
 	}
 	if conf.Health.Timeout != time.Second || conf.StartupTimeout != 5*time.Second || conf.ShutdownTimeout != 10*time.Second {

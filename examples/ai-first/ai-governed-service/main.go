@@ -49,7 +49,7 @@ func buildAIGovernedServer(port int, token string) *rest.Server {
 		Host:    "0.0.0.0",
 		Port:    port,
 		Timeout: 3 * time.Second,
-		Admin:   rest.AdminConfig{Enabled: true, PathPrefix: "/admin", Token: token, Audit: true},
+		Admin:   rest.AdminConfig{Enabled: true, PathPrefix: "/gofly/admin", Token: token, Audit: true},
 		Middlewares: rest.MiddlewaresConfig{
 			Recover:   true,
 			Trace:     true,
@@ -80,7 +80,7 @@ func buildAIGovernedServer(port int, token string) *rest.Server {
 func expectedControlPlaneContract() map[string]any {
 	return map[string]any{
 		"service":      "ai-governed-service",
-		"adminPath":    "/admin/control-plane",
+		"adminPath":    "/gofly/admin/control-plane",
 		"contractHash": "ai-governed-service:v1:rest-governed",
 		"assertions": []string{
 			"metadata.name == ai-governed-service",

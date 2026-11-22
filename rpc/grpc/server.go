@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/imajinyun/gofly/core/discovery"
+	coreendpoint "github.com/imajinyun/gofly/core/endpoint"
 	"github.com/imajinyun/gofly/core/governance"
 	"github.com/imajinyun/gofly/core/limit"
 	"github.com/imajinyun/gofly/core/observability/metrics"
@@ -748,11 +749,11 @@ func newAdminServer(addr string, rules *governance.RuleSet, registry *metrics.Re
 	RuntimeSnapshot(context.Context) coreruntime.Snapshot
 }) *http.Server {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(coreendpoint.HealthzPath, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(coreendpoint.ReadyzPath, func(w http.ResponseWriter, r *http.Request) {
 		if ready, ok := runtimeSource.(interface{ Ready() bool }); ok && !ready.Ready() {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = w.Write([]byte("not ready"))
@@ -761,11 +762,11 @@ func newAdminServer(addr string, rules *governance.RuleSet, registry *metrics.Re
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	mux.HandleFunc("/startupz", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(coreendpoint.StartupzPath, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(coreendpoint.MetricsPath, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 		if registry != nil {
 			_ = registry.WritePrometheus(w)
@@ -773,7 +774,7 @@ func newAdminServer(addr string, rules *governance.RuleSet, registry *metrics.Re
 		}
 		_ = metrics.Default.WritePrometheus(w)
 	})
-	mux.HandleFunc("/runtime", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(coreendpoint.AdminPrefix+"/runtime", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if runtimeSource == nil {
 			_ = json.NewEncoder(w).Encode(coreruntime.Snapshot{})
@@ -788,12 +789,12 @@ func newAdminServer(addr string, rules *governance.RuleSet, registry *metrics.Re
 	}
 	if rules != nil || manager != nil {
 		admin := governance.NewAdmin(rules, nil, governance.WithAdminManager(manager))
-		mux.Handle("/governance/", http.StripPrefix("/governance", admin))
+		mux.Handle(coreendpoint.AdminPrefix+"/governance/", http.StripPrefix(coreendpoint.AdminPrefix+"/governance", admin))
 	}
 	var handler http.Handler = mux
 	if authorize != nil {
 		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path != "/healthz" && r.URL.Path != "/readyz" && r.URL.Path != "/startupz" && !authorize(r) {
+			if r.URL.Path != coreendpoint.HealthzPath && r.URL.Path != coreendpoint.ReadyzPath && r.URL.Path != coreendpoint.StartupzPath && !authorize(r) {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}

@@ -113,7 +113,7 @@ func TestProfileServerHandlerAndDefaults(t *testing.T) {
 		t.Fatalf("profile config = %+v, want default addr and timeout", server.conf)
 	}
 	rec := httptest.NewRecorder()
-	server.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/debug/pprof/", nil))
+	server.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/gofly/debug/pprof/", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("pprof index status = %d, want 200", rec.Code)
 	}
@@ -122,13 +122,13 @@ func TestProfileServerHandlerAndDefaults(t *testing.T) {
 func TestProfileServerDisabledHandlerAndRemoteProtection(t *testing.T) {
 	disabled := NewProfileServer(ProfileConfig{Enabled: false})
 	rec := httptest.NewRecorder()
-	disabled.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/debug/pprof/", nil))
+	disabled.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/gofly/debug/pprof/", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("disabled pprof status = %d, want 404", rec.Code)
 	}
 
 	server := NewProfileServer(ProfileConfig{Enabled: true, AllowRemote: true})
-	remote := httptest.NewRequest(http.MethodGet, "/debug/pprof/", nil)
+	remote := httptest.NewRequest(http.MethodGet, "/gofly/debug/pprof/", nil)
 	remote.RemoteAddr = "203.0.113.10:12345"
 	unauthorized := httptest.NewRecorder()
 	server.Handler().ServeHTTP(unauthorized, remote)

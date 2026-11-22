@@ -66,7 +66,7 @@ func TestHTTPServerDiagnosisFiltersMuxFlowControl(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/rpc/admin/diagnosis?flowControlEvent=write-timeout&eventFamily=flow-control&event=write-timeout", nil)
+	req := httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/diagnosis?flowControlEvent=write-timeout&eventFamily=flow-control&event=write-timeout", nil)
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -94,7 +94,7 @@ func TestHTTPServerDiagnosisFiltersMuxFlowControl(t *testing.T) {
 		t.Fatalf("filtered diagnosis counters = %+v, want unrelated flow-control counters hidden", diagnosis.Mux.FlowControl)
 	}
 
-	missingReq := httptest.NewRequest(http.MethodGet, "/rpc/admin/diagnosis?eventFamily=flow-control&event=credit-wait-timeout", nil)
+	missingReq := httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/diagnosis?eventFamily=flow-control&event=credit-wait-timeout", nil)
 	missingRec := httptest.NewRecorder()
 	server.ServeHTTP(missingRec, missingReq)
 	if missingRec.Code != http.StatusOK {
@@ -139,7 +139,7 @@ func TestHTTPServerDiagnosisExportsMuxEvents(t *testing.T) {
 	}}}, nil); err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodGet, "/rpc/admin/diagnosis?service=greeter&method=Watch&eventFamily=flow-control&event=write-timeout", nil)
+	req := httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/diagnosis?service=greeter&method=Watch&eventFamily=flow-control&event=write-timeout", nil)
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -172,7 +172,7 @@ func TestHTTPServerUpdateMuxDiagnosisEventExporter(t *testing.T) {
 		records <- record
 	}), RPCMuxDiagnosisFilter{EventFamily: "flow_control", Event: "write_timeout"})
 
-	req := httptest.NewRequest(http.MethodGet, "/rpc/admin/diagnosis?eventFamily=flow-control&event=write-timeout", nil)
+	req := httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/diagnosis?eventFamily=flow-control&event=write-timeout", nil)
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -312,7 +312,7 @@ func TestHTTPServerMuxOperatorActionsEndpoint(t *testing.T) {
 	})
 	server := NewServer(WithServerMuxDiagnosisEventExporter(sinkSet, RPCMuxDiagnosisFilter{}))
 
-	req := httptest.NewRequest(http.MethodGet, "/rpc/admin/mux/operator-actions", nil)
+	req := httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/mux/operator-actions", nil)
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -328,7 +328,7 @@ func TestHTTPServerMuxOperatorActionsEndpoint(t *testing.T) {
 		t.Fatalf("operator actions = %+v", actions)
 	}
 
-	dryRunReq := httptest.NewRequest(http.MethodPost, "/rpc/admin/mux/operator-actions", strings.NewReader(`{"sink":"operator-actions","action":"pause_sink"}`))
+	dryRunReq := httptest.NewRequest(http.MethodPost, "/gofly/rpc/admin/mux/operator-actions", strings.NewReader(`{"sink":"operator-actions","action":"pause_sink"}`))
 	dryRunRec := httptest.NewRecorder()
 	server.ServeHTTP(dryRunRec, dryRunReq)
 	if dryRunRec.Code != http.StatusOK {
@@ -346,7 +346,7 @@ func TestHTTPServerMuxOperatorActionsEndpoint(t *testing.T) {
 		WithServerMuxDiagnosisEventExporter(sinkSet, RPCMuxDiagnosisFilter{}),
 		WithServerMuxDiagnosisOperatorApprovalToken("approve-me"),
 	)
-	approvedReq := httptest.NewRequest(http.MethodPost, "/rpc/admin/mux/operator-actions", strings.NewReader(`{"sink":"operator-actions","action":"pause_sink","token":"approve-me"}`))
+	approvedReq := httptest.NewRequest(http.MethodPost, "/gofly/rpc/admin/mux/operator-actions", strings.NewReader(`{"sink":"operator-actions","action":"pause_sink","token":"approve-me"}`))
 	approvedRec := httptest.NewRecorder()
 	server.ServeHTTP(approvedRec, approvedReq)
 	if approvedRec.Code != http.StatusOK {
@@ -362,7 +362,7 @@ func TestHTTPServerMuxOperatorActionsEndpoint(t *testing.T) {
 	if snapshot := sinkSet.RPCMuxDiagnosisSinkSetSnapshot(); !snapshot.Sinks[0].Delivery.OperatorPaused {
 		t.Fatalf("snapshot after approved pause = %+v", snapshot)
 	}
-	wrongTokenReq := httptest.NewRequest(http.MethodPost, "/rpc/admin/mux/operator-actions", strings.NewReader(`{"sink":"operator-actions","action":"resume_sink","token":"wrong"}`))
+	wrongTokenReq := httptest.NewRequest(http.MethodPost, "/gofly/rpc/admin/mux/operator-actions", strings.NewReader(`{"sink":"operator-actions","action":"resume_sink","token":"wrong"}`))
 	wrongTokenRec := httptest.NewRecorder()
 	server.ServeHTTP(wrongTokenRec, wrongTokenReq)
 	if wrongTokenRec.Code != http.StatusOK {
@@ -375,7 +375,7 @@ func TestHTTPServerMuxOperatorActionsEndpoint(t *testing.T) {
 	if !wrongToken.DryRun || wrongToken.Approved || wrongToken.Reason != "approval_required" {
 		t.Fatalf("wrong-token action = %+v", wrongToken)
 	}
-	historyReq := httptest.NewRequest(http.MethodGet, "/rpc/admin/mux/operator-actions/history?limit=1", nil)
+	historyReq := httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/mux/operator-actions/history?limit=1", nil)
 	historyRec := httptest.NewRecorder()
 	server.ServeHTTP(historyRec, historyReq)
 	if historyRec.Code != http.StatusOK {
@@ -411,23 +411,23 @@ func TestHTTPServerMuxOperatorActionBoundaries(t *testing.T) {
 		t.Fatalf("server without history source integrity = %+v err=%v", integrity, err)
 	}
 	nilRec := httptest.NewRecorder()
-	(*HTTPServer)(nil).serveMuxOperatorAction(nilRec, httptest.NewRequest(http.MethodPost, "/rpc/admin/mux/operator-actions", strings.NewReader(`{}`)))
+	(*HTTPServer)(nil).serveMuxOperatorAction(nilRec, httptest.NewRequest(http.MethodPost, "/gofly/rpc/admin/mux/operator-actions", strings.NewReader(`{}`)))
 	if nilRec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("nil server operator action status = %d body=%s", nilRec.Code, nilRec.Body.String())
 	}
 	server := NewServer()
 	emptyRec := httptest.NewRecorder()
-	server.ServeHTTP(emptyRec, httptest.NewRequest(http.MethodPost, "/rpc/admin/mux/operator-actions", nil))
+	server.ServeHTTP(emptyRec, httptest.NewRequest(http.MethodPost, "/gofly/rpc/admin/mux/operator-actions", nil))
 	if emptyRec.Code != http.StatusBadRequest {
 		t.Fatalf("empty operator payload status = %d body=%s", emptyRec.Code, emptyRec.Body.String())
 	}
 	invalidRec := httptest.NewRecorder()
-	server.ServeHTTP(invalidRec, httptest.NewRequest(http.MethodPost, "/rpc/admin/mux/operator-actions", strings.NewReader(`{`)))
+	server.ServeHTTP(invalidRec, httptest.NewRequest(http.MethodPost, "/gofly/rpc/admin/mux/operator-actions", strings.NewReader(`{`)))
 	if invalidRec.Code != http.StatusBadRequest {
 		t.Fatalf("invalid operator payload status = %d body=%s", invalidRec.Code, invalidRec.Body.String())
 	}
 	missingRec := httptest.NewRecorder()
-	server.ServeHTTP(missingRec, httptest.NewRequest(http.MethodPost, "/rpc/admin/mux/operator-actions", strings.NewReader(`{"sink":"missing","action":"pause_sink"}`)))
+	server.ServeHTTP(missingRec, httptest.NewRequest(http.MethodPost, "/gofly/rpc/admin/mux/operator-actions", strings.NewReader(`{"sink":"missing","action":"pause_sink"}`)))
 	if missingRec.Code != http.StatusNotFound {
 		t.Fatalf("missing operator source status = %d body=%s", missingRec.Code, missingRec.Body.String())
 	}
@@ -456,7 +456,7 @@ func TestHTTPServerMuxOperatorActionBoundaries(t *testing.T) {
 		WithServerMuxDiagnosisOperatorApprovalToken("approve-me"),
 	)
 	badActionRec := httptest.NewRecorder()
-	governedServer.ServeHTTP(badActionRec, httptest.NewRequest(http.MethodPost, "/rpc/admin/mux/operator-actions", strings.NewReader(`{"sink":"slog","action":"bad","token":"approve-me"}`)))
+	governedServer.ServeHTTP(badActionRec, httptest.NewRequest(http.MethodPost, "/gofly/rpc/admin/mux/operator-actions", strings.NewReader(`{"sink":"slog","action":"bad","token":"approve-me"}`)))
 	if badActionRec.Code != http.StatusBadRequest {
 		t.Fatalf("bad operator action status = %d body=%s", badActionRec.Code, badActionRec.Body.String())
 	}
@@ -468,12 +468,12 @@ func TestHTTPServerAdminAuditAndMethodBoundaries(t *testing.T) {
 		auditEvents = append(auditEvents, event)
 	}))
 	methodRec := httptest.NewRecorder()
-	server.ServeHTTP(methodRec, httptest.NewRequest(http.MethodPost, "/rpc/admin/state", nil))
+	server.ServeHTTP(methodRec, httptest.NewRequest(http.MethodPost, "/gofly/rpc/admin/state", nil))
 	if methodRec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("method boundary status = %d body=%s", methodRec.Code, methodRec.Body.String())
 	}
 	notFoundRec := httptest.NewRecorder()
-	server.ServeHTTP(notFoundRec, httptest.NewRequest(http.MethodGet, "/rpc/admin/missing", nil))
+	server.ServeHTTP(notFoundRec, httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/missing", nil))
 	if notFoundRec.Code != http.StatusNotFound {
 		t.Fatalf("missing admin status = %d body=%s", notFoundRec.Code, notFoundRec.Body.String())
 	}
@@ -496,7 +496,7 @@ func TestHTTPServerMuxOperatorAuditValidateEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	validRec := httptest.NewRecorder()
-	server.ServeHTTP(validRec, httptest.NewRequest(http.MethodPost, "/rpc/admin/mux/operator-actions/audit-schemas/validate", strings.NewReader(string(validBody))))
+	server.ServeHTTP(validRec, httptest.NewRequest(http.MethodPost, "/gofly/rpc/admin/mux/operator-actions/audit-schemas/validate", strings.NewReader(string(validBody))))
 	if validRec.Code != http.StatusOK {
 		t.Fatalf("valid audit validate status = %d body=%s", validRec.Code, validRec.Body.String())
 	}
@@ -510,7 +510,7 @@ func TestHTTPServerMuxOperatorAuditValidateEndpoint(t *testing.T) {
 
 	// A payload with an unknown marker reports no recognized schema, not a crash.
 	unknownRec := httptest.NewRecorder()
-	server.ServeHTTP(unknownRec, httptest.NewRequest(http.MethodPost, "/rpc/admin/mux/operator-actions/audit-schemas/validate", strings.NewReader(`{"schema":"gofly.rpc_mux_operator_unknown.v9"}`)))
+	server.ServeHTTP(unknownRec, httptest.NewRequest(http.MethodPost, "/gofly/rpc/admin/mux/operator-actions/audit-schemas/validate", strings.NewReader(`{"schema":"gofly.rpc_mux_operator_unknown.v9"}`)))
 	var unknownResponse RPCMuxDiagnosisOperatorAuditValidateResponse
 	if err := json.NewDecoder(unknownRec.Body).Decode(&unknownResponse); err != nil {
 		t.Fatal(err)
@@ -521,7 +521,7 @@ func TestHTTPServerMuxOperatorAuditValidateEndpoint(t *testing.T) {
 
 	// A recognized marker with a missing required field reports the violation.
 	brokenRec := httptest.NewRecorder()
-	server.ServeHTTP(brokenRec, httptest.NewRequest(http.MethodPost, "/rpc/admin/mux/operator-actions/audit-schemas/validate", strings.NewReader(`{"schema":"gofly.rpc_mux_operator_debug_replay_audit.v1","source":"primary"}`)))
+	server.ServeHTTP(brokenRec, httptest.NewRequest(http.MethodPost, "/gofly/rpc/admin/mux/operator-actions/audit-schemas/validate", strings.NewReader(`{"schema":"gofly.rpc_mux_operator_debug_replay_audit.v1","source":"primary"}`)))
 	var brokenResponse RPCMuxDiagnosisOperatorAuditValidateResponse
 	if err := json.NewDecoder(brokenRec.Body).Decode(&brokenResponse); err != nil {
 		t.Fatal(err)
@@ -537,12 +537,12 @@ func TestHTTPServerMuxOperatorAuditValidateEndpoint(t *testing.T) {
 
 	// Boundary: nil server and invalid body are handled cleanly.
 	nilRec := httptest.NewRecorder()
-	(*HTTPServer)(nil).serveMuxOperatorAuditValidate(nilRec, httptest.NewRequest(http.MethodPost, "/rpc/admin/mux/operator-actions/audit-schemas/validate", strings.NewReader(`{}`)))
+	(*HTTPServer)(nil).serveMuxOperatorAuditValidate(nilRec, httptest.NewRequest(http.MethodPost, "/gofly/rpc/admin/mux/operator-actions/audit-schemas/validate", strings.NewReader(`{}`)))
 	if nilRec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("nil server validate status = %d", nilRec.Code)
 	}
 	invalidRec := httptest.NewRecorder()
-	server.ServeHTTP(invalidRec, httptest.NewRequest(http.MethodPost, "/rpc/admin/mux/operator-actions/audit-schemas/validate", strings.NewReader(`{`)))
+	server.ServeHTTP(invalidRec, httptest.NewRequest(http.MethodPost, "/gofly/rpc/admin/mux/operator-actions/audit-schemas/validate", strings.NewReader(`{`)))
 	if invalidRec.Code != http.StatusBadRequest {
 		t.Fatalf("invalid audit validate body status = %d", invalidRec.Code)
 	}
@@ -580,12 +580,12 @@ func TestHTTPServerMuxOperatorAuditValidateCooldown(t *testing.T) {
 	limited := NewServer(WithServerMuxDiagnosisAuditValidateCooldown(time.Hour))
 	body := `{"schema":"gofly.rpc_mux_operator_debug_replay_audit.v1","source":"primary","limit":"1","token_result":"approved"}`
 	firstRec := httptest.NewRecorder()
-	limited.ServeHTTP(firstRec, httptest.NewRequest(http.MethodPost, "/rpc/admin/mux/operator-actions/audit-schemas/validate", strings.NewReader(body)))
+	limited.ServeHTTP(firstRec, httptest.NewRequest(http.MethodPost, "/gofly/rpc/admin/mux/operator-actions/audit-schemas/validate", strings.NewReader(body)))
 	if firstRec.Code != http.StatusOK {
 		t.Fatalf("first limited validate status = %d body=%s", firstRec.Code, firstRec.Body.String())
 	}
 	secondRec := httptest.NewRecorder()
-	limited.ServeHTTP(secondRec, httptest.NewRequest(http.MethodPost, "/rpc/admin/mux/operator-actions/audit-schemas/validate", strings.NewReader(body)))
+	limited.ServeHTTP(secondRec, httptest.NewRequest(http.MethodPost, "/gofly/rpc/admin/mux/operator-actions/audit-schemas/validate", strings.NewReader(body)))
 	if secondRec.Code != http.StatusTooManyRequests {
 		t.Fatalf("second limited validate status = %d, want 429", secondRec.Code)
 	}
@@ -666,7 +666,7 @@ func TestHTTPServerMuxOperatorHistoryRuntimeDetails(t *testing.T) {
 	}
 
 	replayRec := httptest.NewRecorder()
-	server.ServeHTTP(replayRec, httptest.NewRequest(http.MethodGet, "/rpc/admin/mux/operator-actions/history/replay", nil))
+	server.ServeHTTP(replayRec, httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/mux/operator-actions/history/replay", nil))
 	if replayRec.Code != http.StatusOK {
 		t.Fatalf("history replay status = %d body=%s", replayRec.Code, replayRec.Body.String())
 	}
@@ -681,7 +681,7 @@ func TestHTTPServerMuxOperatorHistoryRuntimeDetails(t *testing.T) {
 		t.Fatalf("initial cooldown = %f, want 0", replayResponse.CooldownRemainingSeconds)
 	}
 	schemaRec := httptest.NewRecorder()
-	server.ServeHTTP(schemaRec, httptest.NewRequest(http.MethodGet, "/rpc/admin/mux/operator-actions/audit-schemas", nil))
+	server.ServeHTTP(schemaRec, httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/mux/operator-actions/audit-schemas", nil))
 	if schemaRec.Code != http.StatusOK {
 		t.Fatalf("audit schema status = %d body=%s", schemaRec.Code, schemaRec.Body.String())
 	}
@@ -702,13 +702,13 @@ func TestHTTPServerMuxOperatorHistoryRuntimeDetails(t *testing.T) {
 	}
 
 	forbiddenDebugRec := httptest.NewRecorder()
-	server.ServeHTTP(forbiddenDebugRec, httptest.NewRequest(http.MethodGet, "/rpc/admin/mux/operator-actions/history/replay?debugActions=true&source=primary&limit=1", nil))
+	server.ServeHTTP(forbiddenDebugRec, httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/mux/operator-actions/history/replay?debugActions=true&source=primary&limit=1", nil))
 	if forbiddenDebugRec.Code != http.StatusForbidden {
 		t.Fatalf("history debug replay without token status = %d body=%s", forbiddenDebugRec.Code, forbiddenDebugRec.Body.String())
 	}
 
 	debugRec := httptest.NewRecorder()
-	server.ServeHTTP(debugRec, httptest.NewRequest(http.MethodGet, "/rpc/admin/mux/operator-actions/history/replay?debugActions=true&source=primary&limit=1&token=approve-me", nil))
+	server.ServeHTTP(debugRec, httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/mux/operator-actions/history/replay?debugActions=true&source=primary&limit=1&token=approve-me", nil))
 	if debugRec.Code != http.StatusOK {
 		t.Fatalf("history debug replay status = %d body=%s", debugRec.Code, debugRec.Body.String())
 	}
@@ -728,7 +728,7 @@ func TestHTTPServerMuxOperatorHistoryRuntimeDetails(t *testing.T) {
 		t.Fatalf("debug replay audit history = %+v", auditHistory)
 	}
 	cooldownRec := httptest.NewRecorder()
-	server.ServeHTTP(cooldownRec, httptest.NewRequest(http.MethodGet, "/rpc/admin/mux/operator-actions/history/replay", nil))
+	server.ServeHTTP(cooldownRec, httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/mux/operator-actions/history/replay", nil))
 	if cooldownRec.Code != http.StatusOK {
 		t.Fatalf("history cooldown evidence status = %d body=%s", cooldownRec.Code, cooldownRec.Body.String())
 	}
@@ -740,7 +740,7 @@ func TestHTTPServerMuxOperatorHistoryRuntimeDetails(t *testing.T) {
 		t.Fatalf("cooldown response = %+v, want positive remaining seconds", cooldownResponse)
 	}
 	rateLimitedRec := httptest.NewRecorder()
-	server.ServeHTTP(rateLimitedRec, httptest.NewRequest(http.MethodGet, "/rpc/admin/mux/operator-actions/history/replay?debugActions=true&source=primary&limit=1&token=approve-me", nil))
+	server.ServeHTTP(rateLimitedRec, httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/mux/operator-actions/history/replay?debugActions=true&source=primary&limit=1&token=approve-me", nil))
 	if rateLimitedRec.Code != http.StatusTooManyRequests {
 		t.Fatalf("history debug replay rate limit status = %d body=%s", rateLimitedRec.Code, rateLimitedRec.Body.String())
 	}
@@ -1737,12 +1737,12 @@ func TestHTTPServerAdminEndpoints(t *testing.T) {
 	}
 
 	unauthorized := httptest.NewRecorder()
-	s.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, "/rpc/admin/state", nil))
+	s.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/state", nil))
 	if unauthorized.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthorized status = %d, want %d", unauthorized.Code, http.StatusUnauthorized)
 	}
 
-	stateReq := httptest.NewRequest(http.MethodGet, "/rpc/admin/state", nil)
+	stateReq := httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/state", nil)
 	stateReq.Header.Set("Authorization", "Bearer secret")
 	stateRec := httptest.NewRecorder()
 	s.ServeHTTP(stateRec, stateReq)
@@ -1757,7 +1757,7 @@ func TestHTTPServerAdminEndpoints(t *testing.T) {
 		t.Fatalf("state = %#v, want initialized", state)
 	}
 
-	servicesReq := httptest.NewRequest(http.MethodGet, "/rpc/admin/services", nil)
+	servicesReq := httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/services", nil)
 	servicesReq.Header.Set("Authorization", "Bearer secret")
 	servicesRec := httptest.NewRecorder()
 	s.ServeHTTP(servicesRec, servicesReq)
@@ -1772,7 +1772,7 @@ func TestHTTPServerAdminEndpoints(t *testing.T) {
 		t.Fatalf("services = %#v, want greeter/SayHello", services)
 	}
 
-	descriptorsReq := httptest.NewRequest(http.MethodGet, "/rpc/admin/descriptors", nil)
+	descriptorsReq := httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/descriptors", nil)
 	descriptorsReq.Header.Set("Authorization", "Bearer secret")
 	descriptorsRec := httptest.NewRecorder()
 	s.ServeHTTP(descriptorsRec, descriptorsReq)
@@ -1791,7 +1791,7 @@ func TestHTTPServerAdminEndpoints(t *testing.T) {
 		t.Fatalf("descriptor methods = %#v, want SayHello request/response contract", desc.Methods)
 	}
 
-	descriptorReq := httptest.NewRequest(http.MethodGet, "/rpc/admin/descriptors/greeter", nil)
+	descriptorReq := httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/descriptors/greeter", nil)
 	descriptorReq.Header.Set("Authorization", "Bearer secret")
 	descriptorRec := httptest.NewRecorder()
 	s.ServeHTTP(descriptorRec, descriptorReq)
@@ -1806,7 +1806,7 @@ func TestHTTPServerAdminEndpoints(t *testing.T) {
 		t.Fatalf("single descriptor = %#v, want greeter contract", single)
 	}
 
-	missingDescriptorReq := httptest.NewRequest(http.MethodGet, "/rpc/admin/descriptors/missing", nil)
+	missingDescriptorReq := httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/descriptors/missing", nil)
 	missingDescriptorReq.Header.Set("Authorization", "Bearer secret")
 	missingDescriptorRec := httptest.NewRecorder()
 	s.ServeHTTP(missingDescriptorRec, missingDescriptorReq)
@@ -1814,7 +1814,7 @@ func TestHTTPServerAdminEndpoints(t *testing.T) {
 		t.Fatalf("missing descriptor status = %d, want %d", missingDescriptorRec.Code, http.StatusNotFound)
 	}
 
-	invalidDescriptorReq := httptest.NewRequest(http.MethodGet, "/rpc/admin/descriptors/greeter%2Fv1", nil)
+	invalidDescriptorReq := httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/descriptors/greeter%2Fv1", nil)
 	invalidDescriptorReq.Header.Set("Authorization", "Bearer secret")
 	invalidDescriptorRec := httptest.NewRecorder()
 	s.ServeHTTP(invalidDescriptorRec, invalidDescriptorReq)
@@ -1822,7 +1822,7 @@ func TestHTTPServerAdminEndpoints(t *testing.T) {
 		t.Fatalf("invalid descriptor status = %d, want %d", invalidDescriptorRec.Code, http.StatusBadRequest)
 	}
 
-	compatibilityAsDescriptorReq := httptest.NewRequest(http.MethodGet, "/rpc/admin/descriptors/greeter/compatibility", nil)
+	compatibilityAsDescriptorReq := httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/descriptors/greeter/compatibility", nil)
 	compatibilityAsDescriptorReq.Header.Set("Authorization", "Bearer secret")
 	compatibilityAsDescriptorRec := httptest.NewRecorder()
 	s.ServeHTTP(compatibilityAsDescriptorRec, compatibilityAsDescriptorReq)
@@ -1836,7 +1836,7 @@ func TestHTTPServerAdminEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compatibilityReq := httptest.NewRequest(http.MethodPost, "/rpc/admin/descriptors/greeter/compatibility", strings.NewReader(string(candidateData)))
+	compatibilityReq := httptest.NewRequest(http.MethodPost, "/gofly/rpc/admin/descriptors/greeter/compatibility", strings.NewReader(string(candidateData)))
 	compatibilityReq.Header.Set("Authorization", "Bearer secret")
 	compatibilityRec := httptest.NewRecorder()
 	s.ServeHTTP(compatibilityRec, compatibilityReq)
@@ -1853,7 +1853,7 @@ func TestHTTPServerAdminEndpoints(t *testing.T) {
 
 	invalidTargetReq := httptest.NewRequest(
 		http.MethodPost,
-		"/rpc/admin/descriptors/greeter/compatibility",
+		"/gofly/rpc/admin/descriptors/greeter/compatibility",
 		strings.NewReader(`{"methods":[{"name":"SayHello","request":"helloRequest","response":"helloResponse"}]}`),
 	)
 	invalidTargetReq.Header.Set("Authorization", "Bearer secret")
@@ -1865,7 +1865,7 @@ func TestHTTPServerAdminEndpoints(t *testing.T) {
 
 	oversizedCompatibilityReq := httptest.NewRequest(
 		http.MethodPost,
-		"/rpc/admin/descriptors/greeter/compatibility",
+		"/gofly/rpc/admin/descriptors/greeter/compatibility",
 		strings.NewReader(`{"name":"`+strings.Repeat("x", maxDescriptorCompatibilityBytes)+`"}`),
 	)
 	oversizedCompatibilityReq.Header.Set("Authorization", "Bearer secret")
@@ -1875,7 +1875,7 @@ func TestHTTPServerAdminEndpoints(t *testing.T) {
 		t.Fatalf("oversized compatibility status = %d, want %d", oversizedCompatibilityRec.Code, http.StatusBadRequest)
 	}
 
-	healthReq := httptest.NewRequest(http.MethodGet, "/rpc/admin/health", nil)
+	healthReq := httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/health", nil)
 	healthReq.Header.Set("Authorization", "Bearer secret")
 	healthRec := httptest.NewRecorder()
 	s.ServeHTTP(healthRec, healthReq)
@@ -1890,7 +1890,7 @@ func TestHTTPServerAdminEndpoints(t *testing.T) {
 		t.Fatalf("health = %#v, want ok initialized with one service", health)
 	}
 
-	governanceReq := httptest.NewRequest(http.MethodGet, "/rpc/admin/governance", nil)
+	governanceReq := httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/governance", nil)
 	governanceReq.Header.Set("Authorization", "Bearer secret")
 	governanceRec := httptest.NewRecorder()
 	s.ServeHTTP(governanceRec, governanceReq)
@@ -1905,7 +1905,7 @@ func TestHTTPServerAdminEndpoints(t *testing.T) {
 		t.Fatalf("governance = %#v, want adaptive limiter component", governance)
 	}
 
-	runtimeReq := httptest.NewRequest(http.MethodGet, "/rpc/admin/runtime", nil)
+	runtimeReq := httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/runtime", nil)
 	runtimeReq.Header.Set("Authorization", "Bearer secret")
 	runtimeRec := httptest.NewRecorder()
 	s.ServeHTTP(runtimeRec, runtimeReq)
@@ -1933,7 +1933,7 @@ func TestHTTPServerAdminEndpoints(t *testing.T) {
 		t.Fatalf("mux runtime = %#v, want mux diagnosis details", muxRuntime)
 	}
 
-	diagnosisReq := httptest.NewRequest(http.MethodGet, "/rpc/admin/diagnosis", nil)
+	diagnosisReq := httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/diagnosis", nil)
 	diagnosisReq.Header.Set("Authorization", "Bearer secret")
 	diagnosisRec := httptest.NewRecorder()
 	s.ServeHTTP(diagnosisRec, diagnosisReq)
@@ -1952,7 +1952,7 @@ func TestHTTPServerAdminEndpoints(t *testing.T) {
 		t.Fatalf("server diagnosis = %+v, want mux adapter evidence", diagnosis)
 	}
 
-	filteredDiagnosisReq := httptest.NewRequest(http.MethodGet, "/rpc/admin/diagnosis?service=greeter&method=SayHello", nil)
+	filteredDiagnosisReq := httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/diagnosis?service=greeter&method=SayHello", nil)
 	filteredDiagnosisReq.Header.Set("Authorization", "Bearer secret")
 	filteredDiagnosisRec := httptest.NewRecorder()
 	s.ServeHTTP(filteredDiagnosisRec, filteredDiagnosisReq)
@@ -1966,7 +1966,7 @@ func TestHTTPServerAdminEndpoints(t *testing.T) {
 	if !filteredDiagnosis.Matched || filteredDiagnosis.Service != "greeter" || filteredDiagnosis.Method != "SayHello" || len(filteredDiagnosis.Services) != 1 {
 		t.Fatalf("filtered diagnosis = %+v, want greeter/SayHello match", filteredDiagnosis)
 	}
-	missingDiagnosisReq := httptest.NewRequest(http.MethodGet, "/rpc/admin/diagnosis?service=greeter&method=Missing", nil)
+	missingDiagnosisReq := httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/diagnosis?service=greeter&method=Missing", nil)
 	missingDiagnosisReq.Header.Set("Authorization", "Bearer secret")
 	missingDiagnosisRec := httptest.NewRecorder()
 	s.ServeHTTP(missingDiagnosisRec, missingDiagnosisReq)
@@ -1981,7 +1981,7 @@ func TestHTTPServerAdminEndpoints(t *testing.T) {
 		t.Fatalf("missing diagnosis = %+v, want unmatched empty service list", missingDiagnosis)
 	}
 
-	rulesReq := httptest.NewRequest(http.MethodGet, "/rpc/admin/governance/rules", nil)
+	rulesReq := httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/governance/rules", nil)
 	rulesReq.Header.Set("Authorization", "Bearer secret")
 	rulesRec := httptest.NewRecorder()
 	s.ServeHTTP(rulesRec, rulesReq)
@@ -1999,14 +1999,14 @@ func TestHTTPServerAdminEndpoints(t *testing.T) {
 
 func TestHTTPServerAdminWithoutTokenAllowsOnlyLocal(t *testing.T) {
 	s := NewServer()
-	local := httptest.NewRequest(http.MethodGet, "/rpc/admin/state", nil)
+	local := httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/state", nil)
 	local.RemoteAddr = "127.0.0.1:12345"
 	localRec := httptest.NewRecorder()
 	s.ServeHTTP(localRec, local)
 	if localRec.Code != http.StatusOK {
 		t.Fatalf("local admin status = %d, want 200", localRec.Code)
 	}
-	remote := httptest.NewRequest(http.MethodGet, "/rpc/admin/state", nil)
+	remote := httptest.NewRequest(http.MethodGet, "/gofly/rpc/admin/state", nil)
 	remote.RemoteAddr = "203.0.113.10:12345"
 	remoteRec := httptest.NewRecorder()
 	s.ServeHTTP(remoteRec, remote)

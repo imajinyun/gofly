@@ -736,14 +736,14 @@ func TestGRPCAdminManagerLifecycle(t *testing.T) {
 	defer cancel()
 	client := healthpb.NewHealthClient(conn)
 	admin := newAdminServer("", server.rules, nil, server).Handler
-	for _, path := range []string{"/healthz", "/readyz", "/startupz"} {
+	for _, path := range []string{"/gofly/healthz", "/gofly/readyz", "/gofly/startupz"} {
 		rec := httptest.NewRecorder()
 		admin.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 		if rec.Code == http.StatusUnauthorized {
 			t.Fatalf("public probe %s required credentials", path)
 		}
 	}
-	for _, path := range []string{"/runtime", "/metrics", "/governance/rules", "/governance/reload"} {
+	for _, path := range []string{"/gofly/admin/runtime", "/gofly/metrics", "/gofly/admin/governance/rules", "/gofly/admin/governance/reload"} {
 		rec := httptest.NewRecorder()
 		admin.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 		if rec.Code != http.StatusUnauthorized {
@@ -753,7 +753,7 @@ func TestGRPCAdminManagerLifecycle(t *testing.T) {
 	if _, err := client.Check(ctx, &healthpb.HealthCheckRequest{}); err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodPut, "/governance/rules", strings.NewReader(`{"persist":true,"rules":[{"name":"live","method":"Check","policy":{"rateLimit":{"rate":1,"burst":1}}}]}`))
+	req := httptest.NewRequest(http.MethodPut, "/gofly/admin/governance/rules", strings.NewReader(`{"persist":true,"rules":[{"name":"live","method":"Check","policy":{"rateLimit":{"rate":1,"burst":1}}}]}`))
 	req.Header.Set("Authorization", "Bearer test")
 	rec := httptest.NewRecorder()
 	admin.ServeHTTP(rec, req)
@@ -772,7 +772,7 @@ func TestGRPCAdminManagerLifecycle(t *testing.T) {
 	if err := manager.RuleSet().ReplaceValidated(); err != nil {
 		t.Fatal(err)
 	}
-	req = httptest.NewRequest(http.MethodPost, "/governance/reload", nil)
+	req = httptest.NewRequest(http.MethodPost, "/gofly/admin/governance/reload", nil)
 	req.Header.Set("Authorization", "Bearer test")
 	rec = httptest.NewRecorder()
 	admin.ServeHTTP(rec, req)
@@ -885,12 +885,12 @@ func TestGRPCAdminServerExposesHealthMetricsAndGovernance(t *testing.T) {
 		path string
 		want string
 	}{
-		{path: "/healthz", want: "ok"},
-		{path: "/readyz", want: "ok"},
-		{path: "/startupz", want: "ok"},
-		{path: "/metrics", want: "gofly_requests_total"},
-		{path: "/governance/rules", want: "admin visible rule"},
-		{path: "/runtime", want: "rpc.grpc.server"},
+		{path: "/gofly/healthz", want: "ok"},
+		{path: "/gofly/readyz", want: "ok"},
+		{path: "/gofly/startupz", want: "ok"},
+		{path: "/gofly/metrics", want: "gofly_requests_total"},
+		{path: "/gofly/admin/governance/rules", want: "admin visible rule"},
+		{path: "/gofly/admin/runtime", want: "rpc.grpc.server"},
 	} {
 		t.Run(tc.path, func(t *testing.T) {
 			resp, err := http.Get(adminURL + tc.path)
@@ -934,7 +934,7 @@ func TestGRPCAdminRuntimeExplainsDefaultInterceptorChain(t *testing.T) {
 	defer func() { _ = server.Shutdown(context.Background()) }()
 
 	adminURL := waitForGRPCAdminURL(t, server)
-	resp, err := http.Get(adminURL + "/runtime")
+	resp, err := http.Get(adminURL + "/gofly/admin/runtime")
 	if err != nil {
 		t.Fatal(err)
 	}

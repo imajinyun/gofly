@@ -6,7 +6,7 @@
     "gofly bug --json",
     "gofly release check --json --strict",
     "gofly ai new --json --apply --verify",
-    "GET /admin/control-plane",
+    "GET /gofly/admin/control-plane",
     "docs/reference/control-plane-contracts.md",
     "docs/reference/cli-json-contracts.md"
   ],
@@ -79,7 +79,7 @@
       "failureGuidance": "Attach bounded data.verification output and follow data.nextActions before retrying generated project verification."
     },
     {
-      "command": "GET /admin/control-plane",
+      "command": "GET /gofly/admin/control-plane",
       "stableFields": [
         "version",
         "checksum",

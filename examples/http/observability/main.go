@@ -12,10 +12,10 @@
 // Then try:
 //
 //	curl localhost:8080/users/42
-//	curl localhost:8081/debug/metrics
-//	curl localhost:8081/debug/metrics.json
-//	curl localhost:8081/debug/healthz
-//	curl localhost:8081/debug/readyz
+//	curl localhost:8081/gofly/metrics
+//	curl localhost:8081/gofly/metrics.json
+//	curl localhost:8081/gofly/healthz
+//	curl localhost:8081/gofly/readyz
 //
 // Look for "trace_id" and "request_id" in the service logs to see the
 // correlation between REST and RPC spans.
@@ -87,7 +87,7 @@ func newObservabilityDemo() (*http.Server, *rest.Server) {
 	})
 
 	adminMux := http.NewServeMux()
-	obs.Register(adminMux, "/debug")
+	obs.Register(adminMux, "/gofly")
 	admin := &http.Server{
 		Addr:              ":8081",
 		Handler:           adminMux,

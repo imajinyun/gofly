@@ -34,15 +34,15 @@ spec:
               memory: 512Mi
           readinessProbe:
             httpGet:
-              path: /healthz
+              path: /gofly/healthz
               port: http
           livenessProbe:
             httpGet:
-              path: /healthz
+              path: /gofly/healthz
               port: http
           startupProbe:
             httpGet:
-              path: /healthz
+              path: /gofly/healthz
               port: http
             failureThreshold: 30
             periodSeconds: 2

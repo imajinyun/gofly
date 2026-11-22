@@ -20,7 +20,7 @@ func aiControlPlaneCommand(args []string) error {
 	watch := fs.Bool("watch", false, "emit bounded snapshot watch events")
 	maxEvents := fs.Int("max-events", 1, "maximum watch events to emit")
 	timeoutName := fs.String("timeout", "2s", "watch timeout boundary")
-	source := fs.String("source", "", "runtime control-plane snapshot URL, for example http://127.0.0.1:8080/admin/control-plane")
+	source := fs.String("source", "", "runtime control-plane snapshot URL, for example http://127.0.0.1:8080/gofly/admin/control-plane")
 	adminToken := fs.String("admin-token", "", "bearer token for --source runtime admin endpoint; defaults to GOFLY_CONTROL_PLANE_TOKEN")
 	fromChecksum := fs.String("from-checksum", "", "compare current snapshot checksum with a previous checksum")
 	fromSnapshot := fs.String("from-snapshot", "", "compare current snapshot with a previous control-plane snapshot JSON file")

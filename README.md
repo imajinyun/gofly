@@ -171,8 +171,8 @@ go run ./cmd/orders
 In another terminal:
 
 ```sh
-curl http://127.0.0.1:8080/healthz
-curl http://127.0.0.1:9090/admin/control-plane
+curl http://127.0.0.1:8080/gofly/healthz
+curl http://127.0.0.1:9090/gofly/control-plane
 ```
 
 For runnable references, use the checked-in example directories and the CLI help output.

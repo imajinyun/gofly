@@ -13,6 +13,7 @@ import (
 
 	core "github.com/imajinyun/gofly/core"
 	"github.com/imajinyun/gofly/core/auth"
+	coreendpoint "github.com/imajinyun/gofly/core/endpoint"
 	"github.com/imajinyun/gofly/core/security"
 )
 
@@ -20,13 +21,13 @@ import (
 //
 // When Enabled is true, the runtime starts a separate HTTP server (default
 // 127.0.0.1:6060) exposing standard pprof endpoints under PathPrefix
-// (default "/debug/pprof"). Remote access requires AllowRemote + Token.
+// (default "/gofly/debug/pprof"). Remote access requires AllowRemote + Token.
 type ProfileConfig struct {
 	// Enabled starts the profile server when true.
 	Enabled bool `json:"enabled"`
 	// Addr is the listen address. Default: "127.0.0.1:6060".
 	Addr string `json:"addr,omitempty"`
-	// PathPrefix is the URL prefix for pprof endpoints. Default: "/debug/pprof".
+	// PathPrefix is the URL prefix for pprof endpoints. Default: "/gofly/debug/pprof".
 	PathPrefix string `json:"pathPrefix,omitempty"`
 	// ReadHeaderTimeout is the per-connection header read timeout.
 	// Default: 5s.
@@ -152,7 +153,7 @@ func (s *ProfileServer) secureHandler(next http.Handler) http.Handler {
 func cleanProfilePrefix(prefix string) string {
 	prefix = strings.TrimSpace(prefix)
 	if prefix == "" || prefix == "/" {
-		return "/debug/pprof"
+		return coreendpoint.PprofPrefix
 	}
 	if !strings.HasPrefix(prefix, "/") {
 		prefix = "/" + prefix

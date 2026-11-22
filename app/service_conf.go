@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	coreendpoint "github.com/imajinyun/gofly/core/endpoint"
 	coregovernance "github.com/imajinyun/gofly/core/governance"
 	coretrace "github.com/imajinyun/gofly/core/observability/trace"
 	coreproc "github.com/imajinyun/gofly/core/proc"
@@ -202,7 +203,7 @@ func (c ServiceConf) WithDefaults(fallbackName string) ServiceConf {
 		c.Profile.Addr = "127.0.0.1:6060"
 	}
 	if c.Profile.PathPrefix == "" {
-		c.Profile.PathPrefix = "/debug/pprof"
+		c.Profile.PathPrefix = coreendpoint.PprofPrefix
 	}
 	if c.Profile.ReadHeaderTimeout <= 0 {
 		c.Profile.ReadHeaderTimeout = 5 * time.Second

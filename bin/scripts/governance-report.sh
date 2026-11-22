@@ -601,7 +601,7 @@ def production_defaults_evidence():
         {
             "id": "admin-diagnostics",
             "evidence": ["core/governance/admin.go", "docs/operations/observability.md"],
-            "operatorAction": "inspect /admin/control-plane and diagnostics during rollout or rollback decisions",
+            "operatorAction": "inspect /gofly/admin/control-plane and diagnostics during rollout or rollback decisions",
         },
         {
             "id": "profiles",

@@ -20,8 +20,8 @@ func TestRegisterRoutes(t *testing.T) {
 		path string
 	}{
 		{name: "ping", path: "/api/v1/ping?name=%20gofly%20"},
-		{name: "health", path: "/healthz"},
-		{name: "metrics", path: "/metrics"},
+		{name: "health", path: "/gofly/healthz"},
+		{name: "metrics", path: "/gofly/metrics"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

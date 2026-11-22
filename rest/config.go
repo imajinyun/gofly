@@ -60,7 +60,7 @@ type Config struct {
 	// such as go-playground/validator without adding them to gofly's dependency graph.
 	Validator Validator `json:"-"`
 
-	// Admin configures the optional /admin/* governance endpoints.
+	// Admin configures the optional /gofly/admin/* governance endpoints.
 	Admin AdminConfig `json:"admin,omitempty"`
 
 	// DisableDefaultMiddlewares, when true, skips the automatic wiring of
@@ -80,16 +80,17 @@ type SamplingConfig struct {
 	ParentBased bool `json:"parentBased,omitempty"`
 }
 
-// AdminConfig controls the /admin/* governance endpoints.
+// AdminConfig controls the /gofly/admin/* governance endpoints.
 type AdminConfig struct {
 	// Enabled controls whether the admin HTTP handler is mounted.
 	Enabled bool `json:"enabled"`
 
-	// PathPrefix sets the URL prefix for admin routes. Default: "/admin".
+	// PathPrefix sets the URL prefix for admin routes. Default: "/gofly/admin".
 	PathPrefix string `json:"pathPrefix,omitempty"`
 
-	// Pprof, when true, registers runtime profiling endpoints under
-	// PathPrefix/debug/pprof/.
+	// Pprof, when true, registers runtime profiling endpoints under the
+	// shared /gofly/debug/pprof/ namespace, protected by the same admin
+	// token/localhost policy as the rest of the admin surface.
 	Pprof bool `json:"pprof,omitempty"`
 
 	// Token, when set, requires this bearer token on all admin requests.

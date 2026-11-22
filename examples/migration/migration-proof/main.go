@@ -127,9 +127,9 @@ func buildReport() report {
 			},
 			Rollback:             "Keep go-zero and gofly services addressable through discovery and switch routing back to go-zero.",
 			SupportBundle:        "Attach `gofly bug --json` with generated-project failure reports and release check output when scaffold compatibility fails.",
-			FailureReport:        "Capture generated diff category, dependency boundary, OpenAPI mismatch, release-check output, and /admin/control-plane drift.",
+			FailureReport:        "Capture generated diff category, dependency boundary, OpenAPI mismatch, release-check output, and /gofly/control-plane drift.",
 			Compatibility:        []string{"examples/migration/gozero-basic", "make goctl-generator-compat-check", "make goctl-real-project-replay-check"},
-			CompatibilityCaveats: []string{"Verify generated OpenAPI and `/admin/control-plane` before changing discovery; preserve `.api` request and response field names.", "verify generated OpenAPI and /admin/control-plane before changing discovery"},
+			CompatibilityCaveats: []string{"Verify generated OpenAPI and `/gofly/control-plane` before changing discovery; preserve `.api` request and response field names.", "verify generated OpenAPI and /gofly/control-plane before changing discovery"},
 			PerformanceBoundary:  "Keep go-zero hot paths active until generated service smoke, reference-app evidence, and benchmark budgets cover the migrated traffic.",
 			GovernanceBoundary:   "Use gofly when generated projects need release checks, discovery evidence, control-plane snapshots, and a support bundle for failed upgrades.",
 			DecisionTable: decisionTable{

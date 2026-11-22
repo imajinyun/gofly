@@ -10,7 +10,7 @@ governance, and machine-readable operator state in one Go-native toolkit.
 2. **One runnable example.** Copy `examples/production/production-orders` or
    `examples/getting-started/restserver` before writing a custom template.
 3. **Control-plane and CLI JSON.** Operators and agents should read
-   `/admin/control-plane` and `gofly --json` envelopes instead of scraping
+   `/gofly/admin/control-plane` and `gofly --json` envelopes instead of scraping
    logs.
 4. **goctl-compatible migration only where evidence exists.** Use
    [from-go-zero-migration.md](../reference/from-go-zero-migration.md). gofly

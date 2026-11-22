@@ -39,7 +39,7 @@ func bugCommand(args []string) error {
 		SupportBundle: supportBundleInfo{
 			Schema:      "gofly.support_bundle.v1",
 			Redaction:   []string{"Authorization", "Cookie", "Set-Cookie", "GOFLY_LLM_*", "*TOKEN*", "*SECRET*", "*PASSWORD*"},
-			Commands:    []string{"gofly doctor --json", "gofly env check --json", "gofly release check --json --strict", "gofly bug --json", "curl -fsS http://127.0.0.1:9090/admin/control-plane"},
+			Commands:    []string{"gofly doctor --json", "gofly env check --json", "gofly release check --json --strict", "gofly bug --json", "curl -fsS http://127.0.0.1:9090/gofly/control-plane"},
 			Description: "Attach this JSON with command output, generated-project failure logs, and generated control-plane configs such as generated.rpcMuxConfigWarningSchema and generated.controlPlaneSchemaChecksums after removing secrets.",
 		},
 		NextActions: []string{

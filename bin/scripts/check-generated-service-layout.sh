@@ -35,7 +35,7 @@ require_doc_marker 'schema: gofly.generated_service_layout.v1'
 require_doc_marker 'Tier 0 Golden Path'
 require_doc_marker 'gofly new service <name> --style production'
 require_doc_marker 'internal/smoke/service_smoke_test.go'
-require_doc_marker '/admin/control-plane'
+require_doc_marker '/gofly/control-plane'
 require_doc_marker 'make generated-service-layout-check'
 
 printf 'generated-service-layout ok\n'

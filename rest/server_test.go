@@ -224,7 +224,7 @@ func TestNewServerAppliesProductionSafeMiddlewareDefaults(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/gofly/healthz", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("default health status = %d, want %d", rec.Code, http.StatusOK)
 	}
@@ -555,7 +555,7 @@ func TestNewServerCanDisableProductionDefaults(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/gofly/healthz", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("disabled health status = %d, want %d", rec.Code, http.StatusNotFound)
 	}
@@ -699,7 +699,7 @@ func TestRecoverMiddleware(t *testing.T) {
 
 func TestHealthAndMetricsRoutes(t *testing.T) {
 	s := MustNewServer(Config{Middlewares: MiddlewaresConfig{Health: true, Metrics: true}})
-	for _, path := range []string{"/healthz", "/readyz", "/metrics"} {
+	for _, path := range []string{"/gofly/healthz", "/gofly/readyz", "/gofly/metrics"} {
 		t.Run(path, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, path, nil)
 			rec := httptest.NewRecorder()
@@ -718,7 +718,7 @@ func TestHealthAndReadyChecks(t *testing.T) {
 	)
 
 	health := httptest.NewRecorder()
-	s.Handler().ServeHTTP(health, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	s.Handler().ServeHTTP(health, httptest.NewRequest(http.MethodGet, "/gofly/healthz", nil))
 	if health.Code != http.StatusOK {
 		t.Fatalf("health status = %d, want %d", health.Code, http.StatusOK)
 	}
@@ -731,7 +731,7 @@ func TestHealthAndReadyChecks(t *testing.T) {
 	}
 
 	ready := httptest.NewRecorder()
-	s.Handler().ServeHTTP(ready, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	s.Handler().ServeHTTP(ready, httptest.NewRequest(http.MethodGet, "/gofly/readyz", nil))
 	if ready.Code != http.StatusServiceUnavailable {
 		t.Fatalf("ready status = %d, want %d", ready.Code, http.StatusServiceUnavailable)
 	}
@@ -746,14 +746,14 @@ func TestHealthAndReadyChecks(t *testing.T) {
 
 func TestAdminRoutes(t *testing.T) {
 	s := MustNewServer(
-		Config{Name: "hello", Admin: AdminConfig{Enabled: true, PathPrefix: "/admin", Pprof: true, Token: "secret"}},
+		Config{Name: "hello", Admin: AdminConfig{Enabled: true, PathPrefix: "/gofly/admin", Pprof: true, Token: "secret"}},
 		WithControlPlaneContributors(controlplane.MetadataContributor{Metadata: map[string]string{"custom.controlplane": "available"}}),
 	)
 	s.AddRoute(Route{Method: http.MethodGet, Path: "/guarded", Handler: func(ctx *Context) { ctx.String(http.StatusOK, "ok") }}, WithBreaker())
 
 	handler := adminAuthHandler(s.Handler(), "secret")
 	configRec := httptest.NewRecorder()
-	handler.ServeHTTP(configRec, httptest.NewRequest(http.MethodGet, "/admin/config", nil))
+	handler.ServeHTTP(configRec, httptest.NewRequest(http.MethodGet, "/gofly/admin/config", nil))
 	if configRec.Code != http.StatusOK {
 		t.Fatalf("config status = %d, want %d", configRec.Code, http.StatusOK)
 	}
@@ -766,7 +766,7 @@ func TestAdminRoutes(t *testing.T) {
 	}
 
 	stateRec := httptest.NewRecorder()
-	handler.ServeHTTP(stateRec, httptest.NewRequest(http.MethodGet, "/admin/state", nil))
+	handler.ServeHTTP(stateRec, httptest.NewRequest(http.MethodGet, "/gofly/admin/state", nil))
 	if stateRec.Code != http.StatusOK {
 		t.Fatalf("state status = %d, want %d", stateRec.Code, http.StatusOK)
 	}
@@ -779,13 +779,13 @@ func TestAdminRoutes(t *testing.T) {
 	}
 
 	pprofRec := httptest.NewRecorder()
-	handler.ServeHTTP(pprofRec, httptest.NewRequest(http.MethodGet, "/admin/pprof/", nil))
+	handler.ServeHTTP(pprofRec, httptest.NewRequest(http.MethodGet, "/gofly/debug/pprof/", nil))
 	if pprofRec.Code != http.StatusOK {
 		t.Fatalf("pprof status = %d, want %d", pprofRec.Code, http.StatusOK)
 	}
 
 	governanceRec := httptest.NewRecorder()
-	handler.ServeHTTP(governanceRec, httptest.NewRequest(http.MethodGet, "/admin/governance", nil))
+	handler.ServeHTTP(governanceRec, httptest.NewRequest(http.MethodGet, "/gofly/admin/governance", nil))
 	if governanceRec.Code != http.StatusOK {
 		t.Fatalf("governance status = %d, want %d", governanceRec.Code, http.StatusOK)
 	}
@@ -798,7 +798,7 @@ func TestAdminRoutes(t *testing.T) {
 	}
 
 	routesRec := httptest.NewRecorder()
-	handler.ServeHTTP(routesRec, httptest.NewRequest(http.MethodGet, "/admin/routes", nil))
+	handler.ServeHTTP(routesRec, httptest.NewRequest(http.MethodGet, "/gofly/admin/routes", nil))
 	if routesRec.Code != http.StatusOK {
 		t.Fatalf("routes status = %d, want %d", routesRec.Code, http.StatusOK)
 	}
@@ -806,12 +806,12 @@ func TestAdminRoutes(t *testing.T) {
 	if err := json.NewDecoder(routesRec.Body).Decode(&routes); err != nil {
 		t.Fatal(err)
 	}
-	if !hasRouteSpec(routes, http.MethodGet, "/guarded") || !hasRouteSpec(routes, http.MethodGet, "/admin/diagnostics") || !hasRouteSpec(routes, http.MethodGet, "/admin/control-plane") {
+	if !hasRouteSpec(routes, http.MethodGet, "/guarded") || !hasRouteSpec(routes, http.MethodGet, "/gofly/admin/diagnostics") || !hasRouteSpec(routes, http.MethodGet, "/gofly/admin/control-plane") {
 		t.Fatalf("routes = %#v, want guarded and diagnostics routes", routes)
 	}
 
 	openAPIRec := httptest.NewRecorder()
-	handler.ServeHTTP(openAPIRec, httptest.NewRequest(http.MethodGet, "/admin/openapi.json", nil))
+	handler.ServeHTTP(openAPIRec, httptest.NewRequest(http.MethodGet, "/gofly/admin/openapi.json", nil))
 	if openAPIRec.Code != http.StatusOK {
 		t.Fatalf("openapi status = %d, want %d", openAPIRec.Code, http.StatusOK)
 	}
@@ -824,7 +824,7 @@ func TestAdminRoutes(t *testing.T) {
 	}
 
 	diagnosticsRec := httptest.NewRecorder()
-	handler.ServeHTTP(diagnosticsRec, httptest.NewRequest(http.MethodGet, "/admin/diagnostics", nil))
+	handler.ServeHTTP(diagnosticsRec, httptest.NewRequest(http.MethodGet, "/gofly/admin/diagnostics", nil))
 	if diagnosticsRec.Code != http.StatusOK {
 		t.Fatalf("diagnostics status = %d, want %d", diagnosticsRec.Code, http.StatusOK)
 	}
@@ -837,7 +837,7 @@ func TestAdminRoutes(t *testing.T) {
 	}
 
 	controlPlaneRec := httptest.NewRecorder()
-	handler.ServeHTTP(controlPlaneRec, httptest.NewRequest(http.MethodGet, "/admin/control-plane", nil))
+	handler.ServeHTTP(controlPlaneRec, httptest.NewRequest(http.MethodGet, "/gofly/admin/control-plane", nil))
 	if controlPlaneRec.Code != http.StatusOK {
 		t.Fatalf("control-plane status = %d body = %q", controlPlaneRec.Code, controlPlaneRec.Body.String())
 	}
@@ -871,7 +871,7 @@ func TestControlPlaneRuntimeSnapshotGoldenContractAndSemanticDiff(t *testing.T) 
 			Name:  "orders",
 			Host:  "127.0.0.1",
 			Port:  8088,
-			Admin: AdminConfig{Enabled: true, PathPrefix: "/admin", Token: "secret"},
+			Admin: AdminConfig{Enabled: true, PathPrefix: "/gofly/admin", Token: "secret"},
 		},
 		WithGovernanceRuleSet(rules),
 	)
@@ -886,13 +886,13 @@ func TestControlPlaneRuntimeSnapshotGoldenContractAndSemanticDiff(t *testing.T) 
 	if err := json.Unmarshal(snapshot.Configs["rest.runtime"], &runtimeSnapshot); err != nil {
 		t.Fatalf("decode rest.runtime: %v", err)
 	}
-	if runtimeSnapshot.Service != "orders" || runtimeSnapshot.Address != "127.0.0.1:8088" || runtimeSnapshot.AdminPrefix != "/admin" || !runtimeSnapshot.AdminEnabled {
+	if runtimeSnapshot.Service != "orders" || runtimeSnapshot.Address != "127.0.0.1:8088" || runtimeSnapshot.AdminPrefix != "/gofly/admin" || !runtimeSnapshot.AdminEnabled {
 		t.Fatalf("runtime snapshot = %#v, want stable service/address/admin contract", runtimeSnapshot)
 	}
 	if runtimeSnapshot.Config.Admin.Token != "" || bytes.Contains(snapshot.Configs["rest.runtime"], []byte("secret")) {
 		t.Fatalf("runtime snapshot leaked admin token: %s", snapshot.Configs["rest.runtime"])
 	}
-	if !hasRouteSpec(runtimeSnapshot.Routes, http.MethodGet, "/orders") || !hasRouteSpec(runtimeSnapshot.Routes, http.MethodGet, "/admin/control-plane") {
+	if !hasRouteSpec(runtimeSnapshot.Routes, http.MethodGet, "/orders") || !hasRouteSpec(runtimeSnapshot.Routes, http.MethodGet, "/gofly/admin/control-plane") {
 		t.Fatalf("runtime routes = %#v, want business and control-plane routes", runtimeSnapshot.Routes)
 	}
 	var cache GovernanceRuntimeCacheSnapshot
@@ -931,15 +931,15 @@ func adminAuthHandler(handler http.Handler, token string) http.Handler {
 }
 
 func TestAdminRoutesWithoutTokenAllowOnlyLocal(t *testing.T) {
-	s := MustNewServer(Config{Host: "127.0.0.1", Admin: AdminConfig{Enabled: true, PathPrefix: "/admin"}})
-	local := httptest.NewRequest(http.MethodGet, "/admin/config", nil)
+	s := MustNewServer(Config{Host: "127.0.0.1", Admin: AdminConfig{Enabled: true, PathPrefix: "/gofly/admin"}})
+	local := httptest.NewRequest(http.MethodGet, "/gofly/admin/config", nil)
 	local.RemoteAddr = "127.0.0.1:12345"
 	localRec := httptest.NewRecorder()
 	s.Handler().ServeHTTP(localRec, local)
 	if localRec.Code != http.StatusOK {
 		t.Fatalf("local admin status = %d, want 200", localRec.Code)
 	}
-	remote := httptest.NewRequest(http.MethodGet, "/admin/config", nil)
+	remote := httptest.NewRequest(http.MethodGet, "/gofly/admin/config", nil)
 	remote.RemoteAddr = "203.0.113.10:12345"
 	remoteRec := httptest.NewRecorder()
 	s.Handler().ServeHTTP(remoteRec, remote)
@@ -958,15 +958,15 @@ func hasRouteSpec(routes []RouteSpec, method, path string) bool {
 }
 
 func TestAdminRoutesCanRequireBearerToken(t *testing.T) {
-	s := MustNewServer(Config{Admin: AdminConfig{Enabled: true, PathPrefix: "/admin", Token: "secret"}})
+	s := MustNewServer(Config{Admin: AdminConfig{Enabled: true, PathPrefix: "/gofly/admin", Token: "secret"}})
 
 	unauthorized := httptest.NewRecorder()
-	s.Handler().ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, "/admin/config", nil))
+	s.Handler().ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, "/gofly/admin/config", nil))
 	if unauthorized.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthorized status = %d, want %d", unauthorized.Code, http.StatusUnauthorized)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/admin/runtime", nil)
+	req := httptest.NewRequest(http.MethodGet, "/gofly/admin/runtime", nil)
 	req.Header.Set(auth.AuthorizationHeader, auth.BearerValue("secret"))
 	rec := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rec, req)
@@ -986,10 +986,10 @@ func TestAdminRoutesCanRequireBearerToken(t *testing.T) {
 }
 
 func TestRESTRuntimeSnapshotExplainsPresetAndCustomMiddlewareChain(t *testing.T) {
-	s := MustNewServer(Config{Admin: AdminConfig{Enabled: true, PathPrefix: "/admin"}})
+	s := MustNewServer(Config{Admin: AdminConfig{Enabled: true, PathPrefix: "/gofly/admin"}})
 	s.Use(func(next http.Handler) http.Handler { return next })
 
-	req := httptest.NewRequest(http.MethodGet, "/admin/runtime", nil)
+	req := httptest.NewRequest(http.MethodGet, "/gofly/admin/runtime", nil)
 	req.RemoteAddr = "127.0.0.1:12345"
 	rec := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rec, req)
@@ -1018,10 +1018,10 @@ func TestAdminGovernanceExplainRoute(t *testing.T) {
 		governance.Rule{Name: "default-rest", Transport: governance.TransportREST, Service: "orders", Policy: governance.Policy{Timeout: time.Second}},
 		governance.Rule{Name: "upload", Priority: 10, Transport: governance.TransportREST, Service: "orders", Method: http.MethodPost, Path: "/upload", Tags: map[string]string{"zone": "cn"}, Policy: governance.Policy{MaxBodyBytes: 4}},
 	)
-	s := MustNewServer(Config{Name: "orders", Admin: AdminConfig{Enabled: true, PathPrefix: "/admin"}}, WithGovernanceRuleSet(rules))
+	s := MustNewServer(Config{Name: "orders", Admin: AdminConfig{Enabled: true, PathPrefix: "/gofly/admin"}}, WithGovernanceRuleSet(rules))
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/admin/governance/explain?method=post&path=/upload&tags=zone=cn", nil)
+	req := httptest.NewRequest(http.MethodGet, "/gofly/admin/governance/explain?method=post&path=/upload&tags=zone=cn", nil)
 	s.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("explain status = %d, want %d", rec.Code, http.StatusOK)
@@ -1049,12 +1049,12 @@ func TestAdminGovernanceRulesCanHotReplaceRuleSet(t *testing.T) {
 		Path:      "/orders",
 		Policy:    governance.Policy{Headers: map[string]string{"X-Version": "v1"}},
 	})
-	s := MustNewServer(Config{Name: "orders", Admin: AdminConfig{Enabled: true, PathPrefix: "/admin", Token: "secret"}}, WithGovernanceRuleSet(rules))
+	s := MustNewServer(Config{Name: "orders", Admin: AdminConfig{Enabled: true, PathPrefix: "/gofly/admin", Token: "secret"}}, WithGovernanceRuleSet(rules))
 	s.AddRoute(Route{Method: http.MethodGet, Path: "/orders", Handler: func(ctx *Context) {
 		ctx.String(http.StatusOK, ctx.Request.Header.Get("X-Version"))
 	}})
 
-	req := httptest.NewRequest(http.MethodPut, "/admin/governance/rules", strings.NewReader(`[
+	req := httptest.NewRequest(http.MethodPut, "/gofly/admin/governance/rules", strings.NewReader(`[
 		{"name":"orders-v2","transport":"rest","service":"orders","path":"/orders","policy":{"headers":{"X-Version":"v2"}}}
 	]`))
 	req.Header.Set(auth.AuthorizationHeader, "Bearer secret")
@@ -1064,7 +1064,7 @@ func TestAdminGovernanceRulesCanHotReplaceRuleSet(t *testing.T) {
 		t.Fatalf("replace status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 
-	statusReq := httptest.NewRequest(http.MethodGet, "/admin/governance/status", nil)
+	statusReq := httptest.NewRequest(http.MethodGet, "/gofly/admin/governance/status", nil)
 	statusReq.Header.Set(auth.AuthorizationHeader, "Bearer secret")
 	statusRec := httptest.NewRecorder()
 	s.Handler().ServeHTTP(statusRec, statusReq)
@@ -1078,7 +1078,7 @@ func TestAdminGovernanceRulesCanHotReplaceRuleSet(t *testing.T) {
 		t.Fatalf("orders status = %d body = %q", ordersRec.Code, ordersRec.Body.String())
 	}
 
-	badReq := httptest.NewRequest(http.MethodPut, "/admin/governance/rules", strings.NewReader(`[{"name":"bad","transport":"unknown"}]`))
+	badReq := httptest.NewRequest(http.MethodPut, "/gofly/admin/governance/rules", strings.NewReader(`[{"name":"bad","transport":"unknown"}]`))
 	badReq.Header.Set(auth.AuthorizationHeader, "Bearer secret")
 	badRec := httptest.NewRecorder()
 	s.Handler().ServeHTTP(badRec, badReq)
@@ -1103,7 +1103,7 @@ func TestAdminGovernanceReloadUsesManager(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := MustNewServer(
-		Config{Name: "orders", Admin: AdminConfig{Enabled: true, PathPrefix: "/admin", Token: "secret"}},
+		Config{Name: "orders", Admin: AdminConfig{Enabled: true, PathPrefix: "/gofly/admin", Token: "secret"}},
 		WithGovernanceManager(manager),
 	)
 	s.AddRoute(Route{Method: http.MethodGet, Path: "/orders", Handler: func(ctx *Context) {
@@ -1121,7 +1121,7 @@ func TestAdminGovernanceReloadUsesManager(t *testing.T) {
 	]`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	reloadReq := httptest.NewRequest(http.MethodPost, "/admin/governance/reload", nil)
+	reloadReq := httptest.NewRequest(http.MethodPost, "/gofly/admin/governance/reload", nil)
 	reloadReq.Header.Set(auth.AuthorizationHeader, auth.BearerValue("secret"))
 	reloadRec := httptest.NewRecorder()
 	s.Handler().ServeHTTP(reloadRec, reloadReq)
@@ -2256,7 +2256,7 @@ func TestConfiguredHealthTimeoutUsesTimeoutConfig(t *testing.T) {
 	}))
 
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/gofly/healthz", nil))
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
 	}

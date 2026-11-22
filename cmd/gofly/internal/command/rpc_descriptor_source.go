@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	coreendpoint "github.com/imajinyun/gofly/core/endpoint"
 	"github.com/imajinyun/gofly/rpc"
 )
 
@@ -56,22 +57,36 @@ func readRPCDescriptorURL(source string, token string, service string) (rpc.Desc
 	return decodeRPCDescriptor(resp.Body)
 }
 
+// legacyRPCAdminDescriptors is the pre-/gofly descriptor namespace kept
+// accepted so the CLI works against services pinned to older runtimes.
+const legacyRPCAdminDescriptors = "/rpc/admin/descriptors"
+
 func normalizeRPCDescriptorURL(parsed *url.URL, service string) error {
 	plainPath := strings.TrimRight(parsed.Path, "/")
 	service = strings.TrimSpace(service)
 	switch {
-	case strings.Contains(plainPath, "/rpc/admin/descriptors/"):
+	case strings.Contains(plainPath, coreendpoint.RPCAdminPrefix+"/descriptors/"),
+		strings.Contains(plainPath, legacyRPCAdminDescriptors+"/"):
+		// Canonical /gofly path and legacy /rpc/admin path are both accepted
+		// so the CLI keeps working against services pinned to older runtimes.
 		return nil
-	case strings.HasSuffix(plainPath, "/rpc/admin/descriptors"):
+	case strings.HasSuffix(plainPath, coreendpoint.RPCAdminPrefix+"/descriptors"),
+		strings.HasSuffix(plainPath, legacyRPCAdminDescriptors):
 		if service == "" {
 			return fmt.Errorf("--service is required when descriptor URL points at %s", parsed.String())
 		}
 		parsed.Path = strings.TrimRight(parsed.Path, "/") + "/" + url.PathEscape(service)
 		return nil
 	case service != "":
-		parsed.Path = strings.TrimRight(parsed.Path, "/") + "/rpc/admin/descriptors/" + url.PathEscape(service)
+		// A bare host talks to the RPC runtime directly; any other base is
+		// treated as an admin-server prefix proxying /rpc/admin/*.
+		if plainPath == "" {
+			parsed.Path = coreendpoint.RPCAdminPrefix + "/descriptors/" + url.PathEscape(service)
+		} else {
+			parsed.Path = plainPath + "/rpc/admin/descriptors/" + url.PathEscape(service)
+		}
 		return nil
-	case strings.HasSuffix(plainPath, "/admin"):
+	case strings.HasSuffix(plainPath, coreendpoint.AdminPrefix), strings.HasSuffix(plainPath, "/admin"):
 		return fmt.Errorf("--service is required when descriptor URL points at admin base %s", parsed.String())
 	default:
 		return nil

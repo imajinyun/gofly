@@ -1,7 +1,7 @@
 {
   "admin": {
     "enabled": true,
-    "pathPrefix": "/admin"
+    "pathPrefix": "/gofly/admin"
   },
   "module": "example.com/orders",
   "name": "orders",

@@ -70,7 +70,7 @@ func TestGenerateService(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Mux Subprocess Sink Example", "documentation-only", "not loaded by default", "env://", "file://", "Mux Operator History Tuning", "maxActions <= 1024", "maxBackups <= 3", "Mux Operator Admin Endpoints", "/rpc/admin/mux/operator-actions/audit-schemas", "/rpc/admin/mux/operator-actions/history/replay", "debugActions=true", "between `100ms` and `1m0s`", "Mux Operator Audit Monitoring", "gofly_rpc_mux_operator_audit_schema_violation_total{action}"} {
+	for _, want := range []string{"Mux Subprocess Sink Example", "documentation-only", "not loaded by default", "env://", "file://", "Mux Operator History Tuning", "maxActions <= 1024", "maxBackups <= 3", "Mux Operator Admin Endpoints", "/gofly/rpc/admin/mux/operator-actions/audit-schemas", "/gofly/rpc/admin/mux/operator-actions/history/replay", "debugActions=true", "between `100ms` and `1m0s`", "Mux Operator Audit Monitoring", "gofly_rpc_mux_operator_audit_schema_violation_total{action}"} {
 		if !strings.Contains(string(readmeData), want) {
 			t.Fatalf("README missing %q:\n%s", want, readmeData)
 		}
@@ -182,7 +182,7 @@ func TestGenerateService(t *testing.T) {
 		`"securityHeaders": {"contentSecurityPolicy": "default-src 'self'"`,
 		`"logRedaction": {"headers": ["Authorization", "Cookie", "Set-Cookie"]`,
 		`"token": "change-me-admin-token"`,
-		`"admin": {"enabled": true, "addr": "127.0.0.1:9090", "pathPrefix": "/admin"}`,
+		`"admin": {"enabled": true, "addr": "127.0.0.1:9090", "pathPrefix": "/gofly"}`,
 		`"metrics": {"enabled": true}`,
 		`"mq": {"enabled": true`,
 		`"driver": "memory"`,
@@ -265,8 +265,8 @@ func TestGenerateService(t *testing.T) {
 		`exec.CommandContext(ctx, binary)`,
 		`func generatedServiceBinary(t *testing.T, ctx context.Context, repo string) string`,
 		`exec.CommandContext(ctx, "go", "build", "-o", binary, "./cmd/hello")`,
-		`/healthz`,
-		`/admin/control-plane`,
+		`/gofly/healthz`,
+		`/gofly/control-plane`,
 		`generated.project.runtime`,
 		`service,rest,rpc,governance,discovery`,
 		`generated.project.resilience`,
@@ -471,8 +471,8 @@ func TestGenerateService(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`http.Get(httpServer.URL + "/rpc/admin/descriptors/greeter")`,
-		`http.Post(httpServer.URL+"/rpc/admin/descriptors/greeter/compatibility"`,
+		`http.Get(httpServer.URL + "/gofly/rpc/admin/descriptors/greeter")`,
+		`http.Post(httpServer.URL+"/gofly/rpc/admin/descriptors/greeter/compatibility"`,
 		"var descriptor rpc.Descriptor",
 		"var report rpc.DescriptorCompatibilityReport",
 		"report.IsCompatible()",
@@ -785,9 +785,9 @@ func assertGeneratedHelmServiceMonitor(t *testing.T, data []byte) {
 			foundDeployment = true
 			annotations := doc.Spec.Template.Metadata.Annotations
 			if annotations["prometheus.io/scrape"] != "true" ||
-				annotations["prometheus.io/path"] != "/admin/metrics" ||
+				annotations["prometheus.io/path"] != "/gofly/metrics" ||
 				annotations["prometheus.io/port"] != "9090" {
-				t.Fatalf("deployment prometheus annotations = %#v, want scrape /admin/metrics on 9090", annotations)
+				t.Fatalf("deployment prometheus annotations = %#v, want scrape /gofly/metrics on 9090", annotations)
 			}
 		case "ServiceMonitor":
 			foundServiceMonitor = true
@@ -796,9 +796,9 @@ func assertGeneratedHelmServiceMonitor(t *testing.T, data []byte) {
 			}
 			if len(doc.Spec.Endpoints) != 1 ||
 				doc.Spec.Endpoints[0].Port != "http" ||
-				doc.Spec.Endpoints[0].Path != "/admin/metrics" ||
+				doc.Spec.Endpoints[0].Path != "/gofly/metrics" ||
 				doc.Spec.Endpoints[0].Interval != "30s" {
-				t.Fatalf("serviceMonitor endpoints = %#v, want http /admin/metrics every 30s", doc.Spec.Endpoints)
+				t.Fatalf("serviceMonitor endpoints = %#v, want http /gofly/metrics every 30s", doc.Spec.Endpoints)
 			}
 		}
 	}
@@ -1536,8 +1536,8 @@ func TestGoldenPathProductionServiceLayoutContract(t *testing.T) {
 	for _, marker := range []string{
 		"TestGeneratedProductionServiceSmoke",
 		"reserveLocalAddrs(t, 4)",
-		"/healthz",
-		"/admin/control-plane",
+		"/gofly/healthz",
+		"/gofly/control-plane",
 		"assertControlPlaneResilience",
 	} {
 		if !strings.Contains(string(smokeData), marker) {
@@ -2175,7 +2175,7 @@ func TestGenerateNewServiceVariantsBoundaries(t *testing.T) {
 		"rpc.NewExperimentalMuxClientAdapter",
 		"rpc.NewExperimentalMuxServerAdapter",
 		"rpc.WithExperimentalMuxServerAdapter",
-		`"/admin/rpc/admin/diagnosis"`,
+		`"/gofly/rpc/admin/diagnosis"`,
 		"rpc.ServerDiagnosisSnapshot",
 		"rpc.RPCDiagnosisProbe",
 		`/rpc/diagnosis?endpoint=http://unused&flowControlEvent=write-timeout&eventFamily=flow-control&event=write-timeout`,

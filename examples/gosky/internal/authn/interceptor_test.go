@@ -105,7 +105,7 @@ func TestClassifyBusinessRouteDomain(t *testing.T) {
 		{name: "public path", path: "/api/public/ping", wantDomain: RouteDomainPublic, wantOK: true},
 		{name: "admin word is not a segment", path: "/api/adminish/projects", wantOK: false},
 		{name: "front route may contain later admin segment", path: "/api/front/admin-preview", wantDomain: RouteDomainFront, wantOK: true},
-		{name: "infrastructure control plane is not business admin", path: "/admin/control-plane", wantOK: false},
+		{name: "infrastructure control plane is not business admin", path: "/gofly/control-plane", wantOK: false},
 	}
 
 	for _, tt := range tests {

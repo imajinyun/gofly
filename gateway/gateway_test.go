@@ -2510,7 +2510,7 @@ func TestGatewayShadowPoolDropsWhenQueueFull(t *testing.T) {
 func TestGatewayActiveHealthProbesHTTPUpstream(t *testing.T) {
 	var healthy atomic.Bool
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/healthz" && !healthy.Load() {
+		if r.URL.Path == "/gofly/healthz" && !healthy.Load() {
 			http.Error(w, "down", http.StatusServiceUnavailable)
 			return
 		}
